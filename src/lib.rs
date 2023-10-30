@@ -191,7 +191,7 @@ impl Solver {
                             trace!("{:?} : {} snr below criteria", c.t, c.sv);
                         }
                         ok
-                    },
+                    }
                     _ => true,
                 };
                 if mode_compliant && snr_ok {
