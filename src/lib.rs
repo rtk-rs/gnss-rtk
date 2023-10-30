@@ -53,11 +53,15 @@ pub mod prelude {
     pub use crate::cfg::Config;
     pub use crate::estimate::Estimate;
     pub use crate::model::Modeling;
-    pub use crate::Error;
-    pub use crate::Mode;
-    pub use crate::Solver;
+    pub use crate::{Mode, Solver, InterpolationResult};
+    pub use crate::candidate::Candidate;
+    // re-export
+    pub use gnss::prelude::{SV, Constellation};
     pub use hifitime::{Duration, Epoch, TimeScale};
 }
+
+// pub export
+pub use vector::Vector3D;
 
 use cfg::Config;
 use estimate::Estimate;
@@ -66,7 +70,6 @@ use model::{
     Models,
     // Modeling,
 };
-use vector::Vector3D;
 
 use apriori::AprioriPosition;
 use candidate::Candidate;
