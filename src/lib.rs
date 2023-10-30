@@ -50,13 +50,13 @@ impl std::fmt::Display for Mode {
 }
 
 pub mod prelude {
+    pub use crate::candidate::Candidate;
     pub use crate::cfg::Config;
     pub use crate::estimate::Estimate;
     pub use crate::model::Modeling;
-    pub use crate::{Mode, Solver, InterpolationResult};
-    pub use crate::candidate::Candidate;
+    pub use crate::{InterpolationResult, Mode, Solver};
     // re-export
-    pub use gnss::prelude::{SV, Constellation};
+    pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};
 }
 
