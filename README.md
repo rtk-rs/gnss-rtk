@@ -86,14 +86,12 @@ It is important to understand how, when and what to customize depending on your 
 When working with the "cli" application, you can provide an RTKConfiguration
 in the form of JSON, with `--rtk-cfg`.
 
-RINEX Post Processing
-=====================
+## RINEX Post Processing
 
-You can use the [rinex-cli application](https://github.com/georust/rinex) to post process your RINEX Data
-and resolve a Precise Position from it. 
+If you're working with RINEX data, the [rinex-cli application](https://github.com/georust/rinex) is there
+to post process RINEX contexts and resolve a Precise Position from it. 
 
-CGGTTS and Advanced Timing Application
-=======================================
+## CGGTTS and Advanced Timing
 
 A [rnx2cggtts application](https://github.com/georust/rinex) is built to operate this solver differently
 in an operation dedicated to high precision time transfer.
