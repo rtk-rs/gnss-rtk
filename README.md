@@ -5,23 +5,14 @@ GNSS-RTK
 [![rustc](https://img.shields.io/badge/rustc-1.64%2B-blue.svg)](https://img.shields.io/badge/rustc-1.64%2B-blue.svg)
 [![crates.io](https://docs.rs/gnss-rtk/badge.svg)](https://docs.rs/gnss-rtk/badge.svg)
 
-RTK precise position and timing solver, in rust.
-
-The Solver can work from a RINEX context blob, defined in this crate toolsuite, but is not exclusively tied to RINEX.
-
-The solver implements precise positioning algorithms, which are based on raw GNSS signals.
-
-Performances
-============
-
-I'm able to resolve every single Epoch in a modern 24h data context, in about 1 second, on my 8 core CPU.
+Precise position solver, in rust.
 
 Solving method
 ==============
 
 Only a straightforward Matrix based resolution method is implemented.  
 Other solutions, like Kalman filter, exist and could potentially improve performances
-at the expense of more complexity and possibly 
+at the expense of more complexity.
 
 The matrix resolution technique gives the best result for every single epoch
 
@@ -74,25 +65,15 @@ the error their interpolation will introduce.
 
 When working with PPP, we recommend the interpolation order to be set to 11 (or above).
 
+Tropospheric Delay
+==================
+
+TODO
+
 Ionospheric Delay
 =================
 
 TODO
-
-SP3 and Broadcast Ephemeris
-===========================
-
-The solver will always prefer SP3 over Broadcast ephemeris.  
-That stands whatever the solving method and strategy might be.
-
-RTK from RINEX
-==============
-
-The solver can be initialized from a RINEX context, defined as `QcContext` in the RINEX library suite.  
-This structure is adaptable and quite efficient. For example it allows the combination of both
-SP3 and Broadcast Ephemeris. 
-
-When initialized from RINEX, we can determine whether PPP is feasible or not
 
 RTK Configuration
 =================
@@ -104,3 +85,15 @@ It is important to understand how, when and what to customize depending on your 
 
 When working with the "cli" application, you can provide an RTKConfiguration
 in the form of JSON, with `--rtk-cfg`.
+
+RINEX Post Processing
+=====================
+
+You can use the [rinex-cli application](https://github.com/georust/rinex) to post process your RINEX Data
+and resolve a Precise Position from it. 
+
+CGGTTS and Advanced Timing Application
+=======================================
+
+A [rnx2cggtts application](https://github.com/georust/rinex) is built to operate this solver differently
+in an operation dedicated to high precision time transfer.
