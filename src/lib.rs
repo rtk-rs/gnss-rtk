@@ -54,6 +54,7 @@ pub mod prelude {
     pub use crate::cfg::Config;
     pub use crate::estimate::Estimate;
     pub use crate::model::Modeling;
+    pub use crate::apriori::AprioriPosition;
     pub use crate::{InterpolationResult, Mode, Solver};
     // re-export
     pub use gnss::prelude::{Constellation, SV};
