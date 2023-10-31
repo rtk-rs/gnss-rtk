@@ -29,7 +29,7 @@ pub struct Candidate<'a> {
     /// SV azimuth (that we will resolve in the process)
     pub(crate) azimuth: Option<f64>,
     /// SV group delay
-    pub(crate) tgd: Option<f64>,
+    pub(crate) tgd: Option<Duration>,
     /// SV clock state (compared to GNSS timescale)
     pub(crate) clock_state: Vector3D,
     /// SV clock correction
@@ -104,7 +104,6 @@ impl<'a> Candidate<'a> {
 
         if cfg.modeling.sv_total_group_delay {
             if let Some(tgd) = self.tgd {
-                let tgd = tgd * Unit::Second;
                 debug!("{:?}: {} tgd      {}", t, self.sv, tgd);
                 e_tx -= tgd;
             }

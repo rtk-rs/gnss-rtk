@@ -4,18 +4,21 @@
 extern crate gnss_rs as gnss;
 extern crate nyx_space as nyx;
 
+// private modules
+mod apriori;
+mod candidate;
 mod cfg;
-mod model;
+mod estimate;
 mod solver;
 mod vector;
 
-mod apriori;
-mod candidate;
-mod estimate;
+// public modules
+pub mod model;
 
+// prelude
 pub mod prelude {
     pub use crate::apriori::AprioriPosition;
-    pub use crate::candidate::Candidate;
+    pub use crate::candidate::{Candidate, PseudoRange};
     pub use crate::cfg::Config;
     pub use crate::estimate::Estimate;
     pub use crate::model::Modeling;
