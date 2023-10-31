@@ -1,8 +1,6 @@
 //! Physical, Atmospherical and Environmental modelizations
 // use log::debug;
-use crate::Config;
-use crate::Mode;
-use hifitime::Epoch;
+use crate::prelude::{Config, Epoch, Mode};
 
 //use map_3d::{deg2rad, ecef2geodetic, Ellipsoid};
 use std::collections::HashMap;
@@ -113,7 +111,7 @@ impl From<Mode> for Modeling {
             //    s.earth_rotation = true;
             //    s.relativistic_clock_corr = true;
             //},
-            _ => {}
+            _ => {},
         }
         s
     }
@@ -150,12 +148,12 @@ impl Modelization for Models {
                             components.zdd
                         );
                         components
-                    }
+                    },
                     None => {
                         let (zdd, zwd) = tropo::unb3_delay_components(t, lat_ddeg, alt_above_sea_m);
                         trace!("unb3 model: zwd: {}, zdd: {}", zdd, zwd);
                         TropoComponents { zwd, zdd }
-                    }
+                    },
                 };
 
                 let tropo = tropo::tropo_delay(elev, components.zwd, components.zdd);

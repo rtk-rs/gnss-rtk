@@ -1,7 +1,6 @@
 use crate::model::Modeling;
-use crate::Mode;
+use crate::prelude::{Mode, TimeScale};
 use gnss::prelude::SNR;
-use hifitime::prelude::TimeScale;
 
 use std::str::FromStr;
 // use std::collections::HashMap;

@@ -1,19 +1,21 @@
-use crate::{Config, Error, Vector3D};
+//! Position solving candidate
+
 use gnss::prelude::{SNR, SV};
-use hifitime::{Duration, Epoch, Unit};
+use hifitime::Unit;
+use log::debug;
 use nyx_space::cosmic::SPEED_OF_LIGHT;
 
-use log::debug;
+use crate::prelude::{Config, Duration, Epoch};
+use crate::{Error, Vector3D};
 
-/// Pseudo Range observations, against
-/// given carrier frequency
+/// Pseudo Range observation on a specific carrier frequency
 #[derive(Debug, Default, Clone)]
 pub struct PseudoRange {
     pub value: f64,
     pub frequency: f64,
 }
 
-/// Position solver candidate
+/// Position solving candidate
 #[derive(Debug, Clone)]
 pub struct Candidate<'a> {
     /// SV
