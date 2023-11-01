@@ -5,7 +5,7 @@ use log::debug;
 
 use std::f64::consts::PI;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Default, Copy, Clone, Debug)]
 pub struct TropoComponents {
     pub zdd: f64,
     pub zwd: f64,

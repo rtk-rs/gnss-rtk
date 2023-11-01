@@ -51,15 +51,22 @@ It is important to understand how our API is designed and operate it the best yo
 Troposphere Delay
 ==================
 
-Troposphere bias always has to be estimated.  
+Troposphere bias always needs to be estimated.  
 By default, the solver will use a model implemented in the [model::tropo API].  
 If you're in position to determine yourself the Tropospherical Delay components (TropoComponents structure)
 at the required latitude and _Epoch_, you are highly encouraged to provide your data.
 To do so, we use a function pointer that can serve as a TropoComponents source.
+TropoComponents evaluation parameters (function pointer arguments) should be :
 
-For _Epochs_ where the data source is not capable to supply data, the internal model will be used.
+- _Epoch_
+- altitude (above sea level) expressed in meters
+- latitude expressed as decimal degrees
 
-Custom TropoComponents provider :  
+For _Epochs_ where the data source is not capable to supply data, that is not a problem, we will rely on the internal model.
+
+Example of handmade TropoComponents provider :  
+
+TODO
 
 Ionosphere Delay
 ================

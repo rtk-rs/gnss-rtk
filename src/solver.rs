@@ -41,13 +41,13 @@ use nalgebra::base::{
 use crate::apriori::AprioriPosition;
 use crate::candidate::Candidate;
 use crate::cfg::Config;
-use crate::estimate::Estimate;
 use crate::model::TropoComponents;
 use crate::model::{
     Modelization,
     Models,
     // Modeling,
 };
+use crate::solutions::PVTSolution;
 use crate::Vector3D;
 
 #[derive(Debug, Clone, Error)]
@@ -74,10 +74,12 @@ pub struct InterpolationResult {
     pub azimuth: Option<f64>,
 }
 
+/// PVT Solver
 #[derive(Debug, Clone)]
-pub struct Solver<I>
+pub struct Solver<I, T>
 where
     I: Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
+    T: Fn(Epoch, f64, f64) -> Option<TropoComponents>,
 {
     /// Solver parametrization
     pub cfg: Config,
@@ -85,13 +87,20 @@ where
     pub mode: Mode,
     /// apriori position
     pub apriori: AprioriPosition,
-    /// Interpolation method: must always resolve InterpolationResults
-    /// correctly at given Epoch with desired interpolation order, for the solver to resolve.
+    /// SV state interpolation method. It is mandatory
+    /// to resolve the SV state at the requested Epoch otherwise the solver
+    /// will not proceed further. User should provide the interpolation method.
+    /// Other parameters are SV: Space Vehicle identity we want to resolve, and "usize" interpolation order.
     pub interpolator: I,
-    /// Custom tropospheric delay components provider.
-    /// If you want to implement the tropospheric delay compensation yourself, or have a better source of such data, use this. Otherwise,
-    /// the solver will implement its own compensator
-    pub tropo_components: fn(Epoch, f64, f64) -> Option<TropoComponents>,
+    /// Tropospheric delay components overriding method.
+    /// If you want to implement the tropospheric delay compensation yourself,
+    /// or have a better source of such estimates, we recommend using it.
+    /// Otherwise, we can always resolve a PVT and rely on internal models.
+    /// The input parameters are:
+    /// * Epoch: instant for which we want TropoComponents
+    /// * lat_ddeg: lattitude [ddeg] for which we want TropoComponents
+    /// * h: altitude above sea level [m] for which we want TropoComponents
+    pub tropo_components: T,
     /// cosmic model
     cosmic: Arc<Cosm>,
     /// Earth frame
@@ -102,13 +111,17 @@ where
     models: Models,
 }
 
-impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
+impl<
+        I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
+        T: Fn(Epoch, f64, f64) -> Option<TropoComponents>,
+    > Solver<I, T>
+{
     pub fn new(
         mode: Mode,
         apriori: AprioriPosition,
         cfg: &Config,
         interpolator: I,
-        tropo_components: fn(Epoch, f64, f64) -> Option<TropoComponents>,
+        tropo_components: T,
     ) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
@@ -170,7 +183,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .collect()
     }
     /// Run position solving algorithm, using predefined strategy.
-    pub fn run(&mut self, t: Epoch, pool: Vec<Candidate>) -> Result<(Epoch, Estimate), Error> {
+    pub fn run(&mut self, t: Epoch, pool: Vec<Candidate>) -> Result<(Epoch, PVTSolution), Error> {
         let (x0, y0, z0) = (
             self.apriori.ecef.x,
             self.apriori.ecef.y,
@@ -280,7 +293,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             lat_ddeg,
             altitude_above_sea_m,
             &self.cfg,
-            self.tropo_components,
+            &self.tropo_components,
         );
 
         /* form matrix */
@@ -298,7 +311,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
             let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
 
-            let models = -SPEED_OF_LIGHT * dt_sat + self.models.sum_up(sv);
+            let models = -SPEED_OF_LIGHT * dt_sat; // + self.models.sum_up(sv);
 
             y[index] = pr - rho - models;
 
@@ -321,7 +334,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         // 7: resolve
         //trace!("y: {} | g: {}", y, g);
-        let estimate = Estimate::new(g, y);
+        let estimate = PVTSolution::new(g, y);
 
         if estimate.is_none() {
             Err(Error::SolvingError(t))

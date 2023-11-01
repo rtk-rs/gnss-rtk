@@ -8,7 +8,7 @@ extern crate nyx_space as nyx;
 mod apriori;
 mod candidate;
 mod cfg;
-mod estimate;
+mod solutions;
 mod solver;
 mod vector;
 
@@ -20,8 +20,8 @@ pub mod prelude {
     pub use crate::apriori::AprioriPosition;
     pub use crate::candidate::{Candidate, PseudoRange};
     pub use crate::cfg::Config;
-    pub use crate::estimate::Estimate;
     pub use crate::model::Modeling;
+    pub use crate::solutions::PVTSolution;
     pub use crate::solver::{InterpolationResult, Mode, Solver};
     // re-export
     pub use gnss::prelude::{Constellation, SV};

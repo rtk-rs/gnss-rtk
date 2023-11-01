@@ -1,55 +1,45 @@
-use nyx_space::cosmic::SPEED_OF_LIGHT;
+//! PVT Solutions
+
 // use nalgebra::linalg::svd::SVD;
 use nalgebra::base::{DVector, MatrixXx4};
+use nyx_space::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/*
- * Solver solution estimate
- * is always expressed as a correction of an 'a priori' position
-*/
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Estimate {
-    /// X coordinates correction
+/// PVT Solution, always expressed as the correction to apply
+/// to an Apriori position.
+pub struct PVTSolution {
+    /// X coordinates correction in [m]
     pub dx: f64,
-    /// Y coordinates correction
+    /// Y coordinates correction in [m]
     pub dy: f64,
-    /// Z coordinates correction
+    /// Z coordinates correction in [m]
     pub dz: f64,
-    /// Time correction
+    /// Time correction in [s]
     pub dt: f64,
-    /// Dilution of Position Precision, horizontal component
+    /// Horizontal Dilution of Precision
     pub hdop: f64,
-    /// Dilution of Position Precision, vertical component
+    /// Vertical Dilution of Precision
     pub vdop: f64,
-    /// Time Dilution of Precision
+    /// Time Dilution of Precision in [s]
     pub tdop: f64,
 }
 
-impl Estimate {
-    /*
-     * Builds a new Estimate from `g` Nav Matrix,
-     * and `y` Nav Vector
-     */
+impl PVTSolution {
+    /// Builds a new PVTSolution from
+    /// g : the navigation matrix
+    /// y: the navigation vector
     pub fn new(g: MatrixXx4<f64>, y: DVector<f64>) -> Option<Self> {
-        //let svd = g.clone().svd(true, true);
-        //let u = svd.u?;
-        //let v = svd.v_t?;
-        //let s = svd.singular_values;
-        //let s_inv = s.pseudo_inverse(1.0E-8).unwrap();
-        //let x = v * u.transpose() * y * s_inv;
-
         let g_prime = g.clone().transpose();
         let q = (g_prime.clone() * g.clone()).try_inverse()?;
         let x = q * g_prime.clone();
         let x = x * y;
-
         let hdop = (q[(0, 0)] + q[(1, 1)]).sqrt();
         let vdop = q[(2, 2)].sqrt();
         let tdop = q[(3, 3)].sqrt();
-
         Some(Self {
             dx: x[0],
             dy: x[1],

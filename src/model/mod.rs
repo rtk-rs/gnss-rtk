@@ -39,25 +39,6 @@ fn default_rel_clock_corr() -> bool {
     false
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-/// Superceed Tropospheric delay modeling
-pub struct SuperceededTropoModel {
-    /// Provide a Zenith Dry Delay [s] value yourself
-    pub zdd: f64,
-    /// Provide a Zenith Wet Delay [s] value yourself
-    pub zwd: f64,
-}
-
-/// When solving, we let the possibility to superceed
-/// atmospherical models, in case the user is capable of providing
-/// a better or more trusty model himself.
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SuperceededModels {
-    pub tropo: Option<SuperceededTropoModel>,
-}
-
 /// Atmospherical, Physical and Environmental modeling
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -76,7 +57,7 @@ pub struct Modeling {
     pub relativistic_clock_corr: bool,
 }
 
-pub(crate) trait Modelization {
+pub(crate) trait Modelization<T> {
     fn sum_up(&self, sv: SV) -> f64;
     fn modelize(
         &mut self,
@@ -85,7 +66,7 @@ pub(crate) trait Modelization {
         lat_ddeg: f64,
         alt_above_sea_m: f64,
         cfg: &Config,
-        tropo_components: fn(Epoch, f64, f64) -> Option<TropoComponents>,
+        tropo_components: &T,
     );
 }
 
@@ -116,10 +97,9 @@ impl From<Mode> for Modeling {
         s
     }
 }
-
 pub type Models = HashMap<SV, f64>;
 
-impl Modelization for Models {
+impl<T: Fn(Epoch, f64, f64) -> Option<TropoComponents>> Modelization<T> for Models {
     /*
      * Eval new models at Epoch "t" given
      * sv: list of SV at given elevation,
@@ -133,7 +113,7 @@ impl Modelization for Models {
         lat_ddeg: f64,
         alt_above_sea_m: f64,
         cfg: &Config,
-        tropo_components: fn(Epoch, f64, f64) -> Option<TropoComponents>,
+        tropo_components: &T,
     ) {
         self.clear();
         for (sv, elev) in sv {
