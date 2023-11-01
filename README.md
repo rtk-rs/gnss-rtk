@@ -5,79 +5,71 @@ GNSS-RTK
 [![rustc](https://img.shields.io/badge/rustc-1.64%2B-blue.svg)](https://img.shields.io/badge/rustc-1.64%2B-blue.svg)
 [![crates.io](https://docs.rs/gnss-rtk/badge.svg)](https://docs.rs/gnss-rtk/badge.svg)
 
-Precise position solver, in rust.
+Precise position solver :crab:
 
 Solving method
 ==============
 
-Only a straightforward Matrix based resolution method is implemented.  
-Other solutions, like Kalman filter, exist and could potentially improve performances
-at the expense of more complexity.
+The solver uses linear algebra implemented in the `nalgebra` library,
+we do not use a Kalman filter.
+This straightforward technique does not require initialization cycles and 
+we can form a Navigation Solution for every input, as long as all criterias were met.
 
-The matrix resolution technique gives the best result for every single epoch
+Some criterias are fixed by physics, others are customized and adjusted in the Solver Configuration.
 
-- there are no initialization iterations
-- there is no iteration or recursive behavior
+The minimum requirements to form a solution :
 
-Behavior and Output 
-===================
+- at least 4 SV candidates passed all customized requirements
+- user was able to provide observations that satisfy the resolution strategy
+- user was able to interpolate the SV state vector at the required _Epoch_
 
-The solver will try to resolve a position for every single existing Epoch.
+PVT Solutions
+=============
 
-When working with RINEX, preprocessing operations may apply. 
-If you're working with the attached "cli" application, this is done with `-P`.  
-For example, if the input context is huge, a smoothing or decimation
+The solver tries to resolve a Position Velocity Time (PVT) solution of the receiver.  
+Currently the Velocity term is not evaluated, therefore we only output Positions and Time errors.
+Dilution of precisions are estimated and attached to each solution.
 
-The solver will output a SolverEstimate object on each resolved Epoch.  
-Refer to this structure's documentation for more information.
+Single Point Position (SPP)
+===========================
 
-Timing DOP and Position DOP are estimated and attached to every single result.
+The solver supports the SPP resolution method.
 
-SPP 
-===
+SPP can be deployed in degraded conditions where only one carrier signal and/or a unique constellation is in sight.
+In such conditions:
 
-The solver supports the spp strategy. This strategy is the only strategy we can deploy
-on single carrier context. It is most likely the unique strategy you can deploy if you're working
-with old RINEX (like GPS only V2), or single frequency RINEX data.
+- you can only hope for a precision of a few meters.    
+- an interpolation order of 9 makes sense, going above will increase the computation load without any benefit.
+- the solver will have to estimate the total bias due to Ionospheric delay. If you can define
+these components accurately yourself, you are encouranged to do it (see related API section and following paragraphs)
 
-When using SPP : 
+## Atmospherical and Environmental conditions modeling
 
-- you can only hope for residual errors of a few meters
-- an interpolation order above 9 makes no sense
-- Ionospheric delay must be considered and modeled. Refer to the related section.
+This solver is always capable of modelizing all conditions and form a solution.   
+It is important to understand how our API is designed and operate it the best you can to get the best results.
 
-If you're operating this library from the "cli" application integrated to this toolsuite,
-a forced `--spp` mode exists. It is a convenient way to restrict this library to SPP solving
-and compare it to PPP.
-
-PPP
-===
-
-The solver will adapt to PPP strategy if the context is sufficient (more than one carrier).   
-PPP simplifies the solving process greatly, ionospheric delay is cancelled and does not have to be taken into account.  
-
-PPP is deployed if you're typically working with modern RINEX data.
-
-We allow the possibility to deploy a PPP strategy without SP3 data. This is not a typical use case.
-Other tools like glab or rtklib probably do not allow this.
-You need to understand that in this case, you want good navigation data quality in order to reduce
-the error their interpolation will introduce.
-
-When working with PPP, we recommend the interpolation order to be set to 11 (or above).
-
-Tropospheric Delay
+Troposphere Delay
 ==================
 
+Troposphere bias always has to be estimated.  
+By default, the solver will use a model implemented in the [model::tropo API].  
+If you're in position to determine yourself the Tropospherical Delay components (TropoComponents structure)
+at the required latitude and _Epoch_, you are highly encouraged to provide your data.
+To do so, we use a function pointer that can serve as a TropoComponents source.
+
+For _Epochs_ where the data source is not capable to supply data, the internal model will be used.
+
+Custom TropoComponents provider :  
+
+Ionosphere Delay
+================
+
 TODO
 
-Ionospheric Delay
-=================
+Solver Configuration
+====================
 
-TODO
-
-RTK Configuration
-=================
-
+Refer to the online documentation (API) for detailed information on all existing fields.
 The RTKConfiguration structure, describes all configuration and customization
 the solver supports. 
 

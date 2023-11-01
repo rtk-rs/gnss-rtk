@@ -67,15 +67,18 @@ pub enum Error {
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct InterpolationResult {
     /// Position in the sky
-    sky_pos: Vector3D,
+    pub sky_pos: Vector3D,
     /// Optional elevation compared to reference position and horizon
-    elevation: Option<f64>,
+    pub elevation: Option<f64>,
     /// Optional azimuth compared to reference position and magnetic North
-    azimuth: Option<f64>,
+    pub azimuth: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Solver {
+pub struct Solver<I>
+where
+    I: Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
+{
     /// Solver parametrization
     pub cfg: Config,
     /// Type of solver implemented
@@ -84,7 +87,7 @@ pub struct Solver {
     pub apriori: AprioriPosition,
     /// Interpolation method: must always resolve InterpolationResults
     /// correctly at given Epoch with desired interpolation order, for the solver to resolve.
-    pub interpolator: fn(Epoch, SV, usize) -> Option<InterpolationResult>,
+    pub interpolator: I,
     /// Custom tropospheric delay components provider.
     /// If you want to implement the tropospheric delay compensation yourself, or have a better source of such data, use this. Otherwise,
     /// the solver will implement its own compensator
@@ -99,12 +102,12 @@ pub struct Solver {
     models: Models,
 }
 
-impl Solver {
+impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
     pub fn new(
         mode: Mode,
         apriori: AprioriPosition,
         cfg: &Config,
-        interpolator: fn(Epoch, SV, usize) -> Option<InterpolationResult>,
+        interpolator: I,
         tropo_components: fn(Epoch, f64, f64) -> Option<TropoComponents>,
     ) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
@@ -145,12 +148,12 @@ impl Solver {
     /// Candidates election process, you can either call yourself this method
     /// externally prior a Self.run(), or use "pre_selected: false" in Solver.run()
     /// or use "pre_selected: true" with your own selection method prior using Solver.run().
-    pub fn elect_candidates<'a>(
+    pub fn elect_candidates(
         t: Epoch,
-        pool: Vec<Candidate<'a>>,
+        pool: Vec<Candidate>,
         mode: Mode,
-        cfg: &'a Config,
-    ) -> Vec<Candidate<'a>> {
+        cfg: &Config,
+    ) -> Vec<Candidate> {
         let mut p = pool.clone();
         p.iter()
             .filter_map(|c| {
@@ -158,17 +161,7 @@ impl Solver {
                     Mode::SPP => true,
                     // Mode::PPP => false, // TODO
                 };
-                let snr_ok = match cfg.min_sv_snr {
-                    Some(snr) => {
-                        let ok = c.snr > snr;
-                        if !ok {
-                            trace!("{:?} : {} snr below criteria", c.t, c.sv);
-                        }
-                        ok
-                    },
-                    _ => true,
-                };
-                if mode_compliant && snr_ok {
+                if mode_compliant {
                     Some(c.clone())
                 } else {
                     None
@@ -223,6 +216,7 @@ impl Solver {
                     c.azimuth = interpolated.azimuth;
                     Some(c)
                 } else {
+                    debug!("{:?} ({}) : interpolation failed", t_tx, c.sv);
                     None
                 }
             })

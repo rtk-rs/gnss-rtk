@@ -17,38 +17,45 @@ pub struct PseudoRange {
 
 /// Position solving candidate
 #[derive(Debug, Clone)]
-pub struct Candidate<'a> {
+pub struct Candidate {
     /// SV
     pub sv: SV,
     /// Signal sampling instant
     pub t: Epoch,
-    /// SV state (that we will resolve in the process)
+    // SV state (that we will resolve in the process)
     pub(crate) state: Option<Vector3D>,
-    /// SV elevation (that we will resolve in the process)
+    // SV elevation (that we will resolve in the process)
     pub(crate) elevation: Option<f64>,
-    /// SV azimuth (that we will resolve in the process)
+    // SV azimuth (that we will resolve in the process)
     pub(crate) azimuth: Option<f64>,
-    /// SV group delay
+    // SV group delay
     pub(crate) tgd: Option<Duration>,
-    /// SV clock state (compared to GNSS timescale)
+    // SV clock state (compared to GNSS timescale)
     pub(crate) clock_state: Vector3D,
-    /// SV clock correction
+    // SV clock correction
     pub(crate) clock_corr: Duration,
-    /// SNR at sampling instant
-    pub(crate) snr: SNR,
+    // SNR at sampling instant.
+    pub(crate) snr: Option<f64>,
     /// Pseudo range observations at "t"
-    pub(crate) pseudo_range: &'a Vec<PseudoRange>,
+    pub(crate) pseudo_range: Vec<PseudoRange>,
 }
 
-impl<'a> Candidate<'a> {
+impl Candidate {
     /// Creates a new candidate, to inject in the solver pool.
+    /// SV : satellite vehicle.
+    /// t: Epoch at which the signals were sampled.
+    /// clock_state: SV clock state.
+    /// clock_corr: SV clock correction to apply.
+    /// snr: SNR at sampling instant, expressed in dB.
+    /// Ideally, you should determine the worst SNR on all considered carriers.
+    /// pseudo_range: PR observations on as many carriers as you want.
     pub fn new(
         sv: SV,
         t: Epoch,
         clock_state: Vector3D,
         clock_corr: Duration,
-        snr: SNR,
-        pseudo_range: &'a Vec<PseudoRange>,
+        snr: Option<f64>,
+        pseudo_range: Vec<PseudoRange>,
     ) -> Result<Self, Error> {
         if pseudo_range.len() == 0 {
             Err(Error::NeedsAtLeastOnePseudoRange)
@@ -59,7 +66,7 @@ impl<'a> Candidate<'a> {
                 clock_state,
                 clock_corr,
                 snr,
-                pseudo_range: &pseudo_range,
+                pseudo_range,
                 tgd: None,
                 state: None,
                 elevation: None,

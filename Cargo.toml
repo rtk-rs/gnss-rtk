@@ -18,5 +18,5 @@ map_3d = "0.1.5"
 nalgebra = "=0.32.1"
 nyx-space = "2.0.0-alpha.2" 
 hifitime = { version = "3.8.4", features = ["serde", "std"] }
-gnss-rs = { git = "https://github.com/rtk-rs/gnss", branch = "main" }
+gnss-rs = { version = "2.1.1", features = ["serde"] }
 serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
