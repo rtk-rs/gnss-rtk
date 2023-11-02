@@ -1,6 +1,6 @@
 //! Position solving candidate
 
-use gnss::prelude::{SNR, SV};
+use gnss::prelude::SV;
 use hifitime::Unit;
 use log::debug;
 use nyx_space::cosmic::SPEED_OF_LIGHT;

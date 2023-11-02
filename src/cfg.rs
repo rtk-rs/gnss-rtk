@@ -1,6 +1,5 @@
 use crate::model::Modeling;
 use crate::prelude::{Mode, TimeScale};
-use gnss::prelude::SNR;
 
 use std::str::FromStr;
 // use std::collections::HashMap;
@@ -77,7 +76,7 @@ pub struct Config {
     pub min_sv_elev: Option<f64>,
     /// Minimal SNR for an SV to be considered.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub min_sv_snr: Option<SNR>,
+    pub min_sv_snr: Option<f64>,
     /// modeling
     #[cfg_attr(feature = "serde", serde(default))]
     pub modeling: Modeling,
@@ -97,7 +96,7 @@ impl Config {
                 code_smoothing: default_smoothing(),
                 min_sv_sunlight_rate: None,
                 min_sv_elev: Some(10.0),
-                min_sv_snr: Some(SNR::from_str("weak").unwrap()),
+                min_sv_snr: None,
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),
                 internal_delay: Default::default(),
