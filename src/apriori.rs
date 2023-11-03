@@ -3,8 +3,8 @@ use map_3d::{ecef2geodetic, geodetic2ecef, Ellipsoid};
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct AprioriPosition {
-    pub(crate) ecef: Vector3D,
-    pub(crate) geodetic: Vector3D,
+    pub ecef: Vector3D,
+    pub geodetic: Vector3D,
 }
 
 impl AprioriPosition {

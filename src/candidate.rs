@@ -105,13 +105,13 @@ impl Candidate {
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
 
         if cfg.modeling.sv_clock_bias {
-            debug!("{:?}: {} dt_sat  {}", t, self.sv, self.clock_corr);
+            debug!("{:?} ({}) clock_corr: {}", t, self.sv, self.clock_corr);
             e_tx -= self.clock_corr;
         }
 
         if cfg.modeling.sv_total_group_delay {
             if let Some(tgd) = self.tgd {
-                debug!("{:?}: {} tgd      {}", t, self.sv, tgd);
+                debug!("{:?} ({}) tgd   : {}", t, self.sv, tgd);
                 e_tx -= tgd;
             }
         }
@@ -119,8 +119,7 @@ impl Candidate {
         /* run physical verification */
         let dt = (t - e_tx).to_seconds();
         assert!(dt > 0.0, "resolved t_tx is physically impossible");
-        assert!(dt < 1.0, "|t -t_tx| < 1sec is physically impossible");
-
+        assert!(dt < 1.0, "resolved t_tx is physically impossible");
         Ok(e_tx)
     }
 }

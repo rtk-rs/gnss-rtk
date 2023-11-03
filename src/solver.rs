@@ -18,7 +18,7 @@ impl std::fmt::Display for Mode {
     }
 }
 
-use log::{debug, error, trace, warn};
+use log::{debug, error, warn};
 use thiserror::Error;
 
 use hifitime::Epoch;
@@ -52,9 +52,9 @@ use crate::Vector3D;
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
-    #[error("not enough vehicles elected @{0}")]
-    LessThan4Sv(Epoch),
-    #[error("failed to invert navigation matrix @{0}")]
+    #[error("{0} : can't generate a solution")]
+    LessThan4SV(Epoch),
+    #[error("{0} : failed to invert navigation matrix")]
     SolvingError(Epoch),
     #[error("undefined apriori position")]
     UndefinedAprioriPosition,
@@ -76,10 +76,9 @@ pub struct InterpolationResult {
 
 /// PVT Solver
 #[derive(Debug, Clone)]
-pub struct Solver<I, T>
+pub struct Solver<I>
 where
     I: Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
-    T: Fn(Epoch, f64, f64) -> Option<TropoComponents>,
 {
     /// Solver parametrization
     pub cfg: Config,
@@ -92,15 +91,6 @@ where
     /// will not proceed further. User should provide the interpolation method.
     /// Other parameters are SV: Space Vehicle identity we want to resolve, and "usize" interpolation order.
     pub interpolator: I,
-    /// Tropospheric delay components overriding method.
-    /// If you want to implement the tropospheric delay compensation yourself,
-    /// or have a better source of such estimates, we recommend using it.
-    /// Otherwise, we can always resolve a PVT and rely on internal models.
-    /// The input parameters are:
-    /// * Epoch: instant for which we want TropoComponents
-    /// * lat_ddeg: lattitude [ddeg] for which we want TropoComponents
-    /// * h: altitude above sea level [m] for which we want TropoComponents
-    pub tropo_components: T,
     /// cosmic model
     cosmic: Arc<Cosm>,
     /// Earth frame
@@ -111,17 +101,12 @@ where
     models: Models,
 }
 
-impl<
-        I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
-        T: Fn(Epoch, f64, f64) -> Option<TropoComponents>,
-    > Solver<I, T>
-{
+impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
     pub fn new(
         mode: Mode,
         apriori: AprioriPosition,
         cfg: &Config,
         interpolator: I,
-        tropo_components: T,
     ) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
@@ -153,7 +138,6 @@ impl<
             earth_frame,
             apriori,
             interpolator,
-            tropo_components,
             cfg: cfg.clone(),
             models: Models::with_capacity(cfg.max_sv),
         })
@@ -183,12 +167,21 @@ impl<
             .collect()
     }
     /// Run position solving algorithm, using predefined strategy.
-    pub fn run(&mut self, t: Epoch, pool: Vec<Candidate>) -> Result<(Epoch, PVTSolution), Error> {
+    /// If you want to implement the tropospheric delay compensation yourself,
+    /// or have a better source of such components, you can pass them here.
+    /// Otherwise, we can always resolve a PVT and rely on internal models.
+    pub fn run(
+        &mut self,
+        t: Epoch,
+        pool: Vec<Candidate>,
+        tropo_components: Option<TropoComponents>,
+    ) -> Result<(Epoch, PVTSolution), Error> {
         let (x0, y0, z0) = (
             self.apriori.ecef.x,
             self.apriori.ecef.y,
             self.apriori.ecef.z,
         );
+
         let (lat_ddeg, lon_ddeg, altitude_above_sea_m) = (
             self.apriori.geodetic.x,
             self.apriori.geodetic.y,
@@ -224,12 +217,21 @@ impl<
 
                 if let Some(interpolated) = (self.interpolator)(t_tx, c.sv, self.cfg.interp_order) {
                     let mut c = c.clone();
-                    c.state = Some(interpolated.sky_pos);
+                    debug!(
+                        "{:?} ({}) : interpolated state: {:?}",
+                        t_tx, c.sv, interpolated.sky_pos
+                    );
+                    c.state = Some(Vector3D {
+                        x: interpolated.sky_pos.x * 1.0E3,
+                        y: interpolated.sky_pos.y * 1.0E3,
+                        z: interpolated.sky_pos.z * 1.0E3,
+                    });
+
                     c.elevation = interpolated.elevation;
                     c.azimuth = interpolated.azimuth;
                     Some(c)
                 } else {
-                    debug!("{:?} ({}) : interpolation failed", t_tx, c.sv);
+                    warn!("{:?} ({}) : interpolation failed", t_tx, c.sv);
                     None
                 }
             })
@@ -237,9 +239,16 @@ impl<
 
         /* apply elevation filter (if any) */
         if let Some(min_elev) = self.cfg.min_sv_elev {
-            for idx in 0..pool.len() {
-                let elevation = pool[idx].elevation.unwrap(); // infaillible
-                if elevation < min_elev {
+            for idx in 0..pool.len() - 1 {
+                if let Some(elev) = pool[idx].elevation {
+                    if elev < min_elev {
+                        debug!(
+                            "{:?} ({}) : below elevation mask",
+                            pool[idx].t, pool[idx].sv
+                        );
+                        let _ = pool.swap_remove(idx);
+                    }
+                } else {
                     let _ = pool.swap_remove(idx);
                 }
             }
@@ -247,7 +256,7 @@ impl<
 
         /* apply eclipse filter (if need be) */
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
-            for idx in 0..pool.len() {
+            for idx in 0..pool.len() - 1 {
                 let state = pool[idx].state.unwrap(); // infaillible
                 let (x, y, z) = (state.x, state.y, state.z);
                 let orbit = Orbit {
@@ -268,7 +277,10 @@ impl<
                     EclipseState::Penumbra(r) => r < min_rate,
                 };
                 if eclipsed {
-                    debug!("{:?} : dropping eclipsed {}", pool[idx].t, pool[idx].sv);
+                    debug!(
+                        "{:?} ({}): earth eclipsed, dropping",
+                        pool[idx].t, pool[idx].sv
+                    );
                     let _ = pool.swap_remove(idx);
                 }
             }
@@ -277,11 +289,7 @@ impl<
         /* make sure we still have enough SV */
         let nb_candidates = pool.len();
         if nb_candidates < 4 {
-            debug!(
-                "{:?}: {} sv is not enough to generate a solution",
-                t, nb_candidates
-            );
-            return Err(Error::LessThan4Sv(t));
+            return Err(Error::LessThan4SV(t));
         } else {
             debug!("{:?}: {} elected sv", t, nb_candidates);
         }
@@ -293,7 +301,7 @@ impl<
             lat_ddeg,
             altitude_above_sea_m,
             &self.cfg,
-            &self.tropo_components,
+            tropo_components,
         );
 
         /* form matrix */
@@ -303,7 +311,7 @@ impl<
         for (index, c) in pool.iter().enumerate() {
             let sv = c.sv;
             let pr = c.pseudo_range();
-            let dt_sat = c.clock_corr.to_seconds();
+            let clock_corr = c.clock_corr.to_seconds();
             let state = c.state.unwrap(); // infaillible
             let (sv_x, sv_y, sv_z) = (state.x, state.y, state.z);
 
@@ -311,12 +319,13 @@ impl<
 
             let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
 
-            let models = -SPEED_OF_LIGHT * dt_sat; // + self.models.sum_up(sv);
+            let mut models = -clock_corr * SPEED_OF_LIGHT;
+            models += self.models.sum_up(sv);
 
             y[index] = pr - rho - models;
 
             /*
-             * accurate time delay compensation (if any)
+             * accurate delays compensation (if any)
              */
             // if let Some(int_delay) = self.cfg.internal_delay.get(code) {
             //     y[index] -= int_delay * SPEED_OF_LIGHT;

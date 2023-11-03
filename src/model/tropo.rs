@@ -82,7 +82,7 @@ fn unb3_parameter(prm: UNB3Param, lat_ddeg: f64, day_of_year: f64, nearest: usiz
 pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f64) -> (f64, f64) {
     // estimate zenith delays
     const R: f64 = 287.054;
-    const K_1: f64 = 77.064;
+    const K_1: f64 = 77.604;
     const K_2: f64 = 382000.0_f64;
     const R_D: f64 = 287.054;
     const G: f64 = 9.80665_f64;

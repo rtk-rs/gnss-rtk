@@ -57,7 +57,7 @@ pub struct Modeling {
     pub relativistic_clock_corr: bool,
 }
 
-pub(crate) trait Modelization<T> {
+pub(crate) trait Modelization {
     fn sum_up(&self, sv: SV) -> f64;
     fn modelize(
         &mut self,
@@ -66,7 +66,7 @@ pub(crate) trait Modelization<T> {
         lat_ddeg: f64,
         alt_above_sea_m: f64,
         cfg: &Config,
-        tropo_components: &T,
+        tropo_components: Option<TropoComponents>,
     );
 }
 
@@ -99,7 +99,7 @@ impl From<Mode> for Modeling {
 }
 pub type Models = HashMap<SV, f64>;
 
-impl<T: Fn(Epoch, f64, f64) -> Option<TropoComponents>> Modelization<T> for Models {
+impl Modelization for Models {
     /*
      * Eval new models at Epoch "t" given
      * sv: list of SV at given elevation,
@@ -113,17 +113,17 @@ impl<T: Fn(Epoch, f64, f64) -> Option<TropoComponents>> Modelization<T> for Mode
         lat_ddeg: f64,
         alt_above_sea_m: f64,
         cfg: &Config,
-        tropo_components: &T,
+        tropo_components: Option<TropoComponents>,
     ) {
         self.clear();
         for (sv, elev) in sv {
             self.insert(sv, 0.0_f64);
 
             if cfg.modeling.tropo_delay {
-                let components = match tropo_components(t, lat_ddeg, alt_above_sea_m) {
+                let components = match tropo_components {
                     Some(components) => {
                         trace!(
-                            "superceeded tropo delay: zwd: {}, zdd: {}",
+                            "tropo delay (overriden): zwd: {}, zdd: {}",
                             components.zwd,
                             components.zdd
                         );

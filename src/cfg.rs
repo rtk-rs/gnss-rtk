@@ -1,7 +1,7 @@
 use crate::model::Modeling;
 use crate::prelude::{Mode, TimeScale};
 
-use std::str::FromStr;
+// use std::str::FromStr;
 // use std::collections::HashMap;
 
 #[cfg(feature = "serde")]
@@ -58,12 +58,14 @@ pub struct Config {
     #[cfg_attr(feature = "serde", serde(default = "default_smoothing"))]
     pub code_smoothing: bool,
     /// Internal delays
+    #[cfg_attr(feature = "serde", serde(default))]
     pub internal_delay: Vec<InternalDelay>,
     /// Time Reference Delay, as defined by BIPM in
     /// "GPS Receivers Accurate Time Comparison" : the time delay
     /// between the GNSS receiver external reference clock and the sampling clock
     /// (once again can be persued as a cable delay). This one is typically
     /// only required in ultra high precision timing applications
+    #[cfg_attr(feature = "serde", serde(default))]
     pub time_ref_delay: Option<f64>,
     /// Minimal percentage ]0; 1[ of Sun light to be received by an SV
     /// for not to be considered in Eclipse.
@@ -95,7 +97,7 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_sv_sunlight_rate: None,
-                min_sv_elev: Some(10.0),
+                min_sv_elev: None,
                 min_sv_snr: None,
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),
@@ -108,7 +110,7 @@ impl Config {
             //    interp_order: 11,
             //    code_smoothing: default_smoothing(),
             //    min_sv_sunlight_rate: Some(0.75),
-            //    min_sv_elev: Some(25.0),
+            //    min_sv_elev: Some(15.0),
             //    min_sv_snr: Some(SNR::from_str("strong").unwrap()),
             //    modeling: Modeling::default(),
             //    max_sv: default_max_sv(),

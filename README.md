@@ -68,6 +68,8 @@ Example of handmade TropoComponents provider :
 
 TODO
 
+:warning: When using the internal model, we recommend applying a >= 5° elevation mask to the candidates.
+
 Ionosphere Delay
 ================
 
