@@ -7,7 +7,9 @@ use std::f64::consts::PI;
 
 #[derive(Default, Copy, Clone, Debug)]
 pub struct TropoComponents {
+    /// Zenith Dry delay component [m]
     pub zdd: f64,
+    /// Zenith Wet delay component [m]
     pub zwd: f64,
 }
 
@@ -81,7 +83,7 @@ fn unb3_parameter(prm: UNB3Param, lat_ddeg: f64, day_of_year: f64, nearest: usiz
  */
 pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f64) -> (f64, f64) {
     // estimate zenith delays
-    const R: f64 = 287.054;
+    // const R: f64 = 287.054;
     const K_1: f64 = 77.604;
     const K_2: f64 = 382000.0_f64;
     const R_D: f64 = 287.054;
@@ -108,6 +110,7 @@ pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f6
 
     let beta = unb3_parameter(UNB3Param::Beta, lat_ddeg, day_of_year, nearest_index);
     let p = unb3_parameter(UNB3Param::Pressure, lat_ddeg, day_of_year, nearest_index);
+    let lambda = unb3_parameter(UNB3Param::Lambda, lat_ddeg, day_of_year, nearest_index);
     let temp = unb3_parameter(UNB3Param::Temperature, lat_ddeg, day_of_year, nearest_index);
     let e = unb3_parameter(
         UNB3Param::WaterVapourPressure,
@@ -115,7 +118,6 @@ pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f6
         day_of_year,
         nearest_index,
     );
-    let lambda = unb3_parameter(UNB3Param::Lambda, lat_ddeg, day_of_year, nearest_index);
 
     let z0_zdd = 10.0E-6 * K_1 * R_D * p / G_M;
     let denom = (lambda + 1.0_f64) * G_M - beta * R_D;
@@ -127,8 +129,8 @@ pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f6
     let zwd = (value).powf((lambda + 1.0_f64) * G / R_D / beta - 1.0_f64) * z0_zwd;
 
     debug!(
-        "{:?}: unb3 - [beta: {:.3}, p: {:.3}, temp: {:.3}, e: {:.3}",
-        t, beta, p, temp, e
+        "{:?}: unb3 - [beta: {:.3}, p: {:.3}, temp: {:.3}, e: {:.3}, lambda: {:.3}",
+        t, beta, p, temp, e, lambda
     );
 
     debug!(

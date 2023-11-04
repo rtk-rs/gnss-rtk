@@ -66,7 +66,7 @@ pub enum Error {
 /// For Solver.resolve() to truly complete.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct InterpolationResult {
-    /// Position in the sky
+    /// Position in the sky (components in [m])
     pub sky_pos: Vector3D,
     /// Optional elevation compared to reference position and horizon
     pub elevation: Option<f64>,
@@ -221,12 +221,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         "{:?} ({}) : interpolated state: {:?}",
                         t_tx, c.sv, interpolated.sky_pos
                     );
-                    c.state = Some(Vector3D {
-                        x: interpolated.sky_pos.x * 1.0E3,
-                        y: interpolated.sky_pos.y * 1.0E3,
-                        z: interpolated.sky_pos.z * 1.0E3,
-                    });
-
+                    c.state = interpolated.sky_pos.into();
                     c.elevation = interpolated.elevation;
                     c.azimuth = interpolated.azimuth;
                     Some(c)
@@ -294,7 +289,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             debug!("{:?}: {} elected sv", t, nb_candidates);
         }
 
-        /* modelization */
+        /* modeling */
         self.models.modelize(
             t,
             pool.iter().map(|c| (c.sv, c.elevation.unwrap())).collect(),
@@ -311,11 +306,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         for (index, c) in pool.iter().enumerate() {
             let sv = c.sv;
             let pr = c.pseudo_range();
+            let (pr, frequency) = (pr.value, pr.frequency);
             let clock_corr = c.clock_corr.to_seconds();
             let state = c.state.unwrap(); // infaillible
             let (sv_x, sv_y, sv_z) = (state.x, state.y, state.z);
-
-            // let code = data.3;
 
             let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
 
@@ -325,15 +319,20 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             y[index] = pr - rho - models;
 
             /*
-             * accurate delays compensation (if any)
+             * external REF delay (if specified)
              */
-            // if let Some(int_delay) = self.cfg.internal_delay.get(code) {
-            //     y[index] -= int_delay * SPEED_OF_LIGHT;
-            // }
-
-            // if let Some(timeref_delay) = self.cfg.time_ref_delay {
-            //     y[index] += timeref_delay * SPEED_OF_LIGHT;
-            // }
+            if let Some(delay) = self.cfg.externalref_delay {
+                y[index] -= delay * SPEED_OF_LIGHT;
+            }
+            /*
+             * RF frequency dependent cable delay (if specified)
+             */
+            for delay in &self.cfg.int_delay {
+                if delay.frequency == frequency {
+                    // compensate this component
+                    y[index] += delay.delay * SPEED_OF_LIGHT;
+                }
+            }
 
             g[(index, 0)] = (x0 - sv_x) / rho;
             g[(index, 1)] = (y0 - sv_y) / rho;

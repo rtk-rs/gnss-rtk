@@ -36,7 +36,7 @@ pub struct InternalDelay {
     /// Delay [s]
     pub delay: f64,
     /// Carrier frequency [Hz]
-    pub carrier_frequency: f64,
+    pub frequency: f64,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -59,14 +59,14 @@ pub struct Config {
     pub code_smoothing: bool,
     /// Internal delays
     #[cfg_attr(feature = "serde", serde(default))]
-    pub internal_delay: Vec<InternalDelay>,
+    pub int_delay: Vec<InternalDelay>,
     /// Time Reference Delay, as defined by BIPM in
     /// "GPS Receivers Accurate Time Comparison" : the time delay
     /// between the GNSS receiver external reference clock and the sampling clock
     /// (once again can be persued as a cable delay). This one is typically
     /// only required in ultra high precision timing applications
     #[cfg_attr(feature = "serde", serde(default))]
-    pub time_ref_delay: Option<f64>,
+    pub externalref_delay: Option<f64>,
     /// Minimal percentage ]0; 1[ of Sun light to be received by an SV
     /// for not to be considered in Eclipse.
     /// A value closer to 0 means we tolerate fast Eclipse exit.
@@ -101,8 +101,8 @@ impl Config {
                 min_sv_snr: None,
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),
-                internal_delay: Default::default(),
-                time_ref_delay: Default::default(),
+                int_delay: Default::default(),
+                externalref_delay: Default::default(),
             },
             //Mode::PPP => Self {
             //    timescale: default_timescale(),
@@ -114,8 +114,8 @@ impl Config {
             //    min_sv_snr: Some(SNR::from_str("strong").unwrap()),
             //    modeling: Modeling::default(),
             //    max_sv: default_max_sv(),
-            //    internal_delay: Default::default(),
-            //    time_ref_delay: Default::default(),
+            //    int_delay: Default::default(),
+            //    externalref_delay: Default::default(),
             //},
         }
     }

@@ -11,7 +11,9 @@ use crate::{Error, Vector3D};
 /// Pseudo Range observation on a specific carrier frequency
 #[derive(Debug, Default, Clone)]
 pub struct PseudoRange {
+    /// Pseudo Range raw value [m]
     pub value: f64,
+    /// Carrier frequency [Hz]
     pub frequency: f64,
 }
 
@@ -88,10 +90,10 @@ impl Candidate {
      * Infaillible, because we don't allow to build Self without at least
      * 1 PR observation
      */
-    pub(crate) fn pseudo_range(&self) -> f64 {
+    pub(crate) fn pseudo_range(&self) -> &PseudoRange {
         self.pseudo_range
             .iter()
-            .map(|pr| pr.value)
+            // .map(|pr| pr.value)
             .reduce(|k, _| k)
             .unwrap()
     }
@@ -101,7 +103,7 @@ impl Candidate {
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<Epoch, Error> {
         let (t, ts) = (self.t, self.t.time_scale);
         let seconds_ts = t.to_duration().to_seconds();
-        let dt_tx = seconds_ts - self.pseudo_range() / SPEED_OF_LIGHT;
+        let dt_tx = seconds_ts - self.pseudo_range().value / SPEED_OF_LIGHT;
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
 
         if cfg.modeling.sv_clock_bias {
