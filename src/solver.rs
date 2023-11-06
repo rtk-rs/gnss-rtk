@@ -1,7 +1,8 @@
+/// Solving mode
+
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
-    /// SPP : code based and approximated models
-    /// aiming a metric resolution.
+    /// SPP : code based positioning, towards a metric resolution
     #[default]
     SPP,
     // /// PPP : phase + code based, the ultimate solver
@@ -47,13 +48,15 @@ use crate::model::{
     Models,
     // Modeling,
 };
-use crate::solutions::PVTSolution;
+use crate::solutions::{PVTSolution, PVTSolutionType};
 use crate::Vector3D;
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
-    #[error("{0} : can't generate a solution")]
-    LessThan4SV(Epoch),
+    #[error("{0} : not enough input candidates to resolve a solution")]
+    NotEnoughCandidates(Epoch),
+    #[error("{0} : not enough candidates fit criteria, to resolve a solution")]
+    NotEnoughFitCandidates(Epoch),
     #[error("{0} : failed to invert navigation matrix")]
     SolvingError(Epoch),
     #[error("undefined apriori position")]
@@ -166,16 +169,28 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             })
             .collect()
     }
-    /// Run position solving algorithm, using predefined strategy.
-    /// If you want to implement the tropospheric delay compensation yourself,
-    /// or have a better source of such components, you can pass them here.
-    /// Otherwise, we can always resolve a PVT and rely on internal models.
-    pub fn run(
+    /// Try to resolve a PVTSolution at desired "t" and from provided Candidates,
+    /// using the predefined strategy (self.cfg.mode) and other configuration.
+    /// Use "tropo_components" if you want to override internal model.
+    /// Use "stec" to provide a Slant Total Electron Density estimate in [TECu],
+    /// which will only be used if Mode::SPP, in other strategies we have better means
+    /// of compensation.
+    // /// "klob_model": share a Klobuchar Model if you can.
+    pub fn resolve(
         &mut self,
         t: Epoch,
+        solution: PVTSolutionType,
         pool: Vec<Candidate>,
         tropo_components: Option<TropoComponents>,
+        stec: Option<f64>,
+        // klob_model: Option<KlobucharModel>,
     ) -> Result<(Epoch, PVTSolution), Error> {
+        let min_required = Self::min_required(solution, &self.cfg);
+
+        if pool.len() < min_required {
+            return Err(Error::NotEnoughCandidates(t));
+        }
+
         let (x0, y0, z0) = (
             self.apriori.ecef.x,
             self.apriori.ecef.y,
@@ -283,8 +298,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* make sure we still have enough SV */
         let nb_candidates = pool.len();
-        if nb_candidates < 4 {
-            return Err(Error::LessThan4SV(t));
+        if nb_candidates < min_required {
+            return Err(Error::NotEnoughFitCandidates(t));
         } else {
             debug!("{:?}: {} elected sv", t, nb_candidates);
         }
@@ -313,8 +328,19 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
             let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
 
-            let mut models = -clock_corr * SPEED_OF_LIGHT;
-            models += self.models.sum_up(sv);
+            let mut models = -clock_corr * SPEED_OF_LIGHT + self.models.sum_up(sv);
+
+            /*
+             * in SPP mode: apply the possibly provided STEC [TECu]
+             */
+            if self.mode == Mode::SPP {
+                if let Some(stec) = stec {
+                    debug!("{:?} : iono {} TECu", c.t, stec);
+                    // TODO: compensate all pseudo range correctly
+                    // let alpha = 40.3 * 10E16 / frequency / frequency;
+                    // models += alpha * stec;
+                }
+            }
 
             y[index] = pr - rho - models;
 
@@ -342,7 +368,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         // 7: resolve
         //trace!("y: {} | g: {}", y, g);
-        let estimate = PVTSolution::new(g, y);
+        let estimate = PVTSolution::new(g, y, solution);
 
         if estimate.is_none() {
             Err(Error::SolvingError(t))
@@ -366,6 +392,21 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             x: orbit.x_km * 1000.0,
             y: orbit.y_km * 1000.0,
             z: orbit.z_km * 1000.0,
+        }
+    }
+    /*
+     * Returns nb of vehicles we need to gather
+     */
+    fn min_required(solution: PVTSolutionType, cfg: &Config) -> usize {
+        match solution {
+            PVTSolutionType::TimeOnly => 1,
+            _ => {
+                let mut n = 4;
+                if cfg.fixed_altitude.is_some() {
+                    n -= 1;
+                }
+                n
+            },
         }
     }
 }

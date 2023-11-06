@@ -59,6 +59,13 @@ pub struct Modeling {
 
 pub(crate) trait Modelization {
     fn sum_up(&self, sv: SV) -> f64;
+    /// Modelize environmental effects and atmospherical biases.
+    /// "t": Epoch
+    /// "sv": buffer
+    /// "lat_ddeg": latitude of the receiver [ddeg]
+    /// "alt_above_sea_m": altitude of the receiver above sea level [m]
+    /// "cfg": passed solver configuration
+    /// "tropo_components": possible source of TropoComponents to override internal model
     fn modelize(
         &mut self,
         t: Epoch,
@@ -100,12 +107,6 @@ impl From<Mode> for Modeling {
 pub type Models = HashMap<SV, f64>;
 
 impl Modelization for Models {
-    /*
-     * Eval new models at Epoch "t" given
-     * sv: list of SV at given elevation,
-     * lat_ddeg: receiver location latitude
-     * cfg: global configuration
-     */
     fn modelize(
         &mut self,
         t: Epoch,

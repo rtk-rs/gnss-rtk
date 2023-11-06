@@ -51,7 +51,7 @@ pub struct Config {
     /// - 11 when working with SP3
     #[cfg_attr(feature = "serde", serde(default = "default_interp"))]
     pub interp_order: usize,
-    /// Whether the solver is working in fixed altitude mode or not
+    /// Fixed altitude : reduces the need of 4 to 3 SV to resolve a solution
     #[cfg_attr(feature = "serde", serde(default))]
     pub fixed_altitude: Option<f64>,
     /// PR code smoothing filter before moving forward

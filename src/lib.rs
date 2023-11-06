@@ -21,7 +21,7 @@ pub mod prelude {
     pub use crate::candidate::{Candidate, PseudoRange};
     pub use crate::cfg::Config;
     pub use crate::model::Modeling;
-    pub use crate::solutions::PVTSolution;
+    pub use crate::solutions::{PVTSolution, PVTSolutionType};
     pub use crate::solver::{InterpolationResult, Mode, Solver};
     // re-export
     pub use gnss::prelude::{Constellation, SV};
