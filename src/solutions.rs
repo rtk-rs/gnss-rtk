@@ -3,14 +3,13 @@ use crate::Vector3D;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum PVTSolutionType {
-    /// Complete standard solution where Position, Speed
-    /// and local Time are resolved.
-    /// Requires 4 vehicles to resolve, unless a FixedAltitude
-    /// is provided in the solver configuration.
+    /// Default, complete solution with Position,
+    /// Velocity and Time components. Requires either
+    /// 4 vehicles in sight, or 3 if you're working in fixed altitude
+    /// (provided ahead of time).
     #[default]
     PositionVelocityTime,
-    /// Restrict solution to Time component only.
-    /// This means we only need 1 vehicle to resolve.
+    /// Resolve Time component only. Requires 1 vehicle to resolve.
     TimeOnly,
 }
 
@@ -42,16 +41,13 @@ pub struct PVTSolution {
 
 impl PVTSolution {
     /// Builds a new PVTSolution from
-    /// g : the navigation matrix
-    /// y: the navigation vector
-    pub fn new(g: MatrixXx4<f64>, y: DVector<f64>, sol: PVTSolutionType) -> Option<Self> {
+    /// "g": the navigation matrix
+    /// "y": the navigation vector
+    pub fn new(g: MatrixXx4<f64>, y: DVector<f64>) -> Option<Self> {
         let g_prime = g.clone().transpose();
         let q = (g_prime.clone() * g.clone()).try_inverse()?;
         let x = q * g_prime.clone();
         let x = x * y;
-        let hdop = (q[(0, 0)] + q[(1, 1)]).sqrt();
-        let vdop = q[(2, 2)].sqrt();
-        let tdop = q[(3, 3)].sqrt();
         Some(Self {
             p: Vector3D {
                 x: x[0],
@@ -60,9 +56,9 @@ impl PVTSolution {
             },
             v: Vector3D::default(),
             dt: x[3] / SPEED_OF_LIGHT,
-            hdop,
-            vdop,
-            tdop,
+            hdop: (q[(0, 0)] + q[(1, 1)]).sqrt(),
+            vdop: q[(2, 2)].sqrt(),
+            tdop: q[(3, 3)].sqrt(),
         })
     }
 }
