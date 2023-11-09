@@ -368,14 +368,25 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         // 7: resolve
         //trace!("y: {} | g: {}", y, g);
-        let mut solution = PVTSolution::new(g, y).ok_or(Error::SolvingError(t))?;
+        let mut pvt_solution = PVTSolution::new(g, y).ok_or(Error::SolvingError(t))?;
 
         if let Some(alt) = self.cfg.fixed_altitude {
-            solution.p.z = self.apriori.ecef.z - alt;
-            solution.v.z = 0.0_f64;
+            pvt_solution.p.z = self.apriori.ecef.z - alt;
+            pvt_solution.v.z = 0.0_f64;
         }
 
-        Ok((t, solution))
+        match solution {
+            PVTSolutionType::TimeOnly => {
+                pvt_solution.p = Vector3D::default();
+                pvt_solution.p.x = 0.0_f64;
+                pvt_solution.p.x = 0.0_f64;
+                pvt_solution.hdop = 0.0_f64;
+                pvt_solution.vdop = 0.0_f64;
+            },
+            _ => {},
+        }
+
+        Ok((t, pvt_solution))
     }
     /*
      * Evaluates Sun/Earth vector, <!> expressed in Km <!>
