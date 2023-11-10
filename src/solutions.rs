@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PVTIonoDelay {
-    /// Measured ionospheric delay [s] (best case scenario)
+    /// Measured ionospheric delay [s]
     pub measured: Option<f64>,
     /// Modeled ionospheric delay [s]
     pub modeled: Option<f64>,

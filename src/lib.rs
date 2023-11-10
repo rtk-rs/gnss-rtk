@@ -10,19 +10,17 @@ mod candidate;
 mod cfg;
 mod solutions;
 mod solver;
+mod tropo;
 mod vector;
-
-// public modules
-pub mod model;
 
 // prelude
 pub mod prelude {
     pub use crate::apriori::AprioriPosition;
     pub use crate::candidate::{Candidate, PseudoRange};
     pub use crate::cfg::Config;
-    pub use crate::model::Modeling;
     pub use crate::solutions::{PVTSolution, PVTSolutionType};
     pub use crate::solver::{InterpolationResult, Mode, Solver};
+    pub use crate::tropo::TropoComponents;
     // re-export
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};

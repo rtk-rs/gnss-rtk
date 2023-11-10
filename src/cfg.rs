@@ -1,11 +1,10 @@
-use crate::model::Modeling;
-use crate::prelude::{Mode, TimeScale};
-
 // use std::str::FromStr;
 // use std::collections::HashMap;
 
 #[cfg(feature = "serde")]
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+use crate::prelude::{Mode, TimeScale};
 
 fn default_timescale() -> TimeScale {
     TimeScale::GPST
@@ -23,6 +22,29 @@ fn default_smoothing() -> bool {
     false
 }
 
+fn default_sv_clock() -> bool {
+    true
+}
+
+fn default_sv_tgd() -> bool {
+    true
+}
+
+fn default_iono() -> bool {
+    true
+}
+
+fn default_tropo() -> bool {
+    true
+}
+
+fn default_earth_rot() -> bool {
+    false
+}
+
+fn default_rel_clock_corr() -> bool {
+    false
+}
 #[derive(Default, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 /// System Internal Delay as defined by BIPM in
@@ -37,6 +59,52 @@ pub struct InternalDelay {
     pub delay: f64,
     /// Carrier frequency [Hz]
     pub frequency: f64,
+}
+
+/// Atmospherical, Physical and Environmental modeling
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Modeling {
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sv_clock_bias: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub tropo_delay: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub iono_delay: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sv_total_group_delay: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub earth_rotation: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub relativistic_clock_corr: bool,
+}
+
+impl Default for Modeling {
+    fn default() -> Self {
+        Self {
+            sv_clock_bias: default_sv_clock(),
+            iono_delay: default_iono(),
+            tropo_delay: default_tropo(),
+            sv_total_group_delay: default_sv_tgd(),
+            earth_rotation: default_earth_rot(),
+            relativistic_clock_corr: default_rel_clock_corr(),
+        }
+    }
+}
+
+impl From<Mode> for Modeling {
+    fn from(mode: Mode) -> Self {
+        let mut s = Self::default();
+        match mode {
+            //TODO
+            //Mode::PPP => {
+            //    s.earth_rotation = true;
+            //    s.relativistic_clock_corr = true;
+            //},
+            _ => {},
+        }
+        s
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]

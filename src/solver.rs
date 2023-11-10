@@ -39,17 +39,14 @@ use nalgebra::base::{
     //Vector4,
 };
 
-use crate::apriori::AprioriPosition;
-use crate::candidate::Candidate;
-use crate::cfg::Config;
-use crate::model::TropoComponents;
-use crate::model::{
-    Modelization,
-    Models,
-    // Modeling,
+use crate::{
+    apriori::AprioriPosition,
+    candidate::Candidate,
+    cfg::Config,
+    solutions::{PVTIonoDelay, PVTSolution, PVTSolutionType},
+    tropo::{tropo_delay, unb3_delay_components, TropoComponents},
+    Vector3D,
 };
-use crate::solutions::{PVTIonoDelay, PVTSolution, PVTSolutionType};
-use crate::Vector3D;
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
@@ -67,16 +64,16 @@ pub enum Error {
     MissingIonosphericDelayValue,
 }
 
-/// Interpolation result that your data interpolator should return
-/// For Solver.resolve() to truly complete.
-#[derive(Default, Debug, Clone, PartialEq)]
+/// Interpolation result (state vector) that needs to be
+/// resolved for every single candidate.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct InterpolationResult {
-    /// Position in the sky (components in [m])
+    /// Position vector in [m] ECEF
     pub sky_pos: Vector3D,
-    /// Optional elevation compared to reference position and horizon
-    pub elevation: Option<f64>,
-    /// Optional azimuth compared to reference position and magnetic North
-    pub azimuth: Option<f64>,
+    /// Elevation compared to reference position and horizon
+    pub elevation: f64,
+    /// Azimuth compared to reference position and magnetic North
+    pub azimuth: f64,
 }
 
 /// PVT Solver
@@ -102,8 +99,6 @@ where
     earth_frame: Frame,
     /// Sun frame
     sun_frame: Frame,
-    /// modelization memory storage
-    models: Models,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
@@ -144,7 +139,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             apriori,
             interpolator,
             cfg: cfg.clone(),
-            models: Models::with_capacity(cfg.max_sv),
         })
     }
     /// Candidates election process, you can either call yourself this method
@@ -238,9 +232,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         "{:?} ({}) : interpolated state: {:?}",
                         t_tx, c.sv, interpolated.sky_pos
                     );
-                    c.state = interpolated.sky_pos.into();
-                    c.elevation = interpolated.elevation;
-                    c.azimuth = interpolated.azimuth;
+                    c.state = Some(interpolated);
                     Some(c)
                 } else {
                     warn!("{:?} ({}) : interpolation failed", t_tx, c.sv);
@@ -252,16 +244,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /* apply elevation filter (if any) */
         if let Some(min_elev) = self.cfg.min_sv_elev {
             for idx in 0..pool.len() - 1 {
-                if let Some(elev) = pool[idx].elevation {
-                    if elev < min_elev {
+                if let Some(state) = pool[idx].state {
+                    if state.elevation < min_elev {
                         debug!(
                             "{:?} ({}) : below elevation mask",
                             pool[idx].t, pool[idx].sv
                         );
                         let _ = pool.swap_remove(idx);
                     }
-                } else {
-                    let _ = pool.swap_remove(idx);
                 }
             }
         }
@@ -270,7 +260,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             for idx in 0..pool.len() - 1 {
                 let state = pool[idx].state.unwrap(); // infaillible
-                let (x, y, z) = (state.x, state.y, state.z);
+                let (x, y, z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
                 let orbit = Orbit {
                     x_km: x / 1000.0,
                     y_km: y / 1000.0,
@@ -306,33 +296,50 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             debug!("{:?}: {} elected sv", t, nb_candidates);
         }
 
-        /* modeling */
-        self.models.modelize(
-            t,
-            pool.iter().map(|c| (c.sv, c.elevation.unwrap())).collect(),
-            lat_ddeg,
-            altitude_above_sea_m,
-            &self.cfg,
-            tropo_components,
-        );
-
         /* form matrix */
         let mut y = DVector::<f64>::zeros(nb_candidates);
         let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
         let mut tropo = 0.0_f64;
         let mut iono = PVTIonoDelay::default();
 
+        /* tropo components */
+        let tropo_components = match tropo_components {
+            Some(components) => {
+                debug!(
+                    "tropo delay (overridden): zwd: {}, zdd: {}",
+                    components.zwd, components.zdd
+                );
+                components
+            },
+            None => {
+                if self.cfg.modeling.tropo_delay {
+                    let (zdd, zwd) = unb3_delay_components(t, lat_ddeg, altitude_above_sea_m);
+                    debug!("unb3 model: zwd: {}, zdd: {}", zwd, zdd);
+                    TropoComponents { zwd, zdd }
+                } else {
+                    TropoComponents::default()
+                }
+            },
+        };
+
         for (index, c) in pool.iter().enumerate() {
             let sv = c.sv;
             let pr = c.pseudo_range();
+            let state = c.state.unwrap(); // infaillible
+            let elevation = state.elevation;
             let (pr, frequency) = (pr.value, pr.frequency);
             let clock_corr = c.clock_corr.to_seconds();
-            let state = c.state.unwrap(); // infaillible
-            let (sv_x, sv_y, sv_z) = (state.x, state.y, state.z);
+            let (sv_x, sv_y, sv_z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
 
             let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
 
-            let mut models = -clock_corr * SPEED_OF_LIGHT + self.models.sum_up(sv);
+            let mut models = -clock_corr * SPEED_OF_LIGHT;
+
+            let delay = tropo_delay(elevation, tropo_components.zwd, tropo_components.zdd);
+            if delay > tropo {
+                tropo = delay; // stored in PVT solution
+            }
+            models += delay;
 
             /*
              * in SPP mode: apply the possibly provided STEC [TECu]

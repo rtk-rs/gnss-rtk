@@ -5,7 +5,7 @@ use hifitime::Unit;
 use log::debug;
 use nyx_space::cosmic::SPEED_OF_LIGHT;
 
-use crate::prelude::{Config, Duration, Epoch};
+use crate::prelude::{Config, Duration, Epoch, InterpolationResult};
 use crate::{Error, Vector3D};
 
 /// Pseudo Range observation on a specific carrier frequency
@@ -22,14 +22,10 @@ pub struct PseudoRange {
 pub struct Candidate {
     /// SV
     pub sv: SV,
-    /// SV elevation
-    pub elevation: Option<f64>,
-    /// SV azimuth
-    pub azimuth: Option<f64>,
     /// Signal sampling Epoch
     pub t: Epoch,
-    // SV state (that we will resolve in the process)
-    pub(crate) state: Option<Vector3D>,
+    /// state that needs to be resolved
+    pub state: Option<InterpolationResult>,
     // SV group delay
     pub(crate) tgd: Option<Duration>,
     // SV clock state (compared to GNSS timescale)
@@ -71,8 +67,6 @@ impl Candidate {
                 pseudo_range,
                 tgd: None,
                 state: None,
-                elevation: None,
-                azimuth: None,
             })
         }
     }

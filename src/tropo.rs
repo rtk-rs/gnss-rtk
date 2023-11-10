@@ -141,9 +141,9 @@ pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f6
         "{:?}: unb3 - zdd(h={:.3}) {} zwd(h={:.3}) {:.3}",
         t, alt_above_sea_m, zdd, alt_above_sea_m, zwd
     );
-    (zdd, zwd)
+    (zwd, zdd)
 }
 
 pub(crate) fn tropo_delay(elev: f64, zwd: f64, zdd: f64) -> f64 {
-    1.001_f64 / (0.002001_f64 + map_3d::deg2rad(elev).sin().powi(2)).sqrt() * (zdd + zwd)
+    (zdd + zwd) * 1.001_f64 / (0.002001_f64 + map_3d::deg2rad(elev).sin().powi(2)).sqrt()
 }
