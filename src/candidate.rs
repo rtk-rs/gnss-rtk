@@ -22,14 +22,14 @@ pub struct PseudoRange {
 pub struct Candidate {
     /// SV
     pub sv: SV,
-    /// Signal sampling instant
+    /// SV elevation
+    pub elevation: Option<f64>,
+    /// SV azimuth
+    pub azimuth: Option<f64>,
+    /// Signal sampling Epoch
     pub t: Epoch,
     // SV state (that we will resolve in the process)
     pub(crate) state: Option<Vector3D>,
-    // SV elevation (that we will resolve in the process)
-    pub(crate) elevation: Option<f64>,
-    // SV azimuth (that we will resolve in the process)
-    pub(crate) azimuth: Option<f64>,
     // SV group delay
     pub(crate) tgd: Option<Duration>,
     // SV clock state (compared to GNSS timescale)
@@ -77,16 +77,7 @@ impl Candidate {
         }
     }
     /*
-     * Returns true if self is fully interpolated,
-     * and therefore ready to resolve
-    pub(crate) fn interpolated(&self) -> bool {
-        self.state.is_some()
-        && self.elevation.is_some()
-        && self.azimuth.is_some()
-    }
-    */
-    /*
-     * Returns one pseudo range observation [m], disregarding its frequency
+     * Returns one pseudo range observation [m], disregarding its frequency.
      * Infaillible, because we don't allow to build Self without at least
      * 1 PR observation
      */

@@ -48,21 +48,23 @@ use crate::model::{
     Models,
     // Modeling,
 };
-use crate::solutions::{PVTSolution, PVTSolutionType};
+use crate::solutions::{PVTIonoDelay, PVTSolution, PVTSolutionType};
 use crate::Vector3D;
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
-    #[error("{0} : not enough input candidates to resolve a solution")]
-    NotEnoughCandidates(Epoch),
-    #[error("{0} : not enough candidates fit criteria, to resolve a solution")]
-    NotEnoughFitCandidates(Epoch),
-    #[error("{0} : failed to invert navigation matrix")]
-    SolvingError(Epoch),
+    #[error("need more candidates to resolve a {0} a solution")]
+    NotEnoughInputCandidates(PVTSolutionType),
+    #[error("not enough candidates fit criteria")]
+    NotEnoughFittingCandidates,
+    #[error("failed to invert navigation matrix")]
+    MatrixInversionError,
     #[error("undefined apriori position")]
     UndefinedAprioriPosition,
     #[error("at least one pseudo range observation is mandatory")]
     NeedsAtLeastOnePseudoRange,
+    #[error("failed to model or measure ionospheric delay")]
+    MissingIonosphericDelayValue,
 }
 
 /// Interpolation result that your data interpolator should return
@@ -188,7 +190,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let min_required = Self::min_required(solution, &self.cfg);
 
         if pool.len() < min_required {
-            return Err(Error::NotEnoughCandidates(t));
+            return Err(Error::NotEnoughInputCandidates(solution));
         }
 
         let (x0, y0, z0) = (
@@ -299,7 +301,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /* make sure we still have enough SV */
         let nb_candidates = pool.len();
         if nb_candidates < min_required {
-            return Err(Error::NotEnoughFitCandidates(t));
+            return Err(Error::NotEnoughFittingCandidates);
         } else {
             debug!("{:?}: {} elected sv", t, nb_candidates);
         }
@@ -317,6 +319,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /* form matrix */
         let mut y = DVector::<f64>::zeros(nb_candidates);
         let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
+        let mut tropo = 0.0_f64;
+        let mut iono = PVTIonoDelay::default();
 
         for (index, c) in pool.iter().enumerate() {
             let sv = c.sv;
@@ -368,7 +372,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         // 7: resolve
         //trace!("y: {} | g: {}", y, g);
-        let mut pvt_solution = PVTSolution::new(g, y).ok_or(Error::SolvingError(t))?;
+
+        let mut pvt_solution = PVTSolution::new(g, y, tropo, iono)?;
 
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
