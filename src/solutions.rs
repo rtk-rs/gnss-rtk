@@ -1,5 +1,7 @@
 //! PVT Solutions
+use crate::prelude::SV;
 use crate::{Error, Vector3D};
+use std::collections::HashMap;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum PVTSolutionType {
@@ -31,31 +33,64 @@ use nyx_space::cosmic::SPEED_OF_LIGHT;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// Modeled (estimated) or measured Ionospheric Delay.
+/// Modeled (estimated) or measured Time Delay.
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct PVTIonoDelay {
-    /// Measured ionospheric delay [s]
+pub struct PVTSVTimeDelay {
+    /// Measured delay [s]
     pub measured: Option<f64>,
-    /// Modeled ionospheric delay [s]
+    /// Modeled delay [s]
     pub modeled: Option<f64>,
 }
 
-impl PVTIonoDelay {
-    /// Ionospheric delay (in [s)), whether it was modeled
-    /// or measured physically (prefered).
+impl PVTSVTimeDelay {
+    /// Time Delay in [s], whether it was modeled
+    /// or physically measured (prefered).
     pub fn value(&self) -> Option<f64> {
-        self.measured?;
-        self.modeled
+        if self.measured.is_none() {
+            self.modeled
+        } else {
+            self.measured
+        }
+    }
+    /// Builds a measured Time Delay from a measurement in [s]
+    pub fn measured(measurement: f64) -> Self {
+        Self {
+            measured: Some(measurement),
+            modeled: None,
+        }
+    }
+    /// Builds a modeled Time Delay from a model in [s]
+    pub fn modeled(model: f64) -> Self {
+        Self {
+            modeled: Some(model),
+            measured: None,
+        }
     }
 }
 
+/// Data attached to each individual SV that helped form the PVT solution.
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PVTSVData {
+    /// Azimuth angle at resolution time
+    pub azimuth: f64,
+    /// Elevation angle at resolution time
+    pub elevation: f64,
+    /// Either measured or modeled Tropospheric Delay
+    /// that impacted L1 signal
+    pub tropo: PVTSVTimeDelay,
+    /// Either measured or modeled Ionospheric Delay
+    /// that impacted L1 signal
+    pub iono: PVTSVTimeDelay,
+}
+
 /// PVT Solution, always expressed as the correction to apply
-/// to an Apriori position.
+/// to an Apriori / static position.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PVTSolution {
-    /// X, Y, Z corrections (in [m])
+    /// X, Y, Z corrections (in [m] ECEF)
     pub p: Vector3D,
     /// Absolute Velocity (in [m/s] ECEF).
     pub v: Vector3D,
@@ -67,24 +102,20 @@ pub struct PVTSolution {
     pub vdop: f64,
     /// Time Dilution of Precision in [s]
     pub tdop: f64,
-    /// Modeled tropospheric delay [s]
-    pub tropo: f64,
-    /// Ionospheric delay [s] model or real measurement
-    /// (either one)
-    pub iono: PVTIonoDelay,
+    /// Space Vehicles that helped form this solution
+    /// and data associated to each individual SV
+    pub sv: HashMap<SV, PVTSVData>,
 }
 
 impl PVTSolution {
     /// Builds a new PVTSolution from
     /// "g": the navigation matrix
     /// "y": the navigation vector
-    /// "tropo": modeled tropospheric delay
-    /// "iono": modeled and/or measured ionospheric delay. Either one must exist.
+    /// "sv": attached SV data
     pub fn new(
         g: MatrixXx4<f64>,
         y: DVector<f64>,
-        tropo: f64,
-        iono: PVTIonoDelay,
+        sv: HashMap<SV, PVTSVData>,
     ) -> Result<Self, Error> {
         let g_prime = g.clone().transpose();
 
@@ -95,6 +126,7 @@ impl PVTSolution {
         let x = q * g_prime.clone();
         let x = x * y;
         Ok(Self {
+            sv,
             p: Vector3D {
                 x: x[0],
                 y: x[1],
@@ -105,8 +137,10 @@ impl PVTSolution {
             hdop: (q[(0, 0)] + q[(1, 1)]).sqrt(),
             vdop: q[(2, 2)].sqrt(),
             tdop: q[(3, 3)].sqrt(),
-            tropo,
-            iono,
         })
+    }
+    /// Returns list of Space Vehicles (SV) that help form this solution.
+    pub fn sv(&self) -> Vec<SV> {
+        self.sv.keys().copied().collect()
     }
 }

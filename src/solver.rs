@@ -1,5 +1,7 @@
-/// Solving mode
+//! PVT solver
+use std::collections::HashMap;
 
+/// Solving mode
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
     /// SPP : code based positioning, towards a metric resolution
@@ -43,7 +45,7 @@ use crate::{
     apriori::AprioriPosition,
     candidate::Candidate,
     cfg::Config,
-    solutions::{PVTIonoDelay, PVTSolution, PVTSolutionType},
+    solutions::{PVTSVData, PVTSVTimeDelay, PVTSolution, PVTSolutionType},
     tropo::{tropo_delay, unb3_delay_components, TropoComponents},
     Vector3D,
 };
@@ -167,7 +169,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     }
     /// Try to resolve a PVTSolution at desired "t" and from provided Candidates,
     /// using the predefined strategy (self.cfg.mode) and other configuration.
-    /// Use "tropo_components" if you want to override internal model.
+    /// Use "meas_tropo_components" : measured tropo compoents, if you're in position
+    /// to propose such fields, this will override internal model.
     /// Use "stec" to provide a Slant Total Electron Density estimate in [TECu],
     /// which will only be used if Mode::SPP, in other strategies we have better means
     /// of compensation.
@@ -177,7 +180,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         t: Epoch,
         solution: PVTSolutionType,
         pool: Vec<Candidate>,
-        tropo_components: Option<TropoComponents>,
+        meas_tropo_components: Option<TropoComponents>,
         stec: Option<f64>,
         // klob_model: Option<KlobucharModel>,
     ) -> Result<(Epoch, PVTSolution), Error> {
@@ -299,11 +302,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /* form matrix */
         let mut y = DVector::<f64>::zeros(nb_candidates);
         let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
-        let mut tropo = 0.0_f64;
-        let mut iono = PVTIonoDelay::default();
+        let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
 
-        /* tropo components */
-        let tropo_components = match tropo_components {
+        /* eval. tropo components */
+        let tropo_components = match meas_tropo_components {
             Some(components) => {
                 debug!(
                     "tropo delay (overridden): zwd: {}, zdd: {}",
@@ -331,15 +333,23 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             let clock_corr = c.clock_corr.to_seconds();
             let (sv_x, sv_y, sv_z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
 
+            let mut sv_data = PVTSVData::default();
+
             let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
 
             let mut models = -clock_corr * SPEED_OF_LIGHT;
 
+            /*
+             * This is 0 if cfg.tropo is disabled
+             */
             let delay = tropo_delay(elevation, tropo_components.zwd, tropo_components.zdd);
-            if delay > tropo {
-                tropo = delay; // stored in PVT solution
-            }
             models += delay;
+
+            if meas_tropo_components.is_some() {
+                sv_data.tropo = PVTSVTimeDelay::measured(delay);
+            } else {
+                sv_data.tropo = PVTSVTimeDelay::modeled(delay);
+            }
 
             /*
              * in SPP mode: apply the possibly provided STEC [TECu]
@@ -375,13 +385,19 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             g[(index, 1)] = (y0 - sv_y) / rho;
             g[(index, 2)] = (z0 - sv_z) / rho;
             g[(index, 3)] = 1.0_f64;
+
+            pvt_sv_data.insert(sv, sv_data);
         }
 
         // 7: resolve
         //trace!("y: {} | g: {}", y, g);
 
-        let mut pvt_solution = PVTSolution::new(g, y, tropo, iono)?;
+        let mut pvt_solution = PVTSolution::new(g, y, pvt_sv_data)?;
 
+        /*
+         * slightly rework the solution so it ""physically"" (/ looks like)
+         * what we expect based on the predefined setup.
+         */
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
             pvt_solution.v.z = 0.0_f64;
