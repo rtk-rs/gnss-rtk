@@ -58,6 +58,8 @@ pub enum Error {
     NotEnoughFittingCandidates,
     #[error("failed to invert navigation matrix")]
     MatrixInversionError,
+    #[error("NaN: input or output error")]
+    HasNan,
     #[error("undefined apriori position")]
     UndefinedAprioriPosition,
     #[error("at least one pseudo range observation is mandatory")]
@@ -328,12 +330,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             let sv = c.sv;
             let pr = c.pseudo_range();
             let state = c.state.unwrap(); // infaillible
-            let elevation = state.elevation;
+            let (azi, elev) = (state.azimuth, state.elevation);
             let (pr, frequency) = (pr.value, pr.frequency);
             let clock_corr = c.clock_corr.to_seconds();
             let (sv_x, sv_y, sv_z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
 
             let mut sv_data = PVTSVData::default();
+            sv_data.azimuth = azi;
+            sv_data.elevation = elev;
 
             let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
 
@@ -342,7 +346,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             /*
              * This is 0 if cfg.tropo is disabled
              */
-            let delay = tropo_delay(elevation, tropo_components.zwd, tropo_components.zdd);
+            let delay = tropo_delay(elev, tropo_components.zwd, tropo_components.zdd);
             models += delay;
 
             if meas_tropo_components.is_some() {

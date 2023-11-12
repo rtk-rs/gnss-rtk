@@ -17,7 +17,7 @@ pub enum PVTSolutionType {
 
 impl std::fmt::Display for PVTSolutionType {
     /*
-     * Prints self as XYY standard format
+     * Prints self
      */
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -124,16 +124,20 @@ impl PVTSolution {
             .ok_or(Error::MatrixInversionError)?;
 
         let x = q * g_prime.clone();
-        let x = x * y;
+        let xy = x * y;
+
+        let (x, y, z) = (xy[0], xy[1], xy[2]);
+        let dt = xy[3] / SPEED_OF_LIGHT;
+
+        if dt.is_nan() {
+            return Err(Error::HasNan);
+        }
+
         Ok(Self {
             sv,
-            p: Vector3D {
-                x: x[0],
-                y: x[1],
-                z: x[2],
-            },
-            v: Vector3D::default(),
-            dt: x[3] / SPEED_OF_LIGHT,
+            dt,
+            p: Vector3D { x, y, z },
+            v: Vector3D::default(), //TODO
             hdop: (q[(0, 0)] + q[(1, 1)]).sqrt(),
             vdop: q[(2, 2)].sqrt(),
             tdop: q[(3, 3)].sqrt(),
