@@ -31,11 +31,11 @@ fn default_sv_tgd() -> bool {
 }
 
 fn default_iono() -> bool {
-    true
+    false //TODO
 }
 
 fn default_tropo() -> bool {
-    true
+    false //TODO
 }
 
 fn default_earth_rot() -> bool {
