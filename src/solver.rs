@@ -182,7 +182,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         t: Epoch,
         solution: PVTSolutionType,
         pool: Vec<Candidate>,
-        meas_tropo_components: Option<TropoComponents>,
+        measured_tropod: Option<TropoComponents>,
         stec: Option<f64>,
         // klob_model: Option<KlobucharModel>,
     ) -> Result<(Epoch, PVTSolution), Error> {
@@ -307,7 +307,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
 
         /* eval. tropo components */
-        let tropo_components = match meas_tropo_components {
+        let tropo_components = match measured_tropod {
             Some(components) => {
                 debug!(
                     "tropo delay (overridden): zwd: {}, zdd: {}",
@@ -344,12 +344,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             let mut models = -clock_corr * SPEED_OF_LIGHT;
 
             /*
-             * This is 0 if cfg.tropo is disabled
+             * This equals 0 if cfg.tropod is disabled
              */
             let delay = tropo_delay(elev, tropo_components.zwd, tropo_components.zdd);
             models += delay;
 
-            if meas_tropo_components.is_some() {
+            if measured_tropod.is_some() {
                 sv_data.tropo = PVTSVTimeDelay::measured(delay);
             } else {
                 sv_data.tropo = PVTSVTimeDelay::modeled(delay);
