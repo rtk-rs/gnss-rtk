@@ -8,6 +8,7 @@ extern crate nyx_space as nyx;
 mod apriori;
 mod candidate;
 mod cfg;
+mod iono;
 mod solutions;
 mod solver;
 mod tropo;
@@ -16,8 +17,9 @@ mod vector;
 // prelude
 pub mod prelude {
     pub use crate::apriori::AprioriPosition;
-    pub use crate::candidate::{Candidate, IonosphericDelay, PseudoRange};
+    pub use crate::candidate::{Candidate, Observation};
     pub use crate::cfg::Config;
+    pub use crate::iono::KbModel;
     pub use crate::solutions::{PVTSolution, PVTSolutionType};
     pub use crate::solver::{InterpolationResult, Mode, Solver};
     pub use crate::tropo::TropoComponents;

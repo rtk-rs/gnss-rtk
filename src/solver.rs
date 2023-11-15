@@ -46,6 +46,7 @@ use crate::{
     apriori::AprioriPosition,
     candidate::Candidate,
     cfg::Config,
+    iono::KbModel,
     solutions::{PVTSVData, PVTSVTimeDelay, PVTSolution, PVTSolutionType},
     tropo::{tropo_delay, unb3_delay_components, TropoComponents},
     Vector3D,
@@ -125,7 +126,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
          * print some infos on latched config
          */
         if cfg.modeling.iono_delay {
-            warn!("can't compensate for ionospheric delay at the moment");
+            warn!("can't evluate ionospheric delay ourselves at the moment");
         }
 
         if cfg.modeling.earth_rotation {
@@ -150,10 +151,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             cfg: cfg.clone(),
         })
     }
-    /// Candidates election process, you can either call yourself this method
-    /// externally prior a Self.run(), or use "pre_selected: false" in Solver.run()
-    /// or use "pre_selected: true" with your own selection method prior using Solver.run().
-    pub fn elect_candidates(
+    fn elect_candidates(
         t: Epoch,
         pool: Vec<Candidate>,
         mode: Mode,
@@ -162,6 +160,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut p = pool.clone();
         p.iter()
             .filter_map(|c| {
+                if let Some(min_sv_elev) = self.cfg {}
                 let mode_compliant = match mode {
                     Mode::SPP => true,
                     Mode::PPP => true, //TODO verify compliance please
@@ -174,20 +173,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             })
             .collect()
     }
-    /// Try to resolve a PVTSolution at desired "t" and from provided Candidates,
-    /// using the predefined strategy (self.cfg.mode) and other configuration.
-    /// Use "meas_tropo_components" : measured tropo compoents, if you're in position
-    /// to propose such fields, this will override internal model.
-    /// Use "stec" to provide a Slant Total Electron Density estimate in [TECu],
-    /// which will only be used if Mode::SPP, in other strategies we have better means
-    /// of compensation.
+    /// Try to resolve a PVTSolution at desired "t".
     pub fn resolve(
         &mut self,
         t: Epoch,
         solution: PVTSolutionType,
         pool: Vec<Candidate>,
-        tropod_meas: Option<TropoComponents>,
+        kb_model: Option<KbModel>,
         stec_meas: Option<f64>,
+        tropod_meas: Option<TropoComponents>,
     ) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = Self::min_required(solution, &self.cfg);
 
@@ -335,12 +329,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 &self.cfg,
                 self.mode,
                 (x0, y0, z0),
+                (lat_ddeg, lon_ddeg, altitude_above_sea_m),
                 row_index,
                 &mut y,
                 &mut g,
+                kb_model,
+                stec_meas,
                 tropod_model,
                 tropod_meas,
-                stec_meas,
             ) {
                 pvt_sv_data.insert(cd.sv, sv_data);
             }

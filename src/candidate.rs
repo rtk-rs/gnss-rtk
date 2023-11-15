@@ -8,19 +8,17 @@ use nyx_space::linalg::{DVector, MatrixXx4};
 
 use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, TropoComponents};
 use crate::solutions::{PVTSVData, PVTSVTimeDelay};
-use crate::{tropo::tropo_delay, Error, Vector3D};
+use crate::{iono::KbModel, tropo::tropo_delay, Error, Vector3D};
 
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, Clone)]
 pub struct Observation {
     /// carrier frequency [Hz]
     pub frequency: f64,
-    /// optional (but recommended) SNR in [dB]
-    pub snr: f64,
-    /// possibly modeled IONO bias (meters of delay) on this carrier
-    pub modeled_iono_bias: Option<f64>,
     /// actual observation
     pub value: f64,
+    /// optional (but recommended) SNR in [dB]
+    pub snr: Option<f64>,
 }
 
 /// Position solving candidate
@@ -60,7 +58,7 @@ impl Candidate {
         code: Vec<Observation>,
         phase: Vec<Observation>,
     ) -> Result<Self, Error> {
-        if pseudo_range.len() == 0 {
+        if code.len() == 0 {
             Err(Error::NeedsAtLeastOnePseudoRange)
         } else {
             Ok(Self {
@@ -80,8 +78,8 @@ impl Candidate {
      * Infaillible, because we don't allow to build Self without at least
      * 1 PR observation
      */
-    pub(crate) fn prefered_pseudorange(&self) -> &PseudoRange {
-        self.pseudo_range
+    pub(crate) fn prefered_pseudorange(&self) -> &Observation {
+        self.code
             .iter()
             // .map(|pr| pr.value)
             .reduce(|k, _| k)
@@ -89,7 +87,6 @@ impl Candidate {
     }
     /*
      * Try to form signal combination
-     */
     fn combination(&self) -> Option<Combination> {
         if self.pseudo_range.len() == 1 {
             return None;
@@ -106,9 +103,9 @@ impl Candidate {
             f2: fr_b,
         })
     }
+     */
     /*
      * Returns IONOD possibly impacting
-     */
     pub(crate) fn ionod_model(&self, frequency: f64) -> Option<Duration> {
         self.modeled_ionod
             .iter()
@@ -121,6 +118,7 @@ impl Candidate {
             })
             .reduce(|k, _| k)
     }
+     */
     /*
      * Compute and return signal transmission Epoch
      */
@@ -157,17 +155,20 @@ impl Candidate {
         cfg: &Config,
         mode: Mode,
         apriori: (f64, f64, f64),
+        apriori_geo: (f64, f64, f64),
         row_index: usize,
         y: &mut DVector<f64>,
         g: &mut MatrixXx4<f64>,
+        kb_model: Option<KbModel>,
+        stec_meas: Option<f64>,
         tropod_model: Option<TropoComponents>,
         tropod_meas: Option<TropoComponents>,
-        stec_meas: Option<f64>,
     ) -> Result<PVTSVData, Error> {
         // state
         let sv = self.sv;
         let state = self.state.ok_or(Error::UnresolvedState)?;
         let (x0, y0, z0) = apriori;
+        let (lat_ddeg, lon_ddeg, _) = apriori_geo;
         let clock_corr = self.clock_corr.to_seconds();
         let (azi, elev) = (state.azimuth, state.elevation);
         let (sv_x, sv_y, sv_z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
@@ -214,12 +215,16 @@ impl Candidate {
              * IONO
              */
             if cfg.modeling.iono_delay {
-                if let Some(delay) = self.ionod_model(frequency) {
+                if let Some(model) = kb_model {
+                    let meters_delay =
+                        model.meters_delay(t, elev, azi, lat_ddeg, lon_ddeg, frequency);
                     debug!(
-                        "{:?} : brdc ionod model (freq={:.3E}) {}",
-                        t, frequency, delay
+                        "{:?} : brdc ionod model (freq={:.3E}Hz) {:.3}[m]",
+                        t, frequency, meters_delay
                     );
-                    models += delay.to_seconds(); //TODO * SPEED OF LIGHT ?
+
+                    models += meters_delay;
+                    sv_data.iono = PVTSVTimeDelay::modeled(meters_delay);
                 }
                 /*
                  * apply possibly passed STEC estimate
@@ -230,6 +235,7 @@ impl Candidate {
                     // TODO: compensate all pseudo range correctly
                     // let alpha = 40.3 * 10E16 / frequency / frequency;
                     // models += alpha * stec;
+                    // sv_data.iono = PVTSVTimeDelay::measured(meters_delay);
                 }
             }
 
@@ -244,19 +250,19 @@ impl Candidate {
 
             y[row_index] = pr - rho - models;
         } else {
-            let comb = self.combination().ok_or(Error::SignalRecombination)?;
+            // let comb = self.combination().ok_or(Error::SignalRecombination)?;
 
-            /*
-             * Possibly frequency dependent delays
-             */
-            for delay in &cfg.int_delay {
-                //TODO <o
-                if delay.frequency == comb.f1 {
-                    y[row_index] += delay.delay * SPEED_OF_LIGHT;
-                }
-            }
+            // /*
+            //  * Possibly frequency dependent delays
+            //  */
+            // for delay in &cfg.int_delay {
+            //     //TODO <o
+            //     if delay.frequency == comb.f1 {
+            //         y[row_index] += delay.delay * SPEED_OF_LIGHT;
+            //     }
+            // }
 
-            y[row_index] = comb.value - rho - models;
+            // y[row_index] = comb.value - rho - models;
         }
 
         Ok(sv_data)
