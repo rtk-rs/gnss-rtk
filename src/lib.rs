@@ -16,7 +16,7 @@ mod vector;
 // prelude
 pub mod prelude {
     pub use crate::apriori::AprioriPosition;
-    pub use crate::candidate::{Candidate, PseudoRange};
+    pub use crate::candidate::{Candidate, IonosphericDelay, PseudoRange};
     pub use crate::cfg::Config;
     pub use crate::solutions::{PVTSolution, PVTSolutionType};
     pub use crate::solver::{InterpolationResult, Mode, Solver};

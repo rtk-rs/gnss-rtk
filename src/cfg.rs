@@ -31,7 +31,7 @@ fn default_sv_tgd() -> bool {
 }
 
 fn default_iono() -> bool {
-    false //TODO
+    true
 }
 
 fn default_tropo() -> bool {
@@ -96,11 +96,12 @@ impl From<Mode> for Modeling {
     fn from(mode: Mode) -> Self {
         let mut s = Self::default();
         match mode {
-            //TODO
-            //Mode::PPP => {
-            //    s.earth_rotation = true;
-            //    s.relativistic_clock_corr = true;
-            //},
+            Mode::PPP => {
+                // TODO: unlock this please
+                // s.earth_rotation = true;
+                // TODO : unlock this please
+                // s.relativistic_clock_corr = true;
+            },
             _ => {},
         }
         s
@@ -165,6 +166,8 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_sv_sunlight_rate: None,
+                // TODO: want to use +5.0/+10.0 here
+                //      once tropo is stabilized
                 min_sv_elev: None,
                 min_sv_snr: None,
                 modeling: Modeling::default(),
@@ -172,19 +175,21 @@ impl Config {
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
             },
-            //Mode::PPP => Self {
-            //    timescale: default_timescale(),
-            //    fixed_altitude: None,
-            //    interp_order: 11,
-            //    code_smoothing: default_smoothing(),
-            //    min_sv_sunlight_rate: Some(0.75),
-            //    min_sv_elev: Some(15.0),
-            //    min_sv_snr: Some(SNR::from_str("strong").unwrap()),
-            //    modeling: Modeling::default(),
-            //    max_sv: default_max_sv(),
-            //    int_delay: Default::default(),
-            //    externalref_delay: Default::default(),
-            //},
+            Mode::PPP => Self {
+                timescale: default_timescale(),
+                fixed_altitude: None,
+                interp_order: 11,
+                code_smoothing: default_smoothing(),
+                min_sv_sunlight_rate: Some(0.75),
+                //TODO min_sv_elev: Some(15.0),
+                min_sv_elev: None,
+                //TODO min_sv_snr: Some(SNR::from_str("strong").unwrap()),
+                min_sv_snr: None,
+                modeling: Modeling::default(),
+                max_sv: default_max_sv(),
+                int_delay: Default::default(),
+                externalref_delay: Default::default(),
+            },
         }
     }
 }

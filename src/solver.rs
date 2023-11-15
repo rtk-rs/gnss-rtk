@@ -4,19 +4,20 @@ use std::collections::HashMap;
 /// Solving mode
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
-    /// SPP : code based positioning, towards a metric resolution
+    /// SPP : code based single point positioning.
+    /// Targets metric precision.
     #[default]
     SPP,
-    // /// PPP : phase + code based, the ultimate solver
-    // /// aiming a millimetric resolution.
-    // PPP,
+    /// PPP : code based precise point positioning.
+    /// Targets centimetric precision.
+    PPP,
 }
 
 impl std::fmt::Display for Mode {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::SPP => write!(fmt, "SPP"),
-            // Self::PPP => write!(fmt, "PPP"),
+            Self::PPP => write!(fmt, "PPP"),
         }
     }
 }
@@ -66,6 +67,10 @@ pub enum Error {
     NeedsAtLeastOnePseudoRange,
     #[error("failed to model or measure ionospheric delay")]
     MissingIonosphericDelayValue,
+    #[error("unresolved state: interpolation should have passed")]
+    UnresolvedState,
+    #[error("unable to form signal combination")]
+    SignalRecombination,
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -159,7 +164,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .filter_map(|c| {
                 let mode_compliant = match mode {
                     Mode::SPP => true,
-                    // Mode::PPP => false, // TODO
+                    Mode::PPP => true, //TODO verify compliance please
                 };
                 if mode_compliant {
                     Some(c.clone())
@@ -176,15 +181,13 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     /// Use "stec" to provide a Slant Total Electron Density estimate in [TECu],
     /// which will only be used if Mode::SPP, in other strategies we have better means
     /// of compensation.
-    // /// "klob_model": share a Klobuchar Model if you can.
     pub fn resolve(
         &mut self,
         t: Epoch,
         solution: PVTSolutionType,
         pool: Vec<Candidate>,
-        measured_tropod: Option<TropoComponents>,
-        stec: Option<f64>,
-        // klob_model: Option<KlobucharModel>,
+        tropod_meas: Option<TropoComponents>,
+        stec_meas: Option<f64>,
     ) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = Self::min_required(solution, &self.cfg);
 
@@ -248,7 +251,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* apply elevation filter (if any) */
         if let Some(min_elev) = self.cfg.min_sv_elev {
-            for idx in 0..pool.len() {
+            for idx in 0..pool.len() - 1 {
                 if let Some(state) = pool[idx].state {
                     if state.elevation < min_elev {
                         debug!(
@@ -307,95 +310,43 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
 
         /* eval. tropo components */
-        let tropo_components = match measured_tropod {
+        let tropod_model = match tropod_meas {
             Some(components) => {
                 debug!(
                     "tropo delay (overridden): zwd: {}, zdd: {}",
                     components.zwd, components.zdd
                 );
-                components
+                None
             },
             None => {
                 if self.cfg.modeling.tropo_delay {
                     let (zdd, zwd) = unb3_delay_components(t, lat_ddeg, altitude_above_sea_m);
                     debug!("unb3 model: zwd: {}, zdd: {}", zwd, zdd);
-                    TropoComponents { zwd, zdd }
+                    Some(TropoComponents { zwd, zdd })
                 } else {
-                    TropoComponents::default()
+                    None
                 }
             },
         };
 
-        for (index, c) in pool.iter().enumerate() {
-            let sv = c.sv;
-            let pr = c.pseudo_range();
-            let state = c.state.unwrap(); // infaillible
-            let (azi, elev) = (state.azimuth, state.elevation);
-            let (pr, frequency) = (pr.value, pr.frequency);
-            let clock_corr = c.clock_corr.to_seconds();
-            let (sv_x, sv_y, sv_z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
-
-            let mut sv_data = PVTSVData::default();
-            sv_data.azimuth = azi;
-            sv_data.elevation = elev;
-
-            let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
-
-            let mut models = -clock_corr * SPEED_OF_LIGHT;
-
-            /*
-             * This equals 0 if cfg.tropod is disabled
-             */
-            let delay = tropo_delay(elev, tropo_components.zwd, tropo_components.zdd);
-            models += delay;
-
-            if measured_tropod.is_some() {
-                sv_data.tropo = PVTSVTimeDelay::measured(delay);
-            } else {
-                sv_data.tropo = PVTSVTimeDelay::modeled(delay);
+        for (row_index, cd) in pool.iter().enumerate() {
+            if let Ok(sv_data) = cd.resolve(
+                t,
+                &self.cfg,
+                self.mode,
+                (x0, y0, z0),
+                row_index,
+                &mut y,
+                &mut g,
+                tropod_model,
+                tropod_meas,
+                stec_meas,
+            ) {
+                pvt_sv_data.insert(cd.sv, sv_data);
             }
-
-            /*
-             * in SPP mode: apply the possibly provided STEC [TECu]
-             */
-            if self.mode == Mode::SPP {
-                if let Some(stec) = stec {
-                    debug!("{:?} : iono {} TECu", c.t, stec);
-                    // TODO: compensate all pseudo range correctly
-                    // let alpha = 40.3 * 10E16 / frequency / frequency;
-                    // models += alpha * stec;
-                }
-            }
-
-            y[index] = pr - rho - models;
-
-            /*
-             * external REF delay (if specified)
-             */
-            if let Some(delay) = self.cfg.externalref_delay {
-                y[index] -= delay * SPEED_OF_LIGHT;
-            }
-            /*
-             * RF frequency dependent cable delay (if specified)
-             */
-            for delay in &self.cfg.int_delay {
-                if delay.frequency == frequency {
-                    // compensate this component
-                    y[index] += delay.delay * SPEED_OF_LIGHT;
-                }
-            }
-
-            g[(index, 0)] = (x0 - sv_x) / rho;
-            g[(index, 1)] = (y0 - sv_y) / rho;
-            g[(index, 2)] = (z0 - sv_z) / rho;
-            g[(index, 3)] = 1.0_f64;
-
-            pvt_sv_data.insert(sv, sv_data);
         }
 
-        // 7: resolve
-        //trace!("y: {} | g: {}", y, g);
-
+        //debug!("{:?} - {:#?}, {:#?}", t, y, g);
         let mut pvt_solution = PVTSolution::new(g, y, pvt_sv_data)?;
 
         /*
