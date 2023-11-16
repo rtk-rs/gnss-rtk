@@ -161,8 +161,8 @@ impl Candidate {
         g: &mut MatrixXx4<f64>,
         kb_model: Option<KbModel>,
         stec_meas: Option<f64>,
-        tropod_model: Option<TropoComponents>,
-        tropod_meas: Option<TropoComponents>,
+        tropod_model: Option<f64>,
+        tropod_meas: Option<f64>,
     ) -> Result<PVTSVData, Error> {
         // state
         let sv = self.sv;
@@ -197,17 +197,14 @@ impl Candidate {
          * this is null if cfg.tropod is disabled
          */
         if cfg.modeling.tropo_delay {
-            if let Some(components) = tropod_meas {
-                let delay = tropo_bias(elev, components.zwd, components.zdd);
-                debug!("{:?} : measured tropo delay {:.3E}[m]", t, delay);
-                models += delay;
-                sv_data.tropo = PVTSVTimeDelay::measured(delay);
-
-            } else if let Some(components) = tropod_model {
-                let delay = tropo_bias(elev, components.zwd, components.zdd);
-                debug!("{:?} : modeled tropo delay {:.3E}[m]", t, delay);
-                models += delay;
-                sv_data.tropo = PVTSVTimeDelay::modeled(delay);
+            if let Some(bias) = tropod_meas {
+                debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
+                models += bias;
+                sv_data.tropo = PVTSVTimeDelay::measured(bias);
+            } else if let Some(bias) = tropod_model {
+                debug!("{:?} : modeled tropo delay {:.3E}[m]", t, bias);
+                models += bias;
+                sv_data.tropo = PVTSVTimeDelay::modeled(bias);
             }
         }
 

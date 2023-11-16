@@ -302,27 +302,45 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
         let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
 
-        /* eval. tropo components */
-        let tropod_model = match tropod_meas {
-            Some(components) => {
-                debug!(
-                    "tropo delay (overridden): zwd: {}, zdd: {}",
-                    components.zwd, components.zdd
-                );
-                None
-            },
-            None => {
-                if self.cfg.modeling.tropo_delay {
-                    let (zdd, zwd) = unb3_delay_components(t, lat_ddeg, altitude_above_sea_m);
-                    debug!("unb3 model: zwd: {}, zdd: {}", zwd, zdd);
-                    Some(TropoComponents { zwd, zdd })
-                } else {
-                    None
-                }
-            },
-        };
-
+        //    Some(components) => {
+        //        debug!(
+        //            "tropo delay (overridden): zwd: {}, zdd: {}",
+        //            components.zwd, components.zdd
+        //        );
+        //        None
+        //    },
+        //    None => {
+        //        if self.cfg.modeling.tropo_delay {
+        //            // let (zdd, zwd) = unb3_delay_components(t, lat_ddeg, altitude_above_sea_m);
+        //            // debug!("unb3 model: zwd: {}, zdd: {}", zwd, zdd);
+        //            // Some(TropoComponents { zwd, zdd })
+        //            None
+        //        } else {
+        //            None
+        //        }
+        //    },
+        //};
         for (row_index, cd) in pool.iter().enumerate() {
+            /* eval. tropo components */
+            let (tropod_model, tropod_meas) = match tropod_meas {
+                None => {
+                    let bias = tropo_bias(
+                        t,
+                        lat_ddeg,
+                        altitude_above_sea_m,
+                        cd.state.unwrap().elevation,
+                    );
+                    (Some(bias), None)
+                },
+                Some(components) => {
+                    let bias = (components.zdd + components.zwd) * 1.001_f64
+                        / (0.002001_f64
+                            + map_3d::deg2rad(cd.state.unwrap().elevation.sin().powi(2)))
+                        .sqrt();
+                    (None, Some(bias))
+                },
+            };
+
             if let Ok(sv_data) = cd.resolve(
                 t,
                 &self.cfg,

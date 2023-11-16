@@ -92,7 +92,7 @@ pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f6
 
     let mut lat = 15.0_f64;
     let mut min_delta = 180.0_f64;
-    let mut nearest_index: usize = 0;
+    let mut nearest_index: usize = 1;
 
     while lat < 75.0 {
         if lat > lat_ddeg {
@@ -142,6 +142,25 @@ pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f6
     (zwd, zdd)
 }
 
-pub(crate) fn tropo_bias(elev: f64, zwd: f64, zdd: f64) -> f64 {
-    (zdd + zwd) * 1.001_f64 / (0.002001_f64 + map_3d::deg2rad(elev).sin().powi(2)).sqrt()
+//pub(crate) fn tropo_bias(elev: f64, zwd: f64, zdd: f64) -> f64 {
+//    (zdd + zwd) * 1.001_f64 / (0.002001_f64 + map_3d::deg2rad(elev).sin().powi(2)).sqrt()
+//
+pub(crate) fn tropo_bias(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f64, elev: f64) -> f64 {
+    const Ns: f64 = 324.8;
+    let c = 299792458.0_f64;
+
+    let el = map_3d::deg2rad(elev);
+    let height = alt_above_sea_m / 1000.0;
+
+    let f = match elev < 90.0 {
+        true => 1.0_f64 / (el.sin() + 0.00143 / (el.tan() + 0.0455)),
+        false => 1.0,
+    };
+
+    let deltaN = -7.32 * (0.005577 * Ns).exp();
+
+    let deltaR =
+        (Ns + 0.5 * deltaN - Ns * height - 0.5 * deltaN * height.powi(2) + 1430.0 + 732.0) * 0.001;
+
+    f * deltaR
 }
