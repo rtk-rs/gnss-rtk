@@ -48,7 +48,7 @@ use crate::{
     cfg::Config,
     iono::KbModel,
     solutions::{PVTSVData, PVTSVTimeDelay, PVTSolution, PVTSolutionType},
-    tropo::{tropo_delay, unb3_delay_components, TropoComponents},
+    tropo::{tropo_bias, unb3_delay_components, TropoComponents},
     Vector3D,
 };
 
@@ -160,7 +160,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut p = pool.clone();
         p.iter()
             .filter_map(|c| {
-                if let Some(min_sv_elev) = self.cfg {}
                 let mode_compliant = match mode {
                     Mode::SPP => true,
                     Mode::PPP => true, //TODO verify compliance please

@@ -8,7 +8,7 @@ use nyx_space::linalg::{DVector, MatrixXx4};
 
 use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, TropoComponents};
 use crate::solutions::{PVTSVData, PVTSVTimeDelay};
-use crate::{iono::KbModel, tropo::tropo_delay, Error, Vector3D};
+use crate::{iono::KbModel, tropo::tropo_bias, Error, Vector3D};
 
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, Clone)]
@@ -198,11 +198,14 @@ impl Candidate {
          */
         if cfg.modeling.tropo_delay {
             if let Some(components) = tropod_meas {
-                let delay = tropo_delay(elev, components.zwd, components.zdd);
+                let delay = tropo_bias(elev, components.zwd, components.zdd);
+                debug!("{:?} : measured tropo delay {:.3E}[m]", t, delay);
                 models += delay;
                 sv_data.tropo = PVTSVTimeDelay::measured(delay);
+
             } else if let Some(components) = tropod_model {
-                let delay = tropo_delay(elev, components.zwd, components.zdd);
+                let delay = tropo_bias(elev, components.zwd, components.zdd);
+                debug!("{:?} : modeled tropo delay {:.3E}[m]", t, delay);
                 models += delay;
                 sv_data.tropo = PVTSVTimeDelay::modeled(delay);
             }

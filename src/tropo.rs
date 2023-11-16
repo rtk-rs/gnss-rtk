@@ -82,8 +82,6 @@ fn unb3_parameter(prm: UNB3Param, lat_ddeg: f64, day_of_year: f64, nearest: usiz
  * This method is infaillible and will work at any Epoch, for any latitude
  */
 pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f64) -> (f64, f64) {
-    // estimate zenith delays
-    // const R: f64 = 287.054;
     const K_1: f64 = 77.604;
     const K_2: f64 = 382000.0_f64;
     const R_D: f64 = 287.054;
@@ -144,6 +142,6 @@ pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f6
     (zwd, zdd)
 }
 
-pub(crate) fn tropo_delay(elev: f64, zwd: f64, zdd: f64) -> f64 {
+pub(crate) fn tropo_bias(elev: f64, zwd: f64, zdd: f64) -> f64 {
     (zdd + zwd) * 1.001_f64 / (0.002001_f64 + map_3d::deg2rad(elev).sin().powi(2)).sqrt()
 }

@@ -35,7 +35,7 @@ fn default_iono() -> bool {
 }
 
 fn default_tropo() -> bool {
-    false //TODO
+    true
 }
 
 fn default_earth_rot() -> bool {
