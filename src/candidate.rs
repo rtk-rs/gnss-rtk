@@ -235,27 +235,14 @@ impl Candidate {
              * IONO
              */
             if cfg.modeling.iono_delay {
-                // let meters_delay =
-                //     model.meters_delay(t, elev, azi, lat_ddeg, lon_ddeg, frequency);
-                // debug!(
-                //     "{:?} : brdc ionod model (freq={:.3E}Hz) {:.3}[m]",
-                //     t, frequency, meters_delay
-                // );
-
-                // models += meters_delay;
-                // sv_data.iono_bias = PVTBias::modeled(meters_delay);
-                // }
-                // /*
-                //  * apply possibly passed STEC estimate
-                //  * TODO: this might be prefered ?
-                //  */
-                // else if let Some(stec) = stec_meas {
-                //     debug!("{:?} : ionod stec {} TECu", t, stec);
-                //     // TODO: compensate all pseudo range correctly
-                //     // let alpha = 40.3 * 10E16 / frequency / frequency;
-                //     // models += alpha * stec;
-                //     // sv_data.iono = PVTSVTimeDelay::measured(meters_delay);
-                // }
+                if let Some(bias) = iono_bias.bias(&rtm) {
+                    debug!(
+                        "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
+                        t, rtm.frequency, bias
+                    );
+                    models += bias;
+                    sv_data.iono_bias = PVTBias::modeled(bias);
+                }
             }
 
             /*

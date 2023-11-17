@@ -26,17 +26,20 @@ pub struct KbModel {
 }
 
 impl IonosphericBias {
-    pub(crate) fn bias(&self, rtm: RuntimeParam) -> Option<f64> {
-        if let Some(kb) = self.kb_model {
+    pub(crate) fn bias(&self, rtm: &RuntimeParam) -> Option<f64> {
+        if let Some(stec) = self.stec_meas {
+            // TODO
+            // let alpha = 40.3 * 10E16 / frequency / frequency;
+            None
+        } else if let Some(kb) = self.kb_model {
             const PHI_P: f64 = 78.3;
             const R_EARTH: f64 = 6378.0;
             const LAMBDA_P: f64 = 291.0;
             const L1_F: f64 = 1575.42E6;
 
-            let (lat_ddeg, lon_ddeg, h_m) = rtm.apriori_geo;
-            let h_km = h_m / 1000.0_f64;
+            let (lat_ddeg, lon_ddeg, _) = rtm.apriori_geo;
 
-            let fract = R_EARTH / (R_EARTH + h_km);
+            let fract = R_EARTH / (R_EARTH + kb.h_km);
             let (elev, azim) = (deg2rad(rtm.elevation), deg2rad(rtm.azimuth));
             let (phi_u, lambda_u) = (deg2rad(lat_ddeg), deg2rad(lon_ddeg));
 
@@ -65,11 +68,11 @@ impl IonosphericBias {
             if a_i < 0.0 {
                 a_i = 0.0_f64;
             }
+
             let mut p_i = kb.beta.0 * (phi_m / PI).powi(0)
                 + kb.beta.1 * (phi_m / PI).powi(1)
                 + kb.beta.2 * (phi_m / PI).powi(2)
                 + kb.beta.3 * (phi_m / PI).powi(3);
-
             if p_i < 72.0E3 {
                 p_i = 72.0E3;
             }
@@ -82,8 +85,6 @@ impl IonosphericBias {
             };
 
             Some(i_1 * (L1_F / rtm.frequency).powi(2))
-        } else if let Some(stec_meas) = self.stec_meas {
-            Some(0.0_f64) // TODO
         } else {
             None
         }
