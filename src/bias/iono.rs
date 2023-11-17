@@ -82,7 +82,7 @@ impl KbModel {
             true => 5.0 * 10E-9 + a_i * x_i.cos(),
             false => f * 5.0 * 10E-9,
         };
-        
+
         Some(i_1 * (L1_F / rtm.frequency).powi(2))
     }
 }
