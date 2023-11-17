@@ -6,11 +6,13 @@ use log::debug;
 use nyx_space::cosmic::SPEED_OF_LIGHT;
 use nyx_space::linalg::{DVector, MatrixXx4};
 
-use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, TropoComponents};
-use crate::solutions::{PVTSVData, PVTSVTimeDelay};
-use crate::{iono::KbModel, tropo::tropo_bias, Error, Vector3D};
-
-use crate::bias::{Bias, IonosphericBias, TroposphericBias};
+use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode};
+use crate::solutions::{PVTBias, PVTSVData};
+use crate::{
+    bias,
+    bias::{IonosphericBias, TropoModel, TroposphericBias},
+    Error, Vector3D,
+};
 
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, Clone)]
@@ -158,8 +160,8 @@ impl Candidate {
         mode: Mode,
         apriori: (f64, f64, f64),
         apriori_geo: (f64, f64, f64),
-        iono_bias: IonosphericBias,
-        tropo_bias: TroposphericBias,
+        iono_bias: &IonosphericBias,
+        tropo_bias: &TroposphericBias,
         row_index: usize,
         y: &mut DVector<f64>,
         g: &mut MatrixXx4<f64>,
@@ -170,12 +172,12 @@ impl Candidate {
         let (x0, y0, z0) = apriori;
         let (lat_ddeg, lon_ddeg, _) = apriori_geo;
         let clock_corr = self.clock_corr.to_seconds();
-        let (azi, elev) = (state.azimuth, state.elevation);
+        let (azimuth, elevation) = (state.azimuth, state.elevation);
         let (sv_x, sv_y, sv_z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
 
         let mut sv_data = PVTSVData::default();
-        sv_data.azimuth = azi;
-        sv_data.elevation = elev;
+        sv_data.azimuth = azimuth;
+        sv_data.elevation = elevation;
 
         let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
         g[(row_index, 0)] = (x0 - sv_x) / rho;
@@ -192,52 +194,68 @@ impl Candidate {
             y[row_index] -= delay * SPEED_OF_LIGHT;
         }
 
-        /*
-         * TROPO
-         */
-        if cfg.modeling.tropo_delay {
-            if tropo_bias.needs_modeling() {
-                let bias = tropo_bias.model();
-                debug!("{:?} : modeled tropo delay {:.3E}[m]", t, bias);
-                models += bias;
-                sv_data.tropo_bias = PVTBias::modeled(bias);
-            } else {
-                let bias = tropo_bias.bias().unwrap();
-                debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
-                models += bias;
-                sv_data.tropo_bias = PVTBias::measured(bias);
-            }
-        }
-
         if mode == Mode::SPP {
             let pr = self.prefered_pseudorange();
             let (pr, frequency) = (pr.value, pr.frequency);
+
+            /*
+             * TODO: frequency dependent delays
+             */
+
+            /*
+             * IONO + TROPO biases
+             */
+            let rtm = bias::RuntimeParam {
+                t,
+                elevation,
+                azimuth,
+                apriori_geo,
+                frequency,
+            };
+
+            /*
+             * TROPO
+             */
+            if cfg.modeling.tropo_delay {
+                if tropo_bias.needs_modeling() {
+                    let bias = TroposphericBias::model(TropoModel::Niel, &rtm);
+                    debug!("{:?} : modeled tropo delay {:.3E}[m]", t, bias);
+                    models += bias;
+                    sv_data.tropo_bias = PVTBias::modeled(bias);
+                } else {
+                    if let Some(bias) = tropo_bias.bias(&rtm) {
+                        debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
+                        models += bias;
+                        sv_data.tropo_bias = PVTBias::measured(bias);
+                    }
+                }
+            }
+
             /*
              * IONO
              */
             if cfg.modeling.iono_delay {
-                if let Some(model) = kb_model {
-                    let meters_delay =
-                        model.meters_delay(t, elev, azi, lat_ddeg, lon_ddeg, frequency);
-                    debug!(
-                        "{:?} : brdc ionod model (freq={:.3E}Hz) {:.3}[m]",
-                        t, frequency, meters_delay
-                    );
+                // let meters_delay =
+                //     model.meters_delay(t, elev, azi, lat_ddeg, lon_ddeg, frequency);
+                // debug!(
+                //     "{:?} : brdc ionod model (freq={:.3E}Hz) {:.3}[m]",
+                //     t, frequency, meters_delay
+                // );
 
-                    models += meters_delay;
-                    sv_data.iono_bias = PVTBias::modeled(meters_delay);
-                }
-                /*
-                 * apply possibly passed STEC estimate
-                 * TODO: this might be prefered ?
-                 */
-                else if let Some(stec) = stec_meas {
-                    debug!("{:?} : ionod stec {} TECu", t, stec);
-                    // TODO: compensate all pseudo range correctly
-                    // let alpha = 40.3 * 10E16 / frequency / frequency;
-                    // models += alpha * stec;
-                    // sv_data.iono = PVTSVTimeDelay::measured(meters_delay);
-                }
+                // models += meters_delay;
+                // sv_data.iono_bias = PVTBias::modeled(meters_delay);
+                // }
+                // /*
+                //  * apply possibly passed STEC estimate
+                //  * TODO: this might be prefered ?
+                //  */
+                // else if let Some(stec) = stec_meas {
+                //     debug!("{:?} : ionod stec {} TECu", t, stec);
+                //     // TODO: compensate all pseudo range correctly
+                //     // let alpha = 40.3 * 10E16 / frequency / frequency;
+                //     // models += alpha * stec;
+                //     // sv_data.iono = PVTSVTimeDelay::measured(meters_delay);
+                // }
             }
 
             /*

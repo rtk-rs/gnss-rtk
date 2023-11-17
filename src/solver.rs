@@ -1,6 +1,5 @@
 //! PVT solver
 use std::collections::HashMap;
-use crate::bias::{TroposphericBias, IonosphericBias};
 
 /// Solving mode
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -35,21 +34,14 @@ use nyx_space::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::base::{
-    DVector,
-    MatrixXx4,
-    //Vector1,
-    //Vector3,
-    //Vector4,
-};
+use nalgebra::base::{DVector, MatrixXx4};
 
 use crate::{
     apriori::AprioriPosition,
+    bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
     cfg::Config,
-    iono::KbModel,
-    solutions::{PVTSVData, PVTSVTimeDelay, PVTSolution, PVTSolutionType},
-    tropo::{tropo_bias, unb3_delay_components, TropoComponents},
+    solutions::{PVTBias, PVTSVData, PVTSolution, PVTSolutionType},
     Vector3D,
 };
 
@@ -182,8 +174,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         t: Epoch,
         solution: PVTSolutionType,
         pool: Vec<Candidate>,
-        iono_bias: IonosphericBias,
-        tropo_bias: TroposphericBias,
+        iono_bias: &IonosphericBias,
+        tropo_bias: &TroposphericBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = Self::min_required(solution, &self.cfg);
 
@@ -312,8 +304,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 self.mode,
                 (x0, y0, z0),
                 (lat_ddeg, lon_ddeg, altitude_above_sea_m),
-                iono_bias,
-                tropo_bias,
+                &iono_bias,
+                &tropo_bias,
                 row_index,
                 &mut y,
                 &mut g,

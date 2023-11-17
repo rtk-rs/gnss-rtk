@@ -1,10 +1,16 @@
-// use std::str::FromStr;
-// use std::collections::HashMap;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::{Mode, TimeScale};
+
+/// Configuration Error
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("unknown tropo model")]
+    UnknownTropoModel(String),
+}
 
 fn default_timescale() -> TimeScale {
     TimeScale::GPST

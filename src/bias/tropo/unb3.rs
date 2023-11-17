@@ -1,66 +1,9 @@
+use crate::bias::RuntimeParam;
 use log::debug;
-use hifitime::Epoch;
-use crate::bias::Bias;
-
-// use map_3d::{ecef2geodetic, Ellipsoid};
-
 use std::f64::consts::PI;
 
-#[derive(Default, Copy, Clone, Debug)]
-pub enum TropoModel {
-    #[default]
-    Niel,
-    UNB3,
-}
-
-impl std::FromStr for TropoModel {
-    fn from_str(&self, s: &str) -> Result<TropoModel, Error> {
-        let c = s.trim().lowercase();
-        if c.eq()
-    }
-}
-
-/// Tropospheric Components to attach any
-/// resolution attempt. Fill as much as you can.
-/// An empty structure will not impeach the solver to compensate
-/// for this effect.
-#[derive(Default, Copy, Clone, Debug)]
-pub struct TroposphericBias {
-    /// Undifferentiated total Zenith delay (Dry + Wet components), in meters of delay
-    pub total: Option<f64>,
-    /// Zenith Dry and Zenith Wet delay components, in meters of delay
-    pub zwd_zdd: Option<(f64, f64)>,
-}
-
-impl Bias for TroposphericBias {
-    fn needs_modeling(&self) -> bool {
-        self.total.is_none() && self.zwd_zdd.is_none()
-    }
-}
-
-impl TroposphericBias {
-    pub(crate) fn bias(&self, elev: f64) -> Option<f64> {
-        if let Some((zwd, zdd)) = self.zwd_zdd {
-            Some((zdd + zwd) * 1.001_f64
-                / (0.002001_f64
-                    + map_3d::deg2rad(elev).sin().powi(2))
-                .sqrt())
-        } else if let Some(total) = self.total {
-            Some(total * 1.001_f64
-                / (0.002001_f64
-                    + map_3d::deg2rad(elev).sin().powi(2))
-                .sqrt())
-        } else {
-            None
-        }
-    }
-    pub(crate) fn model(&self, tropo_model: TropoModel) -> Option<f64> {
-        
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
-enum UNB3Param {
+pub(crate) enum UNB3Param {
     // pressure in mBar
     Pressure = 0,
     // temperature in Kelvin
@@ -127,14 +70,15 @@ fn unb3_parameter(prm: UNB3Param, lat_ddeg: f64, day_of_year: f64, nearest: usiz
  * Evaluate ZWD and ZDD at given Epoch "t" and given latitude
  * This method is infaillible and will work at any Epoch, for any latitude
  */
-pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f64) -> (f64, f64) {
+pub(crate) fn unb3_model(rtm: &RuntimeParam) -> (f64, f64) {
     const K_1: f64 = 77.604;
     const K_2: f64 = 382000.0_f64;
     const R_D: f64 = 287.054;
     const G: f64 = 9.80665_f64;
     const G_M: f64 = 9.784_f64;
 
-    let day_of_year = t.day_of_year();
+    let day_of_year = rtm.t.day_of_year();
+    let (lat_ddeg, _, h) = rtm.apriori_geo;
 
     let mut lat = 15.0_f64;
     let mut min_delta = 180.0_f64;
@@ -166,47 +110,24 @@ pub(crate) fn unb3_delay_components(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f6
     let z0_zdd = 10.0E-6 * K_1 * R_D * p / G_M;
     let denom = (lambda + 1.0_f64) * G_M - beta * R_D;
     let z0_zwd = 10.0E-6 * K_2 * R_D * e / temp / denom;
-
-    let value = 1.0_f64 - beta * alt_above_sea_m / temp;
+    let value = 1.0_f64 - beta * h / temp;
 
     let zdd = (value).powf(G / R_D / beta) * z0_zdd;
     let zwd = (value).powf((lambda + 1.0_f64) * G / R_D / beta - 1.0_f64) * z0_zwd;
 
     debug!(
         "{:?}: unb3 - [beta: {:.3}, p: {:.3}, temp: {:.3}, e: {:.3}, lambda: {:.3}",
-        t, beta, p, temp, e, lambda
+        rtm.t, beta, p, temp, e, lambda
     );
 
     debug!(
         "{:?}: unb3 - zdd(h=0) {:.3} zwd(h=0) {:.3}",
-        t, z0_zdd, z0_zwd,
+        rtm.t, z0_zdd, z0_zwd,
     );
     debug!(
         "{:?}: unb3 - zdd(h={:.3}) {} zwd(h={:.3}) {:.3}",
-        t, alt_above_sea_m, zdd, alt_above_sea_m, zwd
+        rtm.t, h, zdd, h, zwd
     );
+
     (zwd, zdd)
-}
-
-//pub(crate) fn tropo_bias(elev: f64, zwd: f64, zdd: f64) -> f64 {
-//    (zdd + zwd) * 1.001_f64 / (0.002001_f64 + map_3d::deg2rad(elev).sin().powi(2)).sqrt()
-//
-pub(crate) fn tropo_bias(t: Epoch, lat_ddeg: f64, alt_above_sea_m: f64, elev: f64) -> f64 {
-    const Ns: f64 = 324.8;
-    let c = 299792458.0_f64;
-
-    let el = map_3d::deg2rad(elev);
-    let height = alt_above_sea_m / 1000.0;
-
-    let f = match elev < 90.0 {
-        true => 1.0_f64 / (el.sin() + 0.00143 / (el.tan() + 0.0455)),
-        false => 1.0,
-    };
-
-    let deltaN = -7.32 * (0.005577 * Ns).exp();
-
-    let deltaR =
-        (Ns + 0.5 * deltaN - Ns * height - 0.5 * deltaN * height.powi(2) + 1430.0 + 732.0) * 0.001;
-
-    f * deltaR
 }
