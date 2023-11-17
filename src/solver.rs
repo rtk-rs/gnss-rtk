@@ -1,5 +1,6 @@
 //! PVT solver
 use std::collections::HashMap;
+use crate::bias::{TroposphericBias, IonosphericBias};
 
 /// Solving mode
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -173,14 +174,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .collect()
     }
     /// Try to resolve a PVTSolution at desired "t".
+    /// "t": sampling instant.
+    /// "solution": PVTSolutionType.
+    /// "pool": List of candidates.
     pub fn resolve(
         &mut self,
         t: Epoch,
         solution: PVTSolutionType,
         pool: Vec<Candidate>,
-        kb_model: Option<KbModel>,
-        stec_meas: Option<f64>,
-        tropod_meas: Option<TropoComponents>,
+        iono_bias: IonosphericBias,
+        tropo_bias: TroposphericBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = Self::min_required(solution, &self.cfg);
 
@@ -302,58 +305,18 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
         let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
 
-        //    Some(components) => {
-        //        debug!(
-        //            "tropo delay (overridden): zwd: {}, zdd: {}",
-        //            components.zwd, components.zdd
-        //        );
-        //        None
-        //    },
-        //    None => {
-        //        if self.cfg.modeling.tropo_delay {
-        //            // let (zdd, zwd) = unb3_delay_components(t, lat_ddeg, altitude_above_sea_m);
-        //            // debug!("unb3 model: zwd: {}, zdd: {}", zwd, zdd);
-        //            // Some(TropoComponents { zwd, zdd })
-        //            None
-        //        } else {
-        //            None
-        //        }
-        //    },
-        //};
         for (row_index, cd) in pool.iter().enumerate() {
-            /* eval. tropo components */
-            let (tropod_model, tropod_meas) = match tropod_meas {
-                None => {
-                    let bias = tropo_bias(
-                        t,
-                        lat_ddeg,
-                        altitude_above_sea_m,
-                        cd.state.unwrap().elevation,
-                    );
-                    (Some(bias), None)
-                },
-                Some(components) => {
-                    let bias = (components.zdd + components.zwd) * 1.001_f64
-                        / (0.002001_f64
-                            + map_3d::deg2rad(cd.state.unwrap().elevation.sin().powi(2)))
-                        .sqrt();
-                    (None, Some(bias))
-                },
-            };
-
             if let Ok(sv_data) = cd.resolve(
                 t,
                 &self.cfg,
                 self.mode,
                 (x0, y0, z0),
                 (lat_ddeg, lon_ddeg, altitude_above_sea_m),
+                iono_bias,
+                tropo_bias,
                 row_index,
                 &mut y,
                 &mut g,
-                kb_model,
-                stec_meas,
-                tropod_model,
-                tropod_meas,
             ) {
                 pvt_sv_data.insert(cd.sv, sv_data);
             }

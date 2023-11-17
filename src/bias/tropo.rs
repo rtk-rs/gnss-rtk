@@ -1,16 +1,62 @@
-use hifitime::Epoch;
 use log::debug;
+use hifitime::Epoch;
+use crate::bias::Bias;
 
 // use map_3d::{ecef2geodetic, Ellipsoid};
 
 use std::f64::consts::PI;
 
 #[derive(Default, Copy, Clone, Debug)]
-pub struct TropoComponents {
-    /// Zenith Dry delay component [m]
-    pub zdd: f64,
-    /// Zenith Wet delay component [m]
-    pub zwd: f64,
+pub enum TropoModel {
+    #[default]
+    Niel,
+    UNB3,
+}
+
+impl std::FromStr for TropoModel {
+    fn from_str(&self, s: &str) -> Result<TropoModel, Error> {
+        let c = s.trim().lowercase();
+        if c.eq()
+    }
+}
+
+/// Tropospheric Components to attach any
+/// resolution attempt. Fill as much as you can.
+/// An empty structure will not impeach the solver to compensate
+/// for this effect.
+#[derive(Default, Copy, Clone, Debug)]
+pub struct TroposphericBias {
+    /// Undifferentiated total Zenith delay (Dry + Wet components), in meters of delay
+    pub total: Option<f64>,
+    /// Zenith Dry and Zenith Wet delay components, in meters of delay
+    pub zwd_zdd: Option<(f64, f64)>,
+}
+
+impl Bias for TroposphericBias {
+    fn needs_modeling(&self) -> bool {
+        self.total.is_none() && self.zwd_zdd.is_none()
+    }
+}
+
+impl TroposphericBias {
+    pub(crate) fn bias(&self, elev: f64) -> Option<f64> {
+        if let Some((zwd, zdd)) = self.zwd_zdd {
+            Some((zdd + zwd) * 1.001_f64
+                / (0.002001_f64
+                    + map_3d::deg2rad(elev).sin().powi(2))
+                .sqrt())
+        } else if let Some(total) = self.total {
+            Some(total * 1.001_f64
+                / (0.002001_f64
+                    + map_3d::deg2rad(elev).sin().powi(2))
+                .sqrt())
+        } else {
+            None
+        }
+    }
+    pub(crate) fn model(&self, tropo_model: TropoModel) -> Option<f64> {
+        
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

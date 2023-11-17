@@ -36,14 +36,14 @@ use serde::{Deserialize, Serialize};
 /// Modeled (estimated) or measured Time Delay.
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct PVTSVTimeDelay {
-    /// Measured delay [s]
+pub struct PVTBias {
+    /// Measured delay [meters of delay]
     pub measured: Option<f64>,
-    /// Modeled delay [s]
+    /// Modeled delay [meters of delay]
     pub modeled: Option<f64>,
 }
 
-impl PVTSVTimeDelay {
+impl PVTBias {
     /// Time Delay in [s], whether it was modeled
     /// or physically measured (prefered).
     pub fn value(&self) -> Option<f64> {
@@ -79,10 +79,10 @@ pub struct PVTSVData {
     pub elevation: f64,
     /// Either measured or modeled Tropospheric Delay
     /// that impacted L1 signal
-    pub tropo: PVTSVTimeDelay,
+    pub tropo_bias: PVTBias,
     /// Either measured or modeled Ionospheric Delay
     /// that impacted L1 signal
-    pub iono: PVTSVTimeDelay,
+    pub iono_bias: PVTBias,
 }
 
 /// PVT Solution, always expressed as the correction to apply

@@ -10,6 +10,8 @@ use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, TropoCo
 use crate::solutions::{PVTSVData, PVTSVTimeDelay};
 use crate::{iono::KbModel, tropo::tropo_bias, Error, Vector3D};
 
+use crate::bias::{Bias, IonosphericBias, TroposphericBias};
+
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, Clone)]
 pub struct Observation {
@@ -156,13 +158,11 @@ impl Candidate {
         mode: Mode,
         apriori: (f64, f64, f64),
         apriori_geo: (f64, f64, f64),
+        iono_bias: IonosphericBias,
+        tropo_bias: TroposphericBias,
         row_index: usize,
         y: &mut DVector<f64>,
         g: &mut MatrixXx4<f64>,
-        kb_model: Option<KbModel>,
-        stec_meas: Option<f64>,
-        tropod_model: Option<f64>,
-        tropod_meas: Option<f64>,
     ) -> Result<PVTSVData, Error> {
         // state
         let sv = self.sv;
@@ -194,17 +194,18 @@ impl Candidate {
 
         /*
          * TROPO
-         * this is null if cfg.tropod is disabled
          */
         if cfg.modeling.tropo_delay {
-            if let Some(bias) = tropod_meas {
-                debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
-                models += bias;
-                sv_data.tropo = PVTSVTimeDelay::measured(bias);
-            } else if let Some(bias) = tropod_model {
+            if tropo_bias.needs_modeling() {
+                let bias = tropo_bias.model();
                 debug!("{:?} : modeled tropo delay {:.3E}[m]", t, bias);
                 models += bias;
-                sv_data.tropo = PVTSVTimeDelay::modeled(bias);
+                sv_data.tropo_bias = PVTBias::modeled(bias);
+            } else {
+                let bias = tropo_bias.bias().unwrap();
+                debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
+                models += bias;
+                sv_data.tropo_bias = PVTBias::measured(bias);
             }
         }
 
@@ -224,7 +225,7 @@ impl Candidate {
                     );
 
                     models += meters_delay;
-                    sv_data.iono = PVTSVTimeDelay::modeled(meters_delay);
+                    sv_data.iono_bias = PVTBias::modeled(meters_delay);
                 }
                 /*
                  * apply possibly passed STEC estimate

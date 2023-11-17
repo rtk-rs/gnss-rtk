@@ -1,3 +1,22 @@
+use crate::bias::Bias;
+
+/// Ionospheric Components to attach
+/// any resolution attempt. Fill as much as you can.
+/// If this structure is empty, you should then provide observations
+/// on at least two carrier signals so the solver can estimate this bias.
+pub struct IonosphericBias {
+    /// Klobuchar Model to apply
+    pub kb_model: Option<KbModel>,
+    /// Slan Total Electron Density estimate
+    pub stec_meas: Option<f64>,
+}
+
+impl Bias for IonosphericBias {
+    fn needs_modeling(&self) -> bool {
+        self.kb_model.is_none() && self.stec_meas.is_none()
+    }
+}
+
 /// Klobuchar Model
 #[derive(Clone, Copy, Default, Debug)]
 pub struct KbModel {
