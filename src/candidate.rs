@@ -146,9 +146,13 @@ impl Candidate {
 
         /* run physical verification */
         let dt = (t - e_tx).to_seconds();
-        assert!(dt > 0.0, "resolved t_tx is physically impossible");
-        assert!(dt < 1.0, "resolved t_tx is physically impossible");
-        Ok(e_tx)
+        if dt < 0.0 {
+            Err(Error::PhysicalNonSenseRxPriorTx)
+        } else if dt > 1.0 {
+            Err(Error::PhysicalNonSenseRxTooLate)
+        } else {
+            Ok(e_tx)
+        }
     }
     /*
      * Resolves Self

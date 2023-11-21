@@ -65,6 +65,10 @@ pub enum Error {
     UnresolvedState,
     #[error("unable to form signal combination")]
     SignalRecombination,
+    #[error("physical non sense: rx prior tx")]
+    PhysicalNonSenseRxPriorTx,
+    #[error("physical non sense: t_rx is too late")]
+    PhysicalNonSenseRxTooLate,
 }
 
 /// Interpolation result (state vector) that needs to be
