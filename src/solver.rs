@@ -243,7 +243,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* apply elevation filter (if any) */
         if let Some(min_elev) = self.cfg.min_sv_elev {
-            for idx in 0..pool.len() - 1 {
+            for idx in 0..pool.len() {
                 if let Some(state) = pool[idx].state {
                     if state.elevation < min_elev {
                         debug!(
