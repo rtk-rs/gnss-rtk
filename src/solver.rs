@@ -1,6 +1,28 @@
 //! PVT solver
 use std::collections::HashMap;
 
+use hifitime::Epoch;
+use log::{debug, error, warn};
+use thiserror::Error;
+
+use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
+use nyx::cosmic::{Orbit, SPEED_OF_LIGHT};
+use nyx::md::prelude::{Arc, Cosm};
+use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
+
+use gnss::prelude::SV;
+
+use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
+
+use crate::{
+    apriori::AprioriPosition,
+    bias::{IonosphericBias, TroposphericBias},
+    candidate::Candidate,
+    cfg::Config,
+    solutions::{PVTBias, PVTSVData, PVTSolution, PVTSolutionType},
+    Vector3D,
+};
+
 /// Solving mode
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -21,28 +43,6 @@ impl std::fmt::Display for Mode {
         }
     }
 }
-
-use hifitime::Epoch;
-use log::{debug, error, warn};
-use thiserror::Error;
-
-use nyx::md::prelude::{Arc, Cosm};
-use nyx_space::cosmic::eclipse::{eclipse_state, EclipseState};
-use nyx_space::cosmic::{Orbit, SPEED_OF_LIGHT};
-use nyx_space::md::prelude::{Bodies, Frame, LightTimeCalc};
-
-use gnss::prelude::SV;
-
-use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
-
-use crate::{
-    apriori::AprioriPosition,
-    bias::{IonosphericBias, TroposphericBias},
-    candidate::Candidate,
-    cfg::Config,
-    solutions::{PVTBias, PVTSVData, PVTSolution, PVTSolutionType},
-    Vector3D,
-};
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
@@ -80,6 +80,16 @@ pub struct InterpolationResult {
     pub elevation: f64,
     /// Azimuth compared to reference position and magnetic North in [°]
     pub azimuth: f64,
+}
+
+impl InterpolationResult {
+    pub(crate) fn position(&self) -> (f64, f64, f64) {
+        (self.sky_pos.x, self.sky_pos.y, self.sky_pos.z)
+    }
+    pub(crate) fn to_orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
+        let (x, y, z) = self.position();
+        Orbit::cartesian(x, y, z, 0.0_f64, 0.0_f64, 0.0_f64, dt, frame)
+    }
 }
 
 /// PVT Solver
@@ -162,8 +172,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     }
     /// Try to resolve a PVTSolution at desired "t".
     /// "t": sampling instant.
-    /// "solution": PVTSolutionType.
+    /// "solution": desired PVTSolutionType.
     /// "pool": List of candidates.
+    /// iono_bias: possible IonosphericBias if you can provide such info.
+    /// tropo_bias: possible TroposphericBias if you can provide such info.
     pub fn resolve(
         &mut self,
         t: Epoch,

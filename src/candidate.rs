@@ -3,8 +3,8 @@
 use gnss::prelude::SV;
 use hifitime::Unit;
 use log::debug;
-use nyx_space::cosmic::SPEED_OF_LIGHT;
-use nyx_space::linalg::{DVector, MatrixXx4};
+use nyx::cosmic::SPEED_OF_LIGHT;
+use nyx::linalg::{DVector, MatrixXx4};
 
 use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode};
 use crate::solutions::{PVTBias, PVTSVData};

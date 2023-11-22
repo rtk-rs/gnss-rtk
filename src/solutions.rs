@@ -28,7 +28,7 @@ impl std::fmt::Display for PVTSolutionType {
 }
 
 use nalgebra::base::{DVector, MatrixXx4};
-use nyx_space::cosmic::SPEED_OF_LIGHT;
+use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
