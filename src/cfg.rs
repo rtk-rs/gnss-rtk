@@ -51,6 +51,7 @@ fn default_earth_rot() -> bool {
 fn default_rel_clock_corr() -> bool {
     false
 }
+
 #[derive(Default, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 /// System Internal Delay as defined by BIPM in

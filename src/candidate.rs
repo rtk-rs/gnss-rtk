@@ -6,12 +6,12 @@ use log::debug;
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
 
-use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode};
+use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, Vector3};
 use crate::solutions::{PVTBias, PVTSVData};
 use crate::{
     bias,
     bias::{IonosphericBias, TropoModel, TroposphericBias},
-    Error, Vector3D,
+    Error,
 };
 
 /// Signal observation to attach to each candidate
@@ -37,7 +37,7 @@ pub struct Candidate {
     // SV group delay
     pub(crate) tgd: Option<Duration>,
     // SV clock state (compared to GNSS timescale)
-    pub(crate) clock_state: Vector3D,
+    pub(crate) clock_state: Vector3<f64>,
     // SV clock correction
     pub(crate) clock_corr: Duration,
     // Code observations
@@ -57,7 +57,7 @@ impl Candidate {
     pub fn new(
         sv: SV,
         t: Epoch,
-        clock_state: Vector3D,
+        clock_state: Vector3<f64>,
         clock_corr: Duration,
         code: Vec<Observation>,
         phase: Vec<Observation>,
@@ -150,7 +150,7 @@ impl Candidate {
         let dt = (t - e_tx).to_seconds();
         if dt < 0.0 {
             Err(Error::PhysicalNonSenseRxPriorTx)
-        } else if dt > 1.0 {
+        } else if dt > 0.1 {
             Err(Error::PhysicalNonSenseRxTooLate)
         } else {
             Ok((e_tx, dt))
@@ -179,7 +179,7 @@ impl Candidate {
         let (lat_ddeg, lon_ddeg, _) = apriori_geo;
         let clock_corr = self.clock_corr.to_seconds();
         let (azimuth, elevation) = (state.azimuth, state.elevation);
-        let (sv_x, sv_y, sv_z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
+        let (sv_x, sv_y, sv_z) = state.position();
 
         let mut sv_data = PVTSVData::default();
         sv_data.azimuth = azimuth;

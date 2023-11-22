@@ -1,6 +1,6 @@
 //! PVT Solutions
-use crate::prelude::SV;
-use crate::{Error, Vector3D};
+use crate::prelude::{Vector3, SV};
+use crate::Error;
 use std::collections::HashMap;
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -88,12 +88,12 @@ pub struct PVTSVData {
 /// PVT Solution, always expressed as the correction to apply
 /// to an Apriori / static position.
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+// #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
     /// X, Y, Z corrections (in [m] ECEF)
-    pub p: Vector3D,
+    pub p: Vector3<f64>,
     /// Absolute Velocity (in [m/s] ECEF).
-    pub v: Vector3D,
+    pub v: Vector3<f64>,
     /// Time correction in [s]
     pub dt: f64,
     /// Horizontal Dilution of Precision
@@ -136,8 +136,8 @@ impl PVTSolution {
         Ok(Self {
             sv,
             dt,
-            p: Vector3D { x, y, z },
-            v: Vector3D::default(), //TODO
+            p: Vector3::new(x, y, z),
+            v: Vector3::<f64>::default(),
             hdop: (q[(0, 0)] + q[(1, 1)]).sqrt(),
             vdop: q[(2, 2)].sqrt(),
             tdop: q[(3, 3)].sqrt(),

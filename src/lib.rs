@@ -11,7 +11,6 @@ mod candidate;
 mod cfg;
 mod solutions;
 mod solver;
-mod vector;
 
 // prelude
 pub mod prelude {
@@ -24,8 +23,8 @@ pub mod prelude {
     // re-export
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};
+    pub use nalgebra::Vector3;
 }
 
 // pub export
 pub use solver::Error;
-pub use vector::Vector3D;

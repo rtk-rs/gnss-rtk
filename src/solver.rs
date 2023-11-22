@@ -6,7 +6,7 @@ use log::{debug, error, warn};
 use thiserror::Error;
 
 use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
-use nyx::cosmic::{Orbit, SPEED_OF_LIGHT};
+use nyx::cosmic::Orbit;
 use nyx::md::prelude::{Arc, Cosm};
 use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
@@ -19,8 +19,7 @@ use crate::{
     bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
     cfg::Config,
-    solutions::{PVTBias, PVTSVData, PVTSolution, PVTSolutionType},
-    Vector3D,
+    solutions::{PVTSVData, PVTSolution, PVTSolutionType},
 };
 
 /// Solving mode
@@ -75,7 +74,9 @@ pub enum Error {
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct InterpolationResult {
     /// Position vector in [m] ECEF
-    pub sky_pos: Vector3D,
+    pub position: Vector3<f64>,
+    /// Velocity vector in [m/s] ECEF
+    pub velocity: Option<Vector3<f64>>,
     /// Elevation compared to reference position and horizon in [°]
     pub elevation: f64,
     /// Azimuth compared to reference position and magnetic North in [°]
@@ -84,11 +85,16 @@ pub struct InterpolationResult {
 
 impl InterpolationResult {
     pub(crate) fn position(&self) -> (f64, f64, f64) {
-        (self.sky_pos.x, self.sky_pos.y, self.sky_pos.z)
+        (self.position[0], self.position[1], self.position[2])
     }
-    pub(crate) fn to_orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
+    pub(crate) fn velocity(&self) -> Option<(f64, f64, f64)> {
+        let velocity = self.velocity?;
+        Some((velocity[0], velocity[1], velocity[2]))
+    }
+    pub(crate) fn orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
         let (x, y, z) = self.position();
-        Orbit::cartesian(x, y, z, 0.0_f64, 0.0_f64, 0.0_f64, dt, frame)
+        let (v_x, v_y, v_z) = self.velocity().unwrap_or((0.0_f64, 0.0_f64, 0.0_f64));
+        Orbit::cartesian(x, y, z, v_x / 1000.0, v_y / 1000.0, v_z / 1000.0, dt, frame)
     }
 }
 
@@ -229,12 +235,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             1.0_f64,
                         );
 
-                        interpolated.sky_pos = (r * interpolated.sky_pos.to_vec3()).into();
+                        interpolated.position = r * interpolated.position;
                     }
 
                     debug!(
                         "{:?} ({}) : interpolated state: {:?}",
-                        t_tx, c.sv, interpolated.sky_pos
+                        t_tx, c.sv, interpolated.position
                     );
 
                     c.state = Some(interpolated);
@@ -248,16 +254,21 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* apply elevation filter (if any) */
         if let Some(min_elev) = self.cfg.min_sv_elev {
-            for idx in 0..pool.len() {
-                if let Some(state) = pool[idx].state {
+            let mut idx: usize = 0;
+            let mut nb_removed: usize = 0;
+            while idx < pool.len() {
+                if let Some(state) = pool[idx - nb_removed].state {
                     if state.elevation < min_elev {
                         debug!(
                             "{:?} ({}) : below elevation mask",
-                            pool[idx].t, pool[idx].sv
+                            pool[idx - nb_removed].t,
+                            pool[idx - nb_removed].sv
                         );
-                        let _ = pool.swap_remove(idx);
+                        let _ = pool.swap_remove(idx - nb_removed);
+                        nb_removed += 1;
                     }
                 }
+                idx += 1;
             }
         }
 
@@ -265,18 +276,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             for idx in 0..pool.len() - 1 {
                 let state = pool[idx].state.unwrap(); // infaillible
-                let (x, y, z) = (state.sky_pos.x, state.sky_pos.y, state.sky_pos.z);
-                let orbit = Orbit {
-                    x_km: x / 1000.0,
-                    y_km: y / 1000.0,
-                    z_km: z / 1000.0,
-                    vx_km_s: 0.0_f64, // TODO ?
-                    vy_km_s: 0.0_f64, // TODO ?
-                    vz_km_s: 0.0_f64, // TODO ?
-                    epoch: pool[idx].t,
-                    frame: self.earth_frame,
-                    stm: None,
-                };
+                let orbit = state.orbit(pool[idx].t, self.earth_frame);
                 let state = eclipse_state(&orbit, self.sun_frame, self.earth_frame, &self.cosmic);
                 let eclipsed = match state {
                     EclipseState::Umbra => true,
@@ -337,9 +337,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         match solution {
             PVTSolutionType::TimeOnly => {
-                pvt_solution.p = Vector3D::default();
-                pvt_solution.p.x = 0.0_f64;
-                pvt_solution.p.x = 0.0_f64;
+                pvt_solution.p = Vector3::<f64>::default();
                 pvt_solution.hdop = 0.0_f64;
                 pvt_solution.vdop = 0.0_f64;
             },
@@ -352,7 +350,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
      * Evaluates Sun/Earth vector, <!> expressed in Km <!>
      * for all SV NAV Epochs in provided context
      */
-    fn sun_earth_vector(&mut self, t: Epoch) -> Vector3D {
+    fn sun_earth_vector(&mut self, t: Epoch) -> Vector3<f64> {
         let sun_body = Bodies::Sun;
         let orbit = self.cosmic.celestial_state(
             sun_body.ephem_path(),
@@ -360,11 +358,11 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             self.earth_frame,
             LightTimeCalc::None,
         );
-        Vector3D {
-            x: orbit.x_km * 1000.0,
-            y: orbit.y_km * 1000.0,
-            z: orbit.z_km * 1000.0,
-        }
+        Vector3::new(
+            orbit.x_km * 1000.0,
+            orbit.y_km * 1000.0,
+            orbit.z_km * 1000.0,
+        )
     }
     /*
      * Returns nb of vehicles we need to gather
