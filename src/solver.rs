@@ -199,7 +199,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut pool: Vec<Candidate> = pool
             .iter()
             .filter_map(|c| {
-                let t_tx = c.transmission_time(&self.cfg).ok()?;
+                let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
 
                 if let Some(mut interpolated) =
                     (self.interpolator)(t_tx, c.sv, self.cfg.interp_order)
@@ -209,8 +209,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     if self.cfg.modeling.earth_rotation {
                         const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
 
-                        let dt = (t - t_tx).to_seconds();
-                        let we = EARTH_OMEGA_E_WGS84 * dt;
+                        let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
                         let (we_cos, we_sin) = (we.cos(), we.sin());
 
                         let r = Matrix3::<f64>::new(

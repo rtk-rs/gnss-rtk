@@ -124,9 +124,12 @@ impl Candidate {
     }
      */
     /*
-     * Compute and return signal transmission Epoch
+     * Computes signal transmission Epoch
+     * returns (t_tx, dt_ttx)
+     * "t_tx": Epoch in given timescale
+     * "dt_ttx": elapsed duration in seconds in given timescale
      */
-    pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<Epoch, Error> {
+    pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, f64), Error> {
         let (t, ts) = (self.t, self.t.time_scale);
         let seconds_ts = t.to_duration().to_seconds();
         let dt_tx = seconds_ts - self.prefered_pseudorange().value / SPEED_OF_LIGHT;
@@ -150,7 +153,7 @@ impl Candidate {
         } else if dt > 1.0 {
             Err(Error::PhysicalNonSenseRxTooLate)
         } else {
-            Ok(e_tx)
+            Ok((e_tx, dt))
         }
     }
     /*
