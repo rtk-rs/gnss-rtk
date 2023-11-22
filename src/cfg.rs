@@ -45,7 +45,7 @@ fn default_tropo() -> bool {
 }
 
 fn default_earth_rot() -> bool {
-    false
+    true
 }
 
 fn default_rel_clock_corr() -> bool {

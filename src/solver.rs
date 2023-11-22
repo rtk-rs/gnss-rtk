@@ -22,10 +22,9 @@ impl std::fmt::Display for Mode {
     }
 }
 
+use hifitime::Epoch;
 use log::{debug, error, warn};
 use thiserror::Error;
-
-use hifitime::Epoch;
 
 use nyx::md::prelude::{Arc, Cosm};
 use nyx_space::cosmic::eclipse::{eclipse_state, EclipseState};
@@ -34,7 +33,7 @@ use nyx_space::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::base::{DVector, MatrixXx4};
+use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
 
 use crate::{
     apriori::AprioriPosition,
@@ -77,9 +76,9 @@ pub enum Error {
 pub struct InterpolationResult {
     /// Position vector in [m] ECEF
     pub sky_pos: Vector3D,
-    /// Elevation compared to reference position and horizon
+    /// Elevation compared to reference position and horizon in [°]
     pub elevation: f64,
-    /// Azimuth compared to reference position and magnetic North
+    /// Azimuth compared to reference position and magnetic North in [°]
     pub azimuth: f64,
 }
 
@@ -122,14 +121,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /*
          * print some infos on latched config
          */
-        if cfg.modeling.iono_delay {
-            warn!("can't evluate ionospheric delay ourselves at the moment");
-        }
-
-        if cfg.modeling.earth_rotation {
-            warn!("can't compensate for earth rotation at the moment");
-        }
-
         if cfg.modeling.relativistic_clock_corr {
             warn!("relativistic clock corr. is not feasible at the moment");
         }
@@ -208,30 +199,33 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut pool: Vec<Candidate> = pool
             .iter()
             .filter_map(|c| {
-                let mut t_tx = c.transmission_time(&self.cfg).ok()?;
+                let t_tx = c.transmission_time(&self.cfg).ok()?;
 
-                // TODO : complete this equation please
-                if self.cfg.modeling.relativistic_clock_corr {
-                    let _e = 1.204112719279E-2;
-                    let _sqrt_a = 5.153704689026E3;
-                    let _sqrt_mu = (3986004.418E8_f64).sqrt();
-                    //let dt = -2.0_f64 * sqrt_a * sqrt_mu / SPEED_OF_LIGHT / SPEED_OF_LIGHT * e * elev.sin();
-                    // t_tx -=
-                }
-
-                // TODO : requires instantaneous speed
-                if self.cfg.modeling.earth_rotation {
-                    // dt = || rsat - rcvr0 || /c
-                    // rsat = R3 * we * dt * rsat
-                    // we = 7.2921151467 E-5
-                }
-
-                if let Some(interpolated) = (self.interpolator)(t_tx, c.sv, self.cfg.interp_order) {
+                if let Some(mut interpolated) =
+                    (self.interpolator)(t_tx, c.sv, self.cfg.interp_order)
+                {
                     let mut c = c.clone();
+
+                    if self.cfg.modeling.earth_rotation {
+                        const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
+
+                        let dt = (t - t_tx).to_seconds();
+                        let we = EARTH_OMEGA_E_WGS84 * dt;
+                        let (we_cos, we_sin) = (we.cos(), we.sin());
+
+                        let r = Matrix3::<f64>::new(
+                            we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64, 0.0_f64,
+                            1.0_f64,
+                        );
+
+                        interpolated.sky_pos = (r * interpolated.sky_pos.to_vec3()).into();
+                    }
+
                     debug!(
                         "{:?} ({}) : interpolated state: {:?}",
                         t_tx, c.sv, interpolated.sky_pos
                     );
+
                     c.state = Some(interpolated);
                     Some(c)
                 } else {

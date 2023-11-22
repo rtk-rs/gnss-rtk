@@ -144,7 +144,6 @@ impl Candidate {
             }
         }
 
-        /* run physical verification */
         let dt = (t - e_tx).to_seconds();
         if dt < 0.0 {
             Err(Error::PhysicalNonSenseRxPriorTx)
