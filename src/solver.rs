@@ -155,14 +155,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             cfg: cfg.clone(),
         })
     }
-    fn elect_candidates(
-        t: Epoch,
-        pool: Vec<Candidate>,
-        mode: Mode,
-        cfg: &Config,
-    ) -> Vec<Candidate> {
-        let mut p = pool.clone();
-        p.iter()
+    fn elect_candidates(pool: Vec<Candidate>, mode: Mode) -> Vec<Candidate> {
+        //let p = pool.clone();
+        pool.iter()
             .filter_map(|c| {
                 let mode_compliant = match mode {
                     Mode::SPP => true,
@@ -211,7 +206,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let modeling = self.cfg.modeling;
         let interp_order = self.cfg.interp_order;
 
-        let pool = Self::elect_candidates(t, pool, self.mode, &self.cfg);
+        let pool = Self::elect_candidates(pool, self.mode);
 
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
@@ -219,12 +214,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .filter_map(|c| {
                 let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
 
-                if let Some(mut interpolated) =
-                    (self.interpolator)(t_tx, c.sv, self.cfg.interp_order)
-                {
+                if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
                     let mut c = c.clone();
 
-                    if self.cfg.modeling.earth_rotation {
+                    if modeling.earth_rotation {
                         const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
 
                         let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
@@ -313,8 +306,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 self.mode,
                 (x0, y0, z0),
                 (lat_ddeg, lon_ddeg, altitude_above_sea_m),
-                &iono_bias,
-                &tropo_bias,
+                iono_bias,
+                tropo_bias,
                 row_index,
                 &mut y,
                 &mut g,

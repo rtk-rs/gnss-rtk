@@ -101,7 +101,7 @@ impl Default for Modeling {
 
 impl From<Mode> for Modeling {
     fn from(mode: Mode) -> Self {
-        let mut s = Self::default();
+        let s = Self::default();
         match mode {
             Mode::PPP => {
                 // TODO: unlock this please

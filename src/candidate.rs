@@ -66,7 +66,7 @@ impl Candidate {
         phase: Vec<Observation>,
         doppler: Vec<Observation>,
     ) -> Result<Self, Error> {
-        if code.len() == 0 {
+        if code.is_empty() {
             Err(Error::NeedsAtLeastOnePseudoRange)
         } else {
             Ok(Self {
@@ -178,10 +178,8 @@ impl Candidate {
         g: &mut MatrixXx4<f64>,
     ) -> Result<PVTSVData, Error> {
         // state
-        let sv = self.sv;
         let state = self.state.ok_or(Error::UnresolvedState)?;
         let (x0, y0, z0) = apriori;
-        let (lat_ddeg, lon_ddeg, _) = apriori_geo;
         let clock_corr = self.clock_corr.to_seconds();
         let (azimuth, elevation) = (state.azimuth, state.elevation);
         let (sv_x, sv_y, sv_z) = state.position();
@@ -233,12 +231,10 @@ impl Candidate {
                     debug!("{:?} : modeled tropo delay {:.3E}[m]", t, bias);
                     models += bias;
                     sv_data.tropo_bias = PVTBias::modeled(bias);
-                } else {
-                    if let Some(bias) = tropo_bias.bias(&rtm) {
-                        debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
-                        models += bias;
-                        sv_data.tropo_bias = PVTBias::measured(bias);
-                    }
+                } else if let Some(bias) = tropo_bias.bias(&rtm) {
+                    debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
+                    models += bias;
+                    sv_data.tropo_bias = PVTBias::measured(bias);
                 }
             }
 

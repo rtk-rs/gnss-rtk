@@ -95,7 +95,7 @@ pub struct NgModel {
 }
 
 impl NgModel {
-    pub(crate) fn bias(&self, rtm: &RuntimeParam) -> Option<f64> {
+    pub(crate) fn bias(&self, _rtm: &RuntimeParam) -> Option<f64> {
         //let phi = deg2rad(rtm.apriori_geo.0);
         //let mu = inclination / phi.cos().sqrt();
         None //TODO
@@ -110,7 +110,7 @@ pub struct BdModel {
 }
 
 impl BdModel {
-    pub(crate) fn bias(&self, rtm: &RuntimeParam) -> Option<f64> {
+    pub(crate) fn bias(&self, _rtm: &RuntimeParam) -> Option<f64> {
         //let phi = deg2rad(rtm.apriori_geo.0);
         //let mu = inclination / phi.cos().sqrt();
         None //TODO
@@ -119,7 +119,7 @@ impl BdModel {
 
 impl IonosphericBias {
     pub(crate) fn bias(&self, rtm: &RuntimeParam) -> Option<f64> {
-        if let Some(stec) = self.stec_meas {
+        if let Some(_stec) = self.stec_meas {
             // TODO
             // let alpha = 40.3 * 10E16 / frequency / frequency;
             None

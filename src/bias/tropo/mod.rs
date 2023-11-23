@@ -36,8 +36,7 @@ pub struct TroposphericBias {
 }
 
 fn niel_model(prm: &RuntimeParam) -> f64 {
-    const Ns: f64 = 324.8;
-    const c: f64 = 299792458.0;
+    const NS: f64 = 324.8;
 
     let (_, _, h) = prm.apriori_geo;
     let elev = map_3d::deg2rad(prm.elevation);
@@ -48,12 +47,12 @@ fn niel_model(prm: &RuntimeParam) -> f64 {
         false => 1.0,
     };
 
-    let deltaN = -7.32 * (0.005577 * Ns).exp();
+    let delta_n = -7.32 * (0.005577 * NS).exp();
 
-    let deltaR =
-        (Ns + 0.5 * deltaN - Ns * h_km - 0.5 * deltaN * h_km.powi(2) + 1430.0 + 732.0) * 0.001;
+    let delta_r =
+        (NS + 0.5 * delta_n - NS * h_km - 0.5 * delta_n * h_km.powi(2) + 1430.0 + 732.0) * 0.001;
 
-    f * deltaR
+    f * delta_r
 }
 
 impl TroposphericBias {
@@ -66,10 +65,10 @@ impl TroposphericBias {
                 (zdd + zwd) * 1.001_f64
                     / (0.002001_f64 + deg2rad(rtm.elevation).sin().powi(2)).sqrt(),
             )
-        } else if let Some(total) = self.total {
-            Some(total * 1.001_f64 / (0.002001_f64 + deg2rad(rtm.elevation).sin().powi(2)).sqrt())
         } else {
-            None
+            self.total.map(|total| {
+                total * 1.001_f64 / (0.002001_f64 + deg2rad(rtm.elevation).sin().powi(2)).sqrt()
+            })
         }
     }
     pub(crate) fn model(model: TropoModel, rtm: &RuntimeParam) -> f64 {
