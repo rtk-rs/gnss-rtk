@@ -44,6 +44,8 @@ pub struct Candidate {
     pub(crate) code: Vec<Observation>,
     // Phase observations
     pub(crate) phase: Vec<Observation>,
+    // Doppler observations
+    pub(crate) doppler: Vec<Observation>,
 }
 
 impl Candidate {
@@ -52,8 +54,9 @@ impl Candidate {
     /// t: Epoch at which the signals were sampled.
     /// clock_state: SV clock state.
     /// clock_corr: current clock correction (mandatory).
-    /// code: provide as many observations as you can
-    /// phase: provide as many observations as you can
+    /// "code": provide as many observations as you can
+    /// "phase": provide as many observations as you can
+    /// "doppler": provide as many observations as you can
     pub fn new(
         sv: SV,
         t: Epoch,
@@ -61,6 +64,7 @@ impl Candidate {
         clock_corr: Duration,
         code: Vec<Observation>,
         phase: Vec<Observation>,
+        doppler: Vec<Observation>,
     ) -> Result<Self, Error> {
         if code.len() == 0 {
             Err(Error::NeedsAtLeastOnePseudoRange)
@@ -72,6 +76,7 @@ impl Candidate {
                 clock_corr,
                 code,
                 phase,
+                doppler,
                 tgd: None,
                 state: None,
             })
