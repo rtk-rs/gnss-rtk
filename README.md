@@ -11,16 +11,19 @@ Precise position solver :crab:
 Solving method
 ==============
 
-The solver uses linear algebra implemented in the `nalgebra` library,
-we do not use a Kalman filter.
-This straightforward technique does not require initialization cycles and 
-we can form a Navigation Solution for every input, as long as all criterias were met.
+The solver uses linear algebra implemented in the `nalgebra` library.
 
-Some criterias are fixed by physics, others are customized and adjusted in the Solver Configuration.
+The current solver is straightforward and does not require initialization cycles.  
+We can resolve a PVT for every input as long as the criterias for the current setup are met.
+
+Some criterias are fixed by physics, others are customized and adjusted in the `Cfg` structure.
 
 The minimum requirements to form a solution :
 
-- at least 4 SV candidates passed all customized requirements
+- the minimal number of SV within the criterias are in sight: 
+  - 4 SV in default mode
+  - 3 SV in fixed altitude mode
+  - 1 SV in time only mode
 - user was able to provide observations that satisfy the resolution strategy
 - user was able to interpolate the SV state vector at the required _Epoch_
 
