@@ -175,7 +175,7 @@ impl Config {
                 min_sv_sunlight_rate: None,
                 // TODO: want to use +5.0/+10.0 here
                 //      once tropo is stabilized
-                min_sv_elev: None,
+                min_sv_elev: Some(10.0),
                 min_sv_snr: None,
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),
