@@ -4,12 +4,39 @@ use thiserror::Error;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::{Mode, TimeScale};
+use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
 
 /// Configuration Error
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("unknown tropo model")]
     UnknownTropoModel(String),
+}
+
+#[derive(Default, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub struct ElevationMappingFunction {
+    /// a + b * e-elev/c
+    pub a: f64,
+    /// a + b * e-elev/c
+    pub b: f64,
+    /// a + b * e-elev/c
+    pub c: f64,
+}
+
+impl ElevationMappingFunction {
+    pub(crate) fn eval(&self, elev_sv: f64) -> f64 {
+        self.a + self.b * (elev_sv / self.c).exp()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub enum LSQWeight {
+    /// a + b e-elev/c
+    LSQWeightMappingFunction(ElevationMappingFunction),
+    /// Advanced measurement noise covariance matrix
+    LSQWeightCovar,
 }
 
 fn default_timescale() -> TimeScale {
@@ -50,6 +77,10 @@ fn default_earth_rot() -> bool {
 
 fn default_rel_clock_corr() -> bool {
     false
+}
+
+fn default_lsq_weight() -> Option<LSQWeight> {
+    None
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -108,6 +139,7 @@ impl From<Mode> for Modeling {
                 // s.earth_rotation = true;
                 // TODO : unlock this please
                 // s.relativistic_clock_corr = true;
+                // TODO:
             },
             _ => {},
         }
@@ -136,6 +168,9 @@ pub struct Config {
     /// Internal delays
     #[cfg_attr(feature = "serde", serde(default))]
     pub int_delay: Vec<InternalDelay>,
+    /// Weight Matrix in LSQ solving process
+    #[cfg_attr(feature = "serde", serde(default = "default_lsq_weight"))]
+    pub lsq_weight: Option<LSQWeight>,
     /// Time Reference Delay, as defined by BIPM in
     /// "GPS Receivers Accurate Time Comparison" : the time delay
     /// between the GNSS receiver external reference clock and the sampling clock
@@ -181,6 +216,7 @@ impl Config {
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
+                lsq_weight: default_lsq_weight(),
             },
             Mode::PPP => Self {
                 timescale: default_timescale(),
@@ -196,6 +232,23 @@ impl Config {
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
+                lsq_weight: default_lsq_weight(),
+            },
+        }
+    }
+    /*
+     * form the weight matrix to be used in the solving process
+     */
+    pub(crate) fn lsq_weight_matrix(&self, nb_rows: usize, sv_elev: Vec<f64>) -> MatrixXx4<f64> {
+        match &self.lsq_weight {
+            None => MatrixXx4::from_diagonal_element(nb_rows, 1.0_f64),
+            Some(LSQWeight::LSQWeightCovar) => panic!("not implemented yet"),
+            Some(LSQWeight::LSQWeightMappingFunction(mapf)) => {
+                let mut elems = Vec::<f64>::with_capacity(nb_rows);
+                for i in 0..sv_elev.len() {
+                    elems.push(mapf.a + mapf.b * ((sv_elev[i]) / mapf.c).exp());
+                }
+                MatrixXx4::<f64>::from_partial_diagonal(nb_rows, &elems)
             },
         }
     }

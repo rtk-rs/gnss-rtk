@@ -12,6 +12,9 @@ mod cfg;
 mod solutions;
 mod solver;
 
+// pub export
+pub use solver::Error;
+
 // prelude
 pub mod prelude {
     pub use crate::apriori::AprioriPosition;
@@ -25,6 +28,3 @@ pub mod prelude {
     pub use hifitime::{Duration, Epoch, TimeScale};
     pub use nalgebra::Vector3;
 }
-
-// pub export
-pub use solver::Error;

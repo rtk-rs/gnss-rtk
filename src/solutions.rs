@@ -110,12 +110,15 @@ pub struct PVTSolution {
 impl PVTSolution {
     /// Builds a new PVTSolution from
     /// "g": the navigation matrix
+    /// "w": weights - eye matrix
     /// "y": the navigation vector
     /// "sv": attached SV data
     pub fn new(
         g: MatrixXx4<f64>,
+        w: MatrixXx4<f64>,
         y: DVector<f64>,
         sv: HashMap<SV, PVTSVData>,
+        prev: &Option<Self>,
     ) -> Result<Self, Error> {
         let g_prime = g.clone().transpose();
 
@@ -123,21 +126,27 @@ impl PVTSolution {
             .try_inverse()
             .ok_or(Error::MatrixInversionError)?;
 
-        let x = q * g_prime.clone();
-        let xy = x * y;
+        let x = (q * g_prime.clone()) * y;
+        let p = Vector3::new(x[0], x[1], x[2]);
 
-        let (x, y, z) = (xy[0], xy[1], xy[2]);
-        let dt = xy[3] / SPEED_OF_LIGHT;
-
+        let dt = x[3] / SPEED_OF_LIGHT;
         if dt.is_nan() {
-            return Err(Error::HasNan);
+            return Err(Error::TimeIsNan);
         }
+
+        let v = match prev {
+            Some(prev) => {
+                let dt = dt - prev.dt;
+                (Vector3::new(x[0], x[1], x[2]) - prev.p) / dt
+            },
+            None => Vector3::<f64>::default(),
+        };
 
         Ok(Self {
             sv,
             dt,
-            p: Vector3::new(x, y, z),
-            v: Vector3::<f64>::default(),
+            p,
+            v,
             hdop: (q[(0, 0)] + q[(1, 1)]).sqrt(),
             vdop: q[(2, 2)].sqrt(),
             tdop: q[(3, 3)].sqrt(),

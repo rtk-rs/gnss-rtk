@@ -25,12 +25,14 @@ use crate::{
 /// Solving mode
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
-    /// SPP : code based single point positioning.
-    /// Targets metric precision.
+    /// Single Point Positioning (SPP).
+    /// Combine this to advanced configurations (refined compensations),
+    /// and you may achieve metric precision in the best case.
     #[default]
     SPP,
-    /// PPP : code based precise point positioning.
-    /// Targets centimetric precision.
+    /// Precise Point Positioning (PPP).
+    /// Combine this to advanced configurations (refined compensations)
+    /// and you may achieve centimetric precision.
     PPP,
 }
 
@@ -51,8 +53,8 @@ pub enum Error {
     NotEnoughFittingCandidates,
     #[error("failed to invert navigation matrix")]
     MatrixInversionError,
-    #[error("NaN: input or output error")]
-    HasNan,
+    #[error("reolved NaN: invalid input matrix")]
+    TimeIsNan,
     #[error("undefined apriori position")]
     UndefinedAprioriPosition,
     #[error("at least one pseudo range observation is mandatory")]
@@ -115,12 +117,14 @@ where
     /// will not proceed further. User should provide the interpolation method.
     /// Other parameters are SV: Space Vehicle identity we want to resolve, and "usize" interpolation order.
     pub interpolator: I,
-    /// cosmic model
+    /* Cosmic model */
     cosmic: Arc<Cosm>,
-    /// Earth frame
+    /* Earth frame */
     earth_frame: Frame,
-    /// Sun frame
+    /* Sun frame */
     sun_frame: Frame,
+    /* prev. solution for internal logic */
+    prev_pvt: Option<PVTSolution>,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
@@ -153,6 +157,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             apriori,
             interpolator,
             cfg: cfg.clone(),
+            prev_pvt: Option::<PVTSolution>::None,
         })
     }
     fn elect_candidates(pool: Vec<Candidate>, mode: Mode) -> Vec<Candidate> {
@@ -316,8 +321,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             }
         }
 
+        let w = self.cfg.lsq_weight_matrix(
+            nb_candidates,
+            pvt_sv_data
+                .iter()
+                .map(|(sv, sv_data)| sv_data.elevation)
+                .collect(),
+        );
+
         //debug!("{:?} - {:#?}, {:#?}", t, y, g);
-        let mut pvt_solution = PVTSolution::new(g, y, pvt_sv_data)?;
+        let mut pvt_solution = PVTSolution::new(g.clone(), w, y, pvt_sv_data, &self.prev_pvt)?;
 
         /*
          * slightly rework the solution so it ""physically"" (/ looks like)
@@ -326,17 +339,20 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
             pvt_solution.v.z = 0.0_f64;
+            pvt_solution.v.z = 0.0_f64;
         }
 
         match solution {
             PVTSolutionType::TimeOnly => {
                 pvt_solution.p = Vector3::<f64>::default();
+                pvt_solution.v = Vector3::<f64>::default();
                 pvt_solution.hdop = 0.0_f64;
                 pvt_solution.vdop = 0.0_f64;
             },
             _ => {},
         }
 
+        self.prev_pvt = Some(pvt_solution.clone());
         Ok((t, pvt_solution))
     }
     /*

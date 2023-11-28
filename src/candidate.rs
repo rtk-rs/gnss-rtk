@@ -203,80 +203,64 @@ impl Candidate {
             y[row_index] -= delay * SPEED_OF_LIGHT;
         }
 
-        if mode == Mode::SPP {
-            let pr = self.prefered_pseudorange();
-            let (pr, frequency) = (pr.value, pr.frequency);
+        let pr = self.prefered_pseudorange();
+        let (pr, frequency) = (pr.value, pr.frequency);
 
-            /*
-             * TODO: frequency dependent delays
-             */
+        /*
+         * TODO: frequency dependent delays
+         */
 
-            /*
-             * IONO + TROPO biases
-             */
-            let rtm = bias::RuntimeParam {
-                t,
-                elevation,
-                azimuth,
-                apriori_geo,
-                frequency,
-            };
+        /*
+         * IONO + TROPO biases
+         */
+        let rtm = bias::RuntimeParam {
+            t,
+            elevation,
+            azimuth,
+            apriori_geo,
+            frequency,
+        };
 
-            /*
-             * TROPO
-             */
-            if cfg.modeling.tropo_delay {
-                if tropo_bias.needs_modeling() {
-                    let bias = TroposphericBias::model(TropoModel::Niel, &rtm);
-                    debug!("{:?} : modeled tropo delay {:.3E}[m]", t, bias);
-                    models += bias;
-                    sv_data.tropo_bias = PVTBias::modeled(bias);
-                } else if let Some(bias) = tropo_bias.bias(&rtm) {
-                    debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
-                    models += bias;
-                    sv_data.tropo_bias = PVTBias::measured(bias);
-                }
+        /*
+         * TROPO
+         */
+        if cfg.modeling.tropo_delay {
+            if tropo_bias.needs_modeling() {
+                let bias = TroposphericBias::model(TropoModel::Niel, &rtm);
+                debug!("{:?} : modeled tropo delay {:.3E}[m]", t, bias);
+                models += bias;
+                sv_data.tropo_bias = PVTBias::modeled(bias);
+            } else if let Some(bias) = tropo_bias.bias(&rtm) {
+                debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
+                models += bias;
+                sv_data.tropo_bias = PVTBias::measured(bias);
             }
-
-            /*
-             * IONO
-             */
-            if cfg.modeling.iono_delay {
-                if let Some(bias) = iono_bias.bias(&rtm) {
-                    debug!(
-                        "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
-                        t, rtm.frequency, bias
-                    );
-                    models += bias;
-                    sv_data.iono_bias = PVTBias::modeled(bias);
-                }
-            }
-
-            /*
-             * Possible frequency dependent delays
-             */
-            for delay in &cfg.int_delay {
-                if delay.frequency == frequency {
-                    y[row_index] += delay.delay * SPEED_OF_LIGHT;
-                }
-            }
-
-            y[row_index] = pr - rho - models;
-        } else {
-            // let comb = self.combination().ok_or(Error::SignalRecombination)?;
-
-            // /*
-            //  * Possibly frequency dependent delays
-            //  */
-            // for delay in &cfg.int_delay {
-            //     //TODO <o
-            //     if delay.frequency == comb.f1 {
-            //         y[row_index] += delay.delay * SPEED_OF_LIGHT;
-            //     }
-            // }
-
-            // y[row_index] = comb.value - rho - models;
         }
+
+        /*
+         * IONO
+         */
+        if cfg.modeling.iono_delay {
+            if let Some(bias) = iono_bias.bias(&rtm) {
+                debug!(
+                    "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
+                    t, rtm.frequency, bias
+                );
+                models += bias;
+                sv_data.iono_bias = PVTBias::modeled(bias);
+            }
+        }
+
+        /*
+         * Possible frequency dependent delays
+         */
+        for delay in &cfg.int_delay {
+            if delay.frequency == frequency {
+                y[row_index] += delay.delay * SPEED_OF_LIGHT;
+            }
+        }
+
+        y[row_index] = pr - rho - models;
 
         Ok(sv_data)
     }
