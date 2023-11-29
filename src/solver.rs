@@ -340,14 +340,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
             pvt_solution.v.z = 0.0_f64;
+            pvt_solution.covar[(2, 2)] = 0.0_f64;
         }
 
         match solution {
             PVTSolutionType::TimeOnly => {
                 pvt_solution.p = Vector3::<f64>::default();
                 pvt_solution.v = Vector3::<f64>::default();
-                pvt_solution.hdop = 0.0_f64;
-                pvt_solution.vdop = 0.0_f64;
+                pvt_solution.covar[(0, 0)] = 0.0_f64;
+                pvt_solution.covar[(1, 1)] = 0.0_f64;
+                pvt_solution.covar[(2, 2)] = 0.0_f64;
             },
             _ => {},
         }

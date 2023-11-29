@@ -27,7 +27,7 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nalgebra::base::{DVector, MatrixXx4};
+use nalgebra::base::{DVector, Matrix4, MatrixXx4};
 use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
@@ -96,12 +96,8 @@ pub struct PVTSolution {
     pub v: Vector3<f64>,
     /// Time correction in [s]
     pub dt: f64,
-    /// Horizontal Dilution of Precision
-    pub hdop: f64,
-    /// Vertical Dilution of Precision
-    pub vdop: f64,
-    /// Time Dilution of Precision in [s]
-    pub tdop: f64,
+    /// Covariance matrix
+    pub(crate) covar: Matrix4<f64>,
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV
     pub sv: HashMap<SV, PVTSVData>,
@@ -113,7 +109,7 @@ impl PVTSolution {
     /// "w": weights - eye matrix
     /// "y": the navigation vector
     /// "sv": attached SV data
-    pub fn new(
+    pub(crate) fn new(
         g: MatrixXx4<f64>,
         w: MatrixXx4<f64>,
         y: DVector<f64>,
@@ -121,11 +117,11 @@ impl PVTSolution {
     ) -> Result<Self, Error> {
         let g_prime = g.clone().transpose();
 
-        let q = (g_prime.clone() * g.clone())
+        let covar = (g_prime.clone() * g.clone())
             .try_inverse()
             .ok_or(Error::MatrixInversionError)?;
 
-        let x = (q * g_prime.clone()) * y;
+        let x = (covar * g_prime.clone()) * y;
         let p = Vector3::new(x[0], x[1], x[2]);
 
         let dt = x[3] / SPEED_OF_LIGHT;
@@ -138,13 +134,23 @@ impl PVTSolution {
             p,
             v: Vector3::<f64>::default(),
             dt,
-            hdop: (q[(0, 0)] + q[(1, 1)]).sqrt(),
-            vdop: q[(2, 2)].sqrt(),
-            tdop: q[(3, 3)].sqrt(),
+            covar,
         })
     }
     /// Returns list of Space Vehicles (SV) that help form this solution.
     pub fn sv(&self) -> Vec<SV> {
         self.sv.keys().copied().collect()
+    }
+    /// Returns Horizontal Dilution of Precision of this PVT
+    pub fn hdop(&self) -> f64 {
+        (self.covar[(0, 0)] + self.covar[(1, 1)]).sqrt()
+    }
+    /// Returns Vertical Dilution of Precision of this PVT
+    pub fn vdop(&self) -> f64 {
+        self.covar[(2, 2)].sqrt()
+    }
+    /// Returns Time Dilution of Precision of this PVT
+    pub fn tdop(&self) -> f64 {
+        self.covar[(3, 3)].sqrt()
     }
 }
