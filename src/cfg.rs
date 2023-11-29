@@ -189,7 +189,7 @@ pub struct Config {
     pub min_sv_elev: Option<f64>,
     /// Minimal SNR for an SV to be considered.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub min_sv_snr: Option<f64>,
+    pub min_snr: Option<f64>,
     /// modeling
     #[cfg_attr(feature = "serde", serde(default))]
     pub modeling: Modeling,
@@ -208,8 +208,8 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_sv_sunlight_rate: None,
-                min_sv_elev: None, //Some(10.0),
-                min_sv_snr: None,
+                min_sv_elev: Some(10.0),
+                min_snr: Some(30.0),
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
@@ -223,8 +223,8 @@ impl Config {
                 code_smoothing: default_smoothing(),
                 min_sv_sunlight_rate: Some(0.75),
                 min_sv_elev: Some(10.0),
-                //TODO min_sv_snr: Some(SNR::from_str("strong").unwrap()),
-                min_sv_snr: None,
+                min_snr: Some(30.0),
+                //TODO min_snr: Some(SNR::from_str("strong").unwrap()),
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),

@@ -160,22 +160,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             prev_pvt: Option::<PVTSolution>::None,
         })
     }
-    fn elect_candidates(pool: Vec<Candidate>, mode: Mode) -> Vec<Candidate> {
-        //let p = pool.clone();
-        pool.iter()
-            .filter_map(|c| {
-                let mode_compliant = match mode {
-                    Mode::SPP => true,
-                    Mode::PPP => true, //TODO verify compliance please
-                };
-                if mode_compliant {
-                    Some(c.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
     /// Try to resolve a PVTSolution at desired "t".
     /// "t": sampling instant.
     /// "solution": desired PVTSolutionType.
@@ -210,8 +194,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         let modeling = self.cfg.modeling;
         let interp_order = self.cfg.interp_order;
-
-        let pool = Self::elect_candidates(pool, self.mode);
 
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
@@ -267,6 +249,22 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     }
                 }
                 idx += 1;
+            }
+        }
+
+        /* remove observed signals above snr mask (if any) */
+        if let Some(min_snr) = self.cfg.min_snr {
+            for idx in 0..pool.len() {
+                let (init_code, init_phase) = (pool[idx].code.len(), pool[idx].phase.len());
+                pool[idx].min_snr_mask(min_snr);
+                let delta_code = init_code - pool[idx].code.len();
+                let delta_phase = init_phase - pool[idx].phase.len();
+                if delta_code > 0 || delta_phase > 0 {
+                    debug!(
+                        "{:?} ({}) : {} code | {} phase below snr mask",
+                        pool[idx].t, pool[idx].sv, delta_code, delta_phase
+                    );
+                }
             }
         }
 

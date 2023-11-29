@@ -95,6 +95,47 @@ impl Candidate {
             .unwrap()
     }
     /*
+     * apply min SNR mask
+     */
+    pub(crate) fn min_snr_mask(&mut self, min_snr: f64) {
+        self.code = self
+            .code
+            .iter()
+            .filter_map(|c| {
+                let snr = c.snr?;
+                if snr < min_snr {
+                    None
+                } else {
+                    Some(c.clone())
+                }
+            })
+            .collect();
+        self.doppler = self
+            .doppler
+            .iter()
+            .filter_map(|c| {
+                let snr = c.snr?;
+                if snr < min_snr {
+                    None
+                } else {
+                    Some(c.clone())
+                }
+            })
+            .collect();
+        self.phase = self
+            .phase
+            .iter()
+            .filter_map(|c| {
+                let snr = c.snr?;
+                if snr < min_snr {
+                    None
+                } else {
+                    Some(c.clone())
+                }
+            })
+            .collect();
+    }
+    /*
      * Try to form signal combination
     fn combination(&self) -> Option<Combination> {
         if self.pseudo_range.len() == 1 {
