@@ -118,7 +118,6 @@ impl PVTSolution {
         w: MatrixXx4<f64>,
         y: DVector<f64>,
         sv: HashMap<SV, PVTSVData>,
-        prev: &Option<Self>,
     ) -> Result<Self, Error> {
         let g_prime = g.clone().transpose();
 
@@ -126,8 +125,7 @@ impl PVTSolution {
             .try_inverse()
             .ok_or(Error::MatrixInversionError)?;
 
-        let x = q * g_prime.clone();
-        let x = x * y;
+        let x = (q * g_prime.clone()) * y;
         let p = Vector3::new(x[0], x[1], x[2]);
 
         let dt = x[3] / SPEED_OF_LIGHT;
@@ -135,18 +133,10 @@ impl PVTSolution {
             return Err(Error::TimeIsNan);
         }
 
-        let v = match prev {
-            Some(prev) => {
-                let dt = dt - prev.dt;
-                (Vector3::new(x[0], x[1], x[2]) - prev.p) / dt
-            },
-            None => Vector3::<f64>::default(),
-        };
-
         Ok(Self {
             sv,
             p,
-            v,
+            v: Vector3::<f64>::default(),
             dt,
             hdop: (q[(0, 0)] + q[(1, 1)]).sqrt(),
             vdop: q[(2, 2)].sqrt(),

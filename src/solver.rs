@@ -124,7 +124,7 @@ where
     /* Sun frame */
     sun_frame: Frame,
     /* prev. solution for internal logic */
-    prev_pvt: Option<PVTSolution>,
+    prev_pvt: Option<(Epoch, PVTSolution)>,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
@@ -157,7 +157,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             apriori,
             interpolator,
             cfg: cfg.clone(),
-            prev_pvt: Option::<PVTSolution>::None,
+            prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
     }
     /// Try to resolve a PVTSolution at desired "t".
@@ -327,7 +327,11 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 .collect(),
         );
 
-        let mut pvt_solution = PVTSolution::new(g.clone(), w, y, pvt_sv_data, &self.prev_pvt)?;
+        let mut pvt_solution = PVTSolution::new(g.clone(), w, y, pvt_sv_data)?;
+
+        if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
+            pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
+        }
 
         /*
          * slightly rework the solution so it ""physically"" (/ looks like)
@@ -348,7 +352,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             _ => {},
         }
 
-        self.prev_pvt = Some(pvt_solution.clone());
+        self.prev_pvt = Some((t, pvt_solution.clone()));
         Ok((t, pvt_solution))
     }
     /*
