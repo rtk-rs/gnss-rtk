@@ -4,7 +4,7 @@ use thiserror::Error;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::{Mode, TimeScale};
-use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix3, MatrixXx4, Vector3};
 
 /// Configuration Error
 #[derive(Debug, Error)]
@@ -228,7 +228,13 @@ impl Config {
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
-                lsq_weight: None,
+                lsq_weight: Some(LSQWeight::LSQWeightMappingFunction(
+                    ElevationMappingFunction {
+                        a: 0.03,
+                        b: 0.03,
+                        c: 100.0,
+                    },
+                )),
             },
             Mode::PPP => Self {
                 timescale: default_timescale(),
@@ -250,18 +256,18 @@ impl Config {
     /*
      * form the weight matrix to be used in the solving process
      */
-    pub(crate) fn lsq_weight_matrix(&self, nb_rows: usize, sv_elev: Vec<f64>) -> MatrixXx4<f64> {
+    pub(crate) fn lsq_weight_matrix(&self, nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
+        let mut mat = DMatrix::identity(sv_elev.len(), sv_elev.len());
         match &self.lsq_weight {
-            None => MatrixXx4::from_diagonal_element(nb_rows, 1.0_f64),
             Some(LSQWeight::LSQWeightCovar) => panic!("not implemented yet"),
             Some(LSQWeight::LSQWeightMappingFunction(mapf)) => {
-                let mut elems = Vec::<f64>::with_capacity(nb_rows);
-                for i in 0..sv_elev.len() {
-                    elems.push(mapf.a + mapf.b * ((sv_elev[i]) / mapf.c).exp());
+                for i in 0..sv_elev.len() - 1 {
+                    mat[(i, i)] = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
                 }
-                MatrixXx4::<f64>::from_partial_diagonal(nb_rows, &elems)
             },
+            None => {},
         }
+        mat
     }
 }
 

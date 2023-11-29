@@ -27,7 +27,7 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nalgebra::base::{DVector, Matrix1x4, Matrix4, Matrix4x1, MatrixXx4};
+use nalgebra::base::{DMatrix, DVector, Matrix1x4, Matrix4, Matrix4x1, MatrixXx4};
 use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
@@ -119,7 +119,7 @@ impl PVTSolution {
     /// "sv": attached SV data
     pub(crate) fn new(
         g: MatrixXx4<f64>,
-        w: MatrixXx4<f64>,
+        w: DMatrix<f64>,
         y: DVector<f64>,
         sv: HashMap<SV, PVTSVData>,
         p_state: Option<Estimate>,
@@ -128,10 +128,10 @@ impl PVTSolution {
 
         let estimate = match p_state {
             None => {
-                let q = (g_prime.clone() * g.clone())
+                let q = (g_prime.clone() * w.clone() * g.clone())
                     .try_inverse()
                     .ok_or(Error::MatrixInversionError)?;
-                let x = (q * g_prime.clone()) * y;
+                let x = (q * g_prime.clone()) * w.clone() * y;
                 Estimate { x, covar: q }
             },
             Some(state) => {
@@ -140,12 +140,12 @@ impl PVTSolution {
                     .try_inverse()
                     .ok_or(Error::CovarMatrixInversionError)?;
 
-                let q = g_prime.clone() * g.clone();
+                let q = g_prime.clone() * w.clone() * g.clone();
                 let covar = (p_1 + q)
                     .try_inverse()
                     .ok_or(Error::CovarMatrixInversionError)?;
 
-                let x = covar * (p_1 * state.x + (g_prime.clone() * y));
+                let x = covar * (p_1 * state.x + (g_prime.clone() * w.clone() * y));
                 Estimate { x, covar }
             },
         };
