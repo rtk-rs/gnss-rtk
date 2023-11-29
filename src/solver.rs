@@ -12,14 +12,14 @@ use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
+use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
 
 use crate::{
     apriori::AprioriPosition,
     bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
     cfg::Config,
-    solutions::{PVTSVData, PVTSolution, PVTSolutionType},
+    solutions::{Estimate, PVTSVData, PVTSolution, PVTSolutionType},
 };
 
 /// Solving mode
@@ -27,20 +27,36 @@ use crate::{
 pub enum Mode {
     /// Single Point Positioning (SPP).
     /// Combine this to advanced configurations (refined compensations),
-    /// and you may achieve metric precision in the best case.
+    /// and you may achieve a precision of a few meters.
     #[default]
     SPP,
+    /// Least Square Single Point Positioning (SPP).
+    /// Combine this to advanced configurations (refined compensations),
+    /// and you may achieve metric precision in the best case.
+    LSQSPP,
     /// Precise Point Positioning (PPP).
     /// Combine this to advanced configurations (refined compensations)
     /// and you may achieve centimetric precision.
     PPP,
 }
 
+impl Mode {
+    fn is_ppp(&self) -> bool {
+        matches!(*self, Self::PPP)
+    }
+    fn is_spp(&self) -> bool {
+        !self.is_ppp()
+    }
+    fn is_recursive(&self) -> bool {
+        matches!(*self, Self::LSQSPP)
+    }
+}
+
 impl std::fmt::Display for Mode {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::SPP => write!(fmt, "SPP"),
             Self::PPP => write!(fmt, "PPP"),
+            Self::SPP | Self::LSQSPP => write!(fmt, "SPP"),
         }
     }
 }
@@ -53,6 +69,8 @@ pub enum Error {
     NotEnoughFittingCandidates,
     #[error("failed to invert navigation matrix")]
     MatrixInversionError,
+    #[error("failed to invert covar matrix")]
+    CovarMatrixInversionError,
     #[error("reolved NaN: invalid input matrix")]
     TimeIsNan,
     #[error("undefined apriori position")]
@@ -125,6 +143,8 @@ where
     sun_frame: Frame,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
+    /* prev. estimate for recursive impl. */
+    prev_state: Option<Estimate>,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
@@ -145,7 +165,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             warn!("relativistic clock corr. is not feasible at the moment");
         }
 
-        if mode == Mode::SPP && cfg.min_sv_sunlight_rate.is_some() {
+        if mode.is_spp() && cfg.min_sv_sunlight_rate.is_some() {
             warn!("eclipse filter is not meaningful when using spp strategy");
         }
 
@@ -158,6 +178,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             interpolator,
             cfg: cfg.clone(),
             prev_pvt: Option::<(Epoch, PVTSolution)>::None,
+            prev_state: Option::<Estimate>::None,
         })
     }
     /// Try to resolve a PVTSolution at desired "t".
@@ -327,10 +348,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 .collect(),
         );
 
-        let mut pvt_solution = PVTSolution::new(g.clone(), w, y, pvt_sv_data)?;
+        let mut pvt_solution =
+            PVTSolution::new(g.clone(), w, y, pvt_sv_data, self.prev_state.clone())?;
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
             pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
+            if self.mode.is_recursive() {
+                self.prev_state = Some(pvt_solution.estimate.clone());
+            }
         }
 
         /*
@@ -340,16 +365,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
             pvt_solution.v.z = 0.0_f64;
-            pvt_solution.covar[(2, 2)] = 0.0_f64;
+            pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
         }
 
         match solution {
             PVTSolutionType::TimeOnly => {
                 pvt_solution.p = Vector3::<f64>::default();
                 pvt_solution.v = Vector3::<f64>::default();
-                pvt_solution.covar[(0, 0)] = 0.0_f64;
-                pvt_solution.covar[(1, 1)] = 0.0_f64;
-                pvt_solution.covar[(2, 2)] = 0.0_f64;
+                pvt_solution.estimate.covar[(0, 0)] = 0.0_f64;
+                pvt_solution.estimate.covar[(1, 1)] = 0.0_f64;
+                pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
             },
             _ => {},
         }

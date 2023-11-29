@@ -27,7 +27,7 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nalgebra::base::{DVector, Matrix4, MatrixXx4};
+use nalgebra::base::{DVector, Matrix1x4, Matrix4, Matrix4x1, MatrixXx4};
 use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
@@ -85,28 +85,36 @@ pub struct PVTSVData {
     pub iono_bias: PVTBias,
 }
 
+#[derive(Default, Clone, Debug)]
+pub struct Estimate {
+    /* x: estimate */
+    pub(crate) x: Matrix4x1<f64>,
+    /* and its covariance matrix */
+    pub(crate) covar: Matrix4<f64>,
+}
+
 /// PVT Solution, always expressed as the correction to apply
 /// to an Apriori / static position.
 #[derive(Debug, Clone, Default)]
 // #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
-    /// X, Y, Z corrections (in [m] ECEF)
+    /// Position errors (in [m] ECEF)
     pub p: Vector3<f64>,
     /// Absolute Velocity (in [m/s] ECEF).
     pub v: Vector3<f64>,
     /// Time correction in [s]
     pub dt: f64,
-    /// Covariance matrix
-    pub(crate) covar: Matrix4<f64>,
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV
     pub sv: HashMap<SV, PVTSVData>,
+    // estimate
+    pub(crate) estimate: Estimate,
 }
 
 impl PVTSolution {
     /// Builds a new PVTSolution from
     /// "g": the navigation matrix
-    /// "w": weights - eye matrix
+    /// "w": diagonal weight matrix
     /// "y": the navigation vector
     /// "sv": attached SV data
     pub(crate) fn new(
@@ -114,27 +122,45 @@ impl PVTSolution {
         w: MatrixXx4<f64>,
         y: DVector<f64>,
         sv: HashMap<SV, PVTSVData>,
+        p_state: Option<Estimate>,
     ) -> Result<Self, Error> {
         let g_prime = g.clone().transpose();
 
-        let covar = (g_prime.clone() * g.clone())
-            .try_inverse()
-            .ok_or(Error::MatrixInversionError)?;
+        let estimate = match p_state {
+            None => {
+                let q = (g_prime.clone() * g.clone())
+                    .try_inverse()
+                    .ok_or(Error::MatrixInversionError)?;
+                let x = (q * g_prime.clone()) * y;
+                Estimate { x, covar: q }
+            },
+            Some(state) => {
+                let p_1 = state
+                    .covar
+                    .try_inverse()
+                    .ok_or(Error::CovarMatrixInversionError)?;
 
-        let x = (covar * g_prime.clone()) * y;
-        let p = Vector3::new(x[0], x[1], x[2]);
+                let q = g_prime.clone() * g.clone();
+                let covar = (p_1 + q)
+                    .try_inverse()
+                    .ok_or(Error::CovarMatrixInversionError)?;
 
-        let dt = x[3] / SPEED_OF_LIGHT;
+                let x = covar * (p_1 * state.x + (g_prime.clone() * y));
+                Estimate { x, covar }
+            },
+        };
+
+        let dt = estimate.x[3] / SPEED_OF_LIGHT;
         if dt.is_nan() {
             return Err(Error::TimeIsNan);
         }
 
         Ok(Self {
             sv,
-            p,
+            p: Vector3::new(estimate.x[0], estimate.x[1], estimate.x[2]),
             v: Vector3::<f64>::default(),
             dt,
-            covar,
+            estimate,
         })
     }
     /// Returns list of Space Vehicles (SV) that help form this solution.
@@ -143,14 +169,14 @@ impl PVTSolution {
     }
     /// Returns Horizontal Dilution of Precision of this PVT
     pub fn hdop(&self) -> f64 {
-        (self.covar[(0, 0)] + self.covar[(1, 1)]).sqrt()
+        (self.estimate.covar[(0, 0)] + self.estimate.covar[(1, 1)]).sqrt()
     }
     /// Returns Vertical Dilution of Precision of this PVT
     pub fn vdop(&self) -> f64 {
-        self.covar[(2, 2)].sqrt()
+        self.estimate.covar[(2, 2)].sqrt()
     }
     /// Returns Time Dilution of Precision of this PVT
     pub fn tdop(&self) -> f64 {
-        self.covar[(3, 3)].sqrt()
+        self.estimate.covar[(3, 3)].sqrt()
     }
 }
