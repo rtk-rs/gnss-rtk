@@ -87,12 +87,11 @@ impl Candidate {
      * Infaillible, because we don't allow to build Self without at least
      * 1 PR observation
      */
-    pub(crate) fn prefered_pseudorange(&self) -> &Observation {
+    pub(crate) fn prefered_pseudorange(&self) -> Option<&Observation> {
         self.code
             .iter()
             // .map(|pr| pr.value)
             .reduce(|k, _| k)
-            .unwrap()
     }
     /*
      * apply min SNR mask
@@ -178,7 +177,14 @@ impl Candidate {
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, f64), Error> {
         let (t, ts) = (self.t, self.t.time_scale);
         let seconds_ts = t.to_duration().to_seconds();
-        let dt_tx = seconds_ts - self.prefered_pseudorange().value / SPEED_OF_LIGHT;
+
+        let dt_tx = seconds_ts
+            - self
+                .prefered_pseudorange()
+                .ok_or(Error::MissingPseudoRange)?
+                .value
+                / SPEED_OF_LIGHT;
+
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
 
         if cfg.modeling.sv_clock_bias {
@@ -244,7 +250,10 @@ impl Candidate {
             y[row_index] -= delay * SPEED_OF_LIGHT;
         }
 
-        let pr = self.prefered_pseudorange();
+        let pr = self
+            .prefered_pseudorange()
+            .ok_or(Error::MissingPseudoRange)?;
+
         let (pr, frequency) = (pr.value, pr.frequency);
 
         /*

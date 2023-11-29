@@ -75,6 +75,8 @@ pub enum Error {
     TimeIsNan,
     #[error("undefined apriori position")]
     UndefinedAprioriPosition,
+    #[error("missing pseudo range observation")]
+    MissingPseudoRange,
     #[error("at least one pseudo range observation is mandatory")]
     NeedsAtLeastOnePseudoRange,
     #[error("failed to model or measure ionospheric delay")]
