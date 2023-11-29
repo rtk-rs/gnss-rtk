@@ -329,7 +329,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 .collect(),
         );
 
-        //debug!("{:?} - {:#?}, {:#?}", t, y, g);
         let mut pvt_solution = PVTSolution::new(g.clone(), w, y, pvt_sv_data, &self.prev_pvt)?;
 
         /*
@@ -338,7 +337,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
          */
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
-            pvt_solution.v.z = 0.0_f64;
             pvt_solution.v.z = 0.0_f64;
         }
 
