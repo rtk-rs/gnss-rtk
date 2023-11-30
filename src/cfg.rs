@@ -75,8 +75,8 @@ fn default_earth_rot() -> bool {
     true
 }
 
-fn default_rel_clock_corr() -> bool {
-    false
+fn default_relativistic_effect() -> bool {
+    true
 }
 
 fn default_lsq_weight() -> Option<LSQWeight> {
@@ -106,6 +106,8 @@ pub struct Modeling {
     #[cfg_attr(feature = "serde", serde(default))]
     pub sv_clock_bias: bool,
     #[cfg_attr(feature = "serde", serde(default))]
+    pub sv_relativistic_effect: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
     pub tropo_delay: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub iono_delay: bool,
@@ -113,8 +115,6 @@ pub struct Modeling {
     pub sv_total_group_delay: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub earth_rotation: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub relativistic_clock_corr: bool,
 }
 
 impl Default for Modeling {
@@ -125,7 +125,7 @@ impl Default for Modeling {
             tropo_delay: default_tropo(),
             sv_total_group_delay: default_sv_tgd(),
             earth_rotation: default_earth_rot(),
-            relativistic_clock_corr: default_rel_clock_corr(),
+            sv_relativistic_effect: default_relativistic_effect(),
         }
     }
 }

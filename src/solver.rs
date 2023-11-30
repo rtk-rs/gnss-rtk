@@ -1,12 +1,14 @@
 //! PVT solver
 use std::collections::HashMap;
 
-use hifitime::Epoch;
+use hifitime::{Epoch, Unit};
 use log::{debug, error, warn};
+use map_3d::deg2rad;
 use thiserror::Error;
 
 use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
 use nyx::cosmic::Orbit;
+use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::md::prelude::{Arc, Cosm};
 use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
@@ -116,7 +118,16 @@ impl InterpolationResult {
     pub(crate) fn orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
         let (x, y, z) = self.position();
         let (v_x, v_y, v_z) = self.velocity().unwrap_or((0.0_f64, 0.0_f64, 0.0_f64));
-        Orbit::cartesian(x, y, z, v_x / 1000.0, v_y / 1000.0, v_z / 1000.0, dt, frame)
+        Orbit::cartesian(
+            x / 1000.0,
+            y / 1000.0,
+            z / 1000.0,
+            v_x / 1000.0,
+            v_y / 1000.0,
+            v_z / 1000.0,
+            dt,
+            frame,
+        )
     }
 }
 
@@ -159,14 +170,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
         let earth_frame = cosmic.frame("EME2000");
-
         /*
          * print some infos on latched config
          */
-        if cfg.modeling.relativistic_clock_corr {
-            warn!("relativistic clock corr. is not feasible at the moment");
-        }
-
         if mode.is_spp() && cfg.min_sv_sunlight_rate.is_some() {
             warn!("eclipse filter is not meaningful when using spp strategy");
         }
@@ -221,23 +227,37 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
-            .filter_map(|c| {
+            .filter_map(|mut c| {
                 let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
 
                 if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
                     let mut c = c.clone();
-
+                    if modeling.sv_relativistic_effect {
+                        if interpolated.velocity.is_some() { // otherwise, following calaculations would diverge
+                            let orbit = interpolated.orbit(t_tx, self.earth_frame);
+                            const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
+                            const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
+                            let orbit = interpolated.orbit(t_tx, self.earth_frame);
+                            let ea_rad = deg2rad(orbit.ea_deg());
+                            let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
+                            let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm / SPEED_OF_LIGHT / SPEED_OF_LIGHT * Unit::Second;
+                            debug!(
+                                "{:?} ({}) : relativistic effect: {}",
+                                t_tx, c.sv, bias
+                            );
+                            c.clock_corr += bias;
+                        } else {
+                            warn!("{:?} ({}) : relativistic effect can't be compensated without velocity interpolation", t_tx, c.sv);
+                        }
+                    }
                     if modeling.earth_rotation {
                         const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
-
                         let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
                         let (we_cos, we_sin) = (we.cos(), we.sin());
-
                         let r = Matrix3::<f64>::new(
                             we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64, 0.0_f64,
                             1.0_f64,
                         );
-
                         interpolated.position = r * interpolated.position;
                     }
 

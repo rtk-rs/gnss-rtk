@@ -3,6 +3,7 @@
 use gnss::prelude::SV;
 use hifitime::Unit;
 use log::debug;
+use map_3d::deg2rad;
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
 
@@ -13,6 +14,7 @@ use crate::{
     bias::{IonosphericBias, TropoModel, TroposphericBias},
     Error,
 };
+use nyx::md::prelude::Frame;
 
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, Clone)]
@@ -154,25 +156,11 @@ impl Candidate {
     }
      */
     /*
-     * Returns IONOD possibly impacting
-    pub(crate) fn ionod_model(&self, frequency: f64) -> Option<Duration> {
-        self.modeled_ionod
-            .iter()
-            .filter_map(|ionod| {
-                if ionod.frequency == frequency {
-                    Some(ionod.time_delay)
-                } else {
-                    None
-                }
-            })
-            .reduce(|k, _| k)
-    }
-     */
-    /*
      * Computes signal transmission Epoch
      * returns (t_tx, dt_ttx)
      * "t_tx": Epoch in given timescale
      * "dt_ttx": elapsed duration in seconds in given timescale
+     * "frame": Solid body reference Frame
      */
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, f64), Error> {
         let (t, ts) = (self.t, self.t.time_scale);
