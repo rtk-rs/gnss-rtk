@@ -75,8 +75,12 @@ fn default_earth_rot() -> bool {
     true
 }
 
-fn default_relativistic_effect() -> bool {
+fn default_relativistic_clock_bias() -> bool {
     true
+}
+
+fn default_relativistic_path_range() -> bool {
+    false
 }
 
 fn default_lsq_weight() -> Option<LSQWeight> {
@@ -106,13 +110,15 @@ pub struct Modeling {
     #[cfg_attr(feature = "serde", serde(default))]
     pub sv_clock_bias: bool,
     #[cfg_attr(feature = "serde", serde(default))]
-    pub sv_relativistic_effect: bool,
+    pub sv_total_group_delay: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub relativistic_clock_bias: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub relativistic_path_range: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub tropo_delay: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub iono_delay: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub sv_total_group_delay: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub earth_rotation: bool,
 }
@@ -125,7 +131,8 @@ impl Default for Modeling {
             tropo_delay: default_tropo(),
             sv_total_group_delay: default_sv_tgd(),
             earth_rotation: default_earth_rot(),
-            sv_relativistic_effect: default_relativistic_effect(),
+            relativistic_clock_bias: default_relativistic_clock_bias(),
+            relativistic_path_range: default_relativistic_path_range(),
         }
     }
 }
@@ -135,11 +142,7 @@ impl From<Mode> for Modeling {
         let s = Self::default();
         match mode {
             Mode::PPP => {
-                // TODO: unlock this please
-                // s.earth_rotation = true;
-                // TODO : unlock this please
-                // s.relativistic_clock_corr = true;
-                // TODO:
+                // TODO ?
             },
             _ => {},
         }
@@ -208,7 +211,7 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_sv_sunlight_rate: None,
-                min_sv_elev: Some(10.0),
+                min_sv_elev: Some(15.0),
                 min_snr: Some(30.0),
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),

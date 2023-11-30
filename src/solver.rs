@@ -154,6 +154,8 @@ where
     earth_frame: Frame,
     /* Sun frame */
     sun_frame: Frame,
+    /* prev. state vector for speed determination */
+    prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
     /* prev. estimate for recursive impl. */
@@ -170,11 +172,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
         let earth_frame = cosmic.frame("EME2000");
+
         /*
          * print some infos on latched config
          */
         if mode.is_spp() && cfg.min_sv_sunlight_rate.is_some() {
             warn!("eclipse filter is not meaningful when using spp strategy");
+        }
+        if cfg.modeling.relativistic_path_range {
+            warn!("relativistic path range cannot be modeled at the moment");
         }
 
         Ok(Self {
@@ -185,8 +191,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             apriori,
             interpolator,
             cfg: cfg.clone(),
-            prev_pvt: Option::<(Epoch, PVTSolution)>::None,
+            prev_sv_state: HashMap::new(),
             prev_state: Option::<Estimate>::None,
+            prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
     }
     /// Try to resolve a PVTSolution at desired "t".
@@ -232,33 +239,57 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
                 if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
                     let mut c = c.clone();
-                    if modeling.sv_relativistic_effect {
-                        if interpolated.velocity.is_some() { // otherwise, following calaculations would diverge
+
+                    let rot = match modeling.earth_rotation {
+                        true => {
+                            const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
+                            let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
+                            let (we_cos, we_sin) = (we.cos(), we.sin());
+                            Matrix3::<f64>::new(
+                                we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64,
+                                0.0_f64, 1.0_f64,
+                            )
+                        },
+                        false => Matrix3::<f64>::new(
+                            1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64,
+                            1.0_f64,
+                        ),
+                    };
+
+                    interpolated.position = rot * interpolated.position;
+
+                    if modeling.relativistic_clock_bias {
+                        if interpolated.velocity.is_none() {
+                            /*
+                             * we're interested in determining inst. speed vector
+                             * but the user did not provide it, let's eval. it ourselves
+                             */
+                            if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
+                                let dt = (t_tx - *p_ttx).to_seconds();
+                                interpolated.velocity =
+                                    Some((rot * interpolated.position - rot * p_position) / dt);
+                            }
+                        }
+
+                        if interpolated.velocity.is_some() {
+                            // otherwise, following calaculations would diverge
                             let orbit = interpolated.orbit(t_tx, self.earth_frame);
                             const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
                             const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
                             let orbit = interpolated.orbit(t_tx, self.earth_frame);
                             let ea_rad = deg2rad(orbit.ea_deg());
-                            let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
-                            let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm / SPEED_OF_LIGHT / SPEED_OF_LIGHT * Unit::Second;
-                            debug!(
-                                "{:?} ({}) : relativistic effect: {}",
-                                t_tx, c.sv, bias
-                            );
+                            let gm =
+                                (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
+                            let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm
+                                / SPEED_OF_LIGHT
+                                / SPEED_OF_LIGHT
+                                * Unit::Second;
+                            debug!("{:?} ({}) : relativistic clock bias: {}", t_tx, c.sv, bias);
                             c.clock_corr += bias;
-                        } else {
-                            warn!("{:?} ({}) : relativistic effect can't be compensated without velocity interpolation", t_tx, c.sv);
                         }
-                    }
-                    if modeling.earth_rotation {
-                        const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
-                        let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
-                        let (we_cos, we_sin) = (we.cos(), we.sin());
-                        let r = Matrix3::<f64>::new(
-                            we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64, 0.0_f64,
-                            1.0_f64,
-                        );
-                        interpolated.position = r * interpolated.position;
+
+                        self.prev_sv_state
+                            .insert(c.sv, (t_tx, interpolated.position));
                     }
 
                     debug!(

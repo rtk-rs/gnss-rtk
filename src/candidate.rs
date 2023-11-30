@@ -229,7 +229,10 @@ impl Candidate {
         g[(row_index, 2)] = (z0 - sv_z) / rho;
         g[(row_index, 3)] = 1.0_f64;
 
-        let mut models = -clock_corr * SPEED_OF_LIGHT;
+        let mut models = 0.0_f64;
+        if cfg.modeling.sv_clock_bias {
+            models -= clock_corr * SPEED_OF_LIGHT;
+        }
 
         /*
          * Possible delay compensations
