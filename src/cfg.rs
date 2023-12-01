@@ -112,7 +112,7 @@ pub struct SolverOpts {
     #[cfg_attr(feature = "serde", serde(default = "default_lsq_weight"))]
     pub lsq_weight: Option<LSQWeight>,
 }
-   
+
 impl SolverOpts {
     /*
      * form the weight matrix to be used in the solving process
@@ -270,7 +270,8 @@ impl Config {
                             a: 0.03,
                             b: 0.03,
                             c: 100.0,
-                        })),
+                        },
+                    )),
                 },
             },
             Mode::PPP => Self {
@@ -293,7 +294,8 @@ impl Config {
                             a: 0.03,
                             b: 0.03,
                             c: 100.0,
-                        })),
+                        },
+                    )),
                 },
             },
         }

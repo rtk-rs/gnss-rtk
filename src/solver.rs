@@ -17,10 +17,10 @@ use gnss::prelude::SV;
 use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
 
 use crate::{
-    cfg::Config,
-    candidate::Candidate,
     apriori::AprioriPosition,
     bias::{IonosphericBias, TroposphericBias},
+    candidate::Candidate,
+    cfg::Config,
     solutions::{Estimate, PVTSVData, PVTSolution, PVTSolutionType},
 };
 
@@ -332,16 +332,22 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* remove observed signals above snr mask (if any) */
         if let Some(min_snr) = self.cfg.min_snr {
-            let mut nb_removed :usize = 0;
+            let mut nb_removed: usize = 0;
             for idx in 0..pool.len() {
-                let (init_code, init_phase) = (pool[idx - nb_removed].code.len(), pool[idx - nb_removed].phase.len());
+                let (init_code, init_phase) = (
+                    pool[idx - nb_removed].code.len(),
+                    pool[idx - nb_removed].phase.len(),
+                );
                 pool[idx - nb_removed].min_snr_mask(min_snr);
                 let delta_code = init_code - pool[idx - nb_removed].code.len();
                 let delta_phase = init_phase - pool[idx - nb_removed].phase.len();
                 if delta_code > 0 || delta_phase > 0 {
                     debug!(
                         "{:?} ({}) : {} code | {} phase below snr mask",
-                        pool[idx - nb_removed].t, pool[idx - nb_removed].sv, delta_code, delta_phase
+                        pool[idx - nb_removed].t,
+                        pool[idx - nb_removed].sv,
+                        delta_code,
+                        delta_phase
                     );
                 }
                 /* make sure we're still compliant with the strategy */
@@ -424,8 +430,13 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 .collect(),
         );
 
-        let mut pvt_solution =
-            PVTSolution::new(g.clone(), w.clone(), y.clone(), pvt_sv_data, self.prev_state.clone())?;
+        let mut pvt_solution = PVTSolution::new(
+            g.clone(),
+            w.clone(),
+            y.clone(),
+            pvt_sv_data,
+            self.prev_state.clone(),
+        )?;
 
         /*
          * Solution validation : GDOP
@@ -437,19 +448,19 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 return Err(Error::GDOPInvalidation(gdop));
             }
         }
-        
+
         if mode.is_recursive() {
             /*
              * Solution validation : residual vector
              */
             let mut residuals = DVector::<f64>::zeros(nb_candidates);
             for i in 0..nb_candidates {
-                residuals[i] = y[i] - 0.0_f64 / w[(i , i)];
+                residuals[i] = y[i] - 0.0_f64 / w[(i, i)];
             }
             // let denom = m - n - 1;
             // residuals.clone().transpose() * residuals / denom;
         }
-        
+
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
             pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
             if mode.is_recursive() {

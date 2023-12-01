@@ -169,7 +169,11 @@ impl PVTSolution {
     }
     /// Returns Geometrical Dilution of Precision of Self
     pub fn gdop(&self) -> f64 {
-        (self.estimate.covar[(0, 0)] + self.estimate.covar[(1, 1)] + self.estimate.covar[(2,2)] + self.estimate.covar[(3, 3)]).sqrt()
+        (self.estimate.covar[(0, 0)]
+            + self.estimate.covar[(1, 1)]
+            + self.estimate.covar[(2, 2)]
+            + self.estimate.covar[(3, 3)])
+            .sqrt()
     }
     /// Returns Horizontal Dilution of Precision of Self
     pub fn hdop(&self) -> f64 {
