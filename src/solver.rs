@@ -332,16 +332,35 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* remove observed signals above snr mask (if any) */
         if let Some(min_snr) = self.cfg.min_snr {
+            let mut nb_removed :usize = 0;
             for idx in 0..pool.len() {
-                let (init_code, init_phase) = (pool[idx].code.len(), pool[idx].phase.len());
-                pool[idx].min_snr_mask(min_snr);
-                let delta_code = init_code - pool[idx].code.len();
-                let delta_phase = init_phase - pool[idx].phase.len();
+                let (init_code, init_phase) = (pool[idx - nb_removed].code.len(), pool[idx - nb_removed].phase.len());
+                pool[idx - nb_removed].min_snr_mask(min_snr);
+                let delta_code = init_code - pool[idx - nb_removed].code.len();
+                let delta_phase = init_phase - pool[idx - nb_removed].phase.len();
                 if delta_code > 0 || delta_phase > 0 {
                     debug!(
                         "{:?} ({}) : {} code | {} phase below snr mask",
-                        pool[idx].t, pool[idx].sv, delta_code, delta_phase
+                        pool[idx - nb_removed].t, pool[idx - nb_removed].sv, delta_code, delta_phase
                     );
+                }
+                /* make sure we're still compliant with the strategy */
+                match mode {
+                    Mode::SPP | Mode::LSQSPP => {
+                        if pool[idx - nb_removed].code.len() == 0 {
+                            debug!("{:?} ({}) dropped on bad snr", pool[idx].t, pool[idx].sv);
+                            let _ = pool.swap_remove(idx - nb_removed);
+                            nb_removed += 1;
+                        }
+                    },
+                    Mode::PPP => {
+                        let mut drop = !pool[idx - nb_removed].dual_freq_pseudorange();
+                        drop |= !pool[idx - nb_removed].dual_freq_phase();
+                        if drop {
+                            let _ = pool.swap_remove(idx - nb_removed);
+                            nb_removed += 1;
+                        }
+                    },
                 }
             }
         }
@@ -398,8 +417,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         let w = self.cfg.solver.lsq_weight_matrix(
-            //nb_candidates,
-            pvt_sv_data.len(), 
+            nb_candidates,
             pvt_sv_data
                 .iter()
                 .map(|(sv, sv_data)| sv_data.elevation)
