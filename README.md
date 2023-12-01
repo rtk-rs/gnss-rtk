@@ -8,46 +8,76 @@ GNSS-RTK
 
 Precise position solver :crab:
 
-Solving method
-==============
+Notes on this ecosystem
+=======================
 
-The solver uses linear algebra implemented in the `nalgebra` library.
-
-The current solver is straightforward and does not require initialization cycles.  
-We can resolve a PVT for every input as long as the criterias for the current setup are met.
-
-Some criterias are fixed by physics, others are customized and adjusted in the `Cfg` structure.
-
-The minimum requirements to form a solution :
-
-- the minimal number of SV within the criterias are in sight: 
-  - 4 SV in default mode
-  - 3 SV in fixed altitude mode
-  - 1 SV in time only mode
-- user was able to provide observations that satisfy the resolution strategy
-- user was able to interpolate the SV state vector at the required _Epoch_
+We use `nalgebra` in the solving process (Matrix, Vectors..).  
+We use `nyx` for ephemerides, orbital calculations, navigation filters, etc..  
+`Hifitime` is at the very basis of this work and allows pretty much everything here.  
+[The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework.  
+[The RNX2CGGTTS and its Wiki](https://github.com/georust/rinex/wiki) is another interesting application of this framework.
 
 PVT Solutions
 =============
 
-The solver tries to resolve a Position Velocity Time (PVT) solution of the receiver.  
-Currently the Velocity term is not evaluated, therefore we only output Positions and Time errors.
-Dilution of precisions are estimated and attached to each solution.
+The objective is to resolve a PVT solution, implemented in the form of a `prelude::PVTSolution`,
+ideally the most precise as possible, at a given _Epoch_.
 
-Single Point Position (SPP)
-===========================
+Resolving a PVT requires a minimum number of SV (actual measurements)
+in sight and within the predefined criterias:
 
-The solver supports the SPP resolution method.
+- 4 SV in default mode
+- 3 SV in fixed altitude mode
+- 1 SV in time only mode
 
-SPP can be deployed in degraded conditions where only one carrier signal and/or a unique constellation is in sight.
-In such conditions:
+The predefined criterias are manually set in the configuration file, 
+refer to its [own documentation](./doc/config.md). This means the criterias can be
+loosened or tightened, depending on what you want to achieve.
 
-- you can only hope for a precision of a few meters.    
-- an interpolation order of 9 makes sense, going above will increase the computation load without any benefit.
-- the solver will have to estimate the total bias due to Ionospheric delay. If you can define
-these components accurately yourself, you are encouranged to do it (see related API section and following paragraphs)
+Some constraints on the measurements may apply too, as a rule of thumb:
 
-## Atmospherical and Environmental conditions modeling
+- `SPP` strategies will only require Pseudo Range and will resolve without Phase observations.
+This makes these strategies capapble to deploy on constrained and degraged environment.
+For example: old receivers, single constellation in sight.. etc..
+
+- `PPP` strategies require not only Pseudo Range but also Phase observations
+and the sampling of two different radio frequencies. No solutions will be formed
+if this predicate (on top of all the others explained here) do not stand.
+
+We support several methods (also sometimes refered to as _strategies_) which
+will have the solver behave differently, due to their very different nature.   
+The method is set by the `solver::Mode`.
+
+Dilution of precisions along other meaningful information are attached to each PVT solution.
+
+This solver will eventually be able to resolve along any known GNSS constellation,
+including a mixed pool of spacecrafts (for example a combination of GAL + GPS), 
+and also express the PVT solution against any supported GNSS Time system (for example GST).
+
+Strategies and behavior
+=======================
+
+We support a couple of strategies, only advanced strategies will give the best results
+(most precise solutions):
+
+- [spp](./doc/spp.md)
+- [lsqspp](./doc/lsqspp.md)
+- [ppp](./doc/ppp.md)
+
+As a rule of thumb: 
+
+- Non recursive strategies (like [spp](./doc/spp.md)) will generate
+a solution as along as enough signal measurements were provided.
+- Any physical phenomena can be accounted for in this framework,
+on any strategy, even though some will not be meaningful depending on the
+configuration setup.  
+- The GDOP criteria can still be used to reject PVT solutions of non recursive strategies
+- Only recursive strategies will take truly use other solver options of the configuration file.
+
+The current API allows changing the strategy from one Epoch to another and this framework will most likely behave fine.   
+But note that this has not been tested and is not the typical use of such tool.
+
+## Atmospherical and Environmental biases
 
 This solver is always capable of modelizing all conditions and form a solution.   
 It is important to understand how our API is designed and operate it the best you can to get the best results.
@@ -90,16 +120,3 @@ It is important to understand how, when and what to customize depending on your 
 
 When working with the "cli" application, you can provide an RTKConfiguration
 in the form of JSON, with `--rtk-cfg`.
-
-RINEX Post Processing
-=====================
-
-The [rinex-cli application](https://github.com/georust/rinex) is there
-to post process RINEX data and resolve PVT solutions from it.
-
-CGGTTS: PVT and advanced Timing
-===============================
-
-The [rnx2cggtts application](https://github.com/georust/rinex) uses this
-solver to estimate local clock performances and allow the comparison
-of two remote clocks.

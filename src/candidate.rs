@@ -2,9 +2,13 @@
 
 use gnss::prelude::SV;
 use hifitime::Unit;
+use itertools::Itertools;
 use log::debug;
+use map_3d::deg2rad;
+
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
+use nyx::md::prelude::Frame;
 
 use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, Vector3};
 use crate::solutions::{PVTBias, PVTSVData};
@@ -94,6 +98,28 @@ impl Candidate {
             .reduce(|k, _| k)
     }
     /*
+     * Returns true if we have pseudo range observ on two carriers
+     */
+    pub(crate) fn dual_freq_pseudorange(&self) -> bool {
+        self.code
+            .iter()
+            .map(|c| (c.frequency * 10.0) as u16)
+            .unique()
+            .count()
+            > 0
+    }
+    /*
+     * Returns true if we have phase observ on two carriers
+     */
+    pub(crate) fn dual_freq_phase(&self) -> bool {
+        self.phase
+            .iter()
+            .map(|c| (c.frequency * 10.0) as u16)
+            .unique()
+            .count()
+            > 0
+    }
+    /*
      * apply min SNR mask
      */
     pub(crate) fn min_snr_mask(&mut self, min_snr: f64) {
@@ -154,25 +180,11 @@ impl Candidate {
     }
      */
     /*
-     * Returns IONOD possibly impacting
-    pub(crate) fn ionod_model(&self, frequency: f64) -> Option<Duration> {
-        self.modeled_ionod
-            .iter()
-            .filter_map(|ionod| {
-                if ionod.frequency == frequency {
-                    Some(ionod.time_delay)
-                } else {
-                    None
-                }
-            })
-            .reduce(|k, _| k)
-    }
-     */
-    /*
      * Computes signal transmission Epoch
      * returns (t_tx, dt_ttx)
      * "t_tx": Epoch in given timescale
      * "dt_ttx": elapsed duration in seconds in given timescale
+     * "frame": Solid body reference Frame
      */
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, f64), Error> {
         let (t, ts) = (self.t, self.t.time_scale);
@@ -241,7 +253,10 @@ impl Candidate {
         g[(row_index, 2)] = (z0 - sv_z) / rho;
         g[(row_index, 3)] = 1.0_f64;
 
-        let mut models = -clock_corr * SPEED_OF_LIGHT;
+        let mut models = 0.0_f64;
+        if cfg.modeling.sv_clock_bias {
+            models -= clock_corr * SPEED_OF_LIGHT;
+        }
 
         /*
          * Possible delay compensations

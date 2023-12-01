@@ -1,12 +1,14 @@
 //! PVT solver
 use std::collections::HashMap;
 
-use hifitime::Epoch;
+use hifitime::{Epoch, Unit};
 use log::{debug, error, warn};
+use map_3d::deg2rad;
 use thiserror::Error;
 
 use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
 use nyx::cosmic::Orbit;
+use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::md::prelude::{Arc, Cosm};
 use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
@@ -89,6 +91,8 @@ pub enum Error {
     PhysicalNonSenseRxPriorTx,
     #[error("physical non sense: t_rx is too late")]
     PhysicalNonSenseRxTooLate,
+    #[error("solution invalidated: gdop too large {0:.3E}")]
+    GDOPInvalidation(f64),
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -116,7 +120,16 @@ impl InterpolationResult {
     pub(crate) fn orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
         let (x, y, z) = self.position();
         let (v_x, v_y, v_z) = self.velocity().unwrap_or((0.0_f64, 0.0_f64, 0.0_f64));
-        Orbit::cartesian(x, y, z, v_x / 1000.0, v_y / 1000.0, v_z / 1000.0, dt, frame)
+        Orbit::cartesian(
+            x / 1000.0,
+            y / 1000.0,
+            z / 1000.0,
+            v_x / 1000.0,
+            v_y / 1000.0,
+            v_z / 1000.0,
+            dt,
+            frame,
+        )
     }
 }
 
@@ -147,6 +160,8 @@ where
     prev_pvt: Option<(Epoch, PVTSolution)>,
     /* prev. estimate for recursive impl. */
     prev_state: Option<Estimate>,
+    /* prev. state vector for internal velocity determination */
+    prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
@@ -163,12 +178,11 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /*
          * print some infos on latched config
          */
-        if cfg.modeling.relativistic_clock_corr {
-            warn!("relativistic clock corr. is not feasible at the moment");
-        }
-
         if mode.is_spp() && cfg.min_sv_sunlight_rate.is_some() {
             warn!("eclipse filter is not meaningful when using spp strategy");
+        }
+        if cfg.modeling.relativistic_path_range {
+            warn!("relativistic path range cannot be modeled at the moment");
         }
 
         Ok(Self {
@@ -179,8 +193,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             apriori,
             interpolator,
             cfg: cfg.clone(),
-            prev_pvt: Option::<(Epoch, PVTSolution)>::None,
+            prev_sv_state: HashMap::new(),
             prev_state: Option::<Estimate>::None,
+            prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
     }
     /// Try to resolve a PVTSolution at desired "t".
@@ -215,30 +230,70 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             self.apriori.geodetic.z,
         );
 
+        let mode = self.mode;
         let modeling = self.cfg.modeling;
+        let solver_opts = &self.cfg.solver;
         let interp_order = self.cfg.interp_order;
 
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
-            .filter_map(|c| {
+            .filter_map(|mut c| {
                 let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
 
                 if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
                     let mut c = c.clone();
 
-                    if modeling.earth_rotation {
-                        const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
-
-                        let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
-                        let (we_cos, we_sin) = (we.cos(), we.sin());
-
-                        let r = Matrix3::<f64>::new(
-                            we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64, 0.0_f64,
+                    let rot = match modeling.earth_rotation {
+                        true => {
+                            const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
+                            let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
+                            let (we_cos, we_sin) = (we.cos(), we.sin());
+                            Matrix3::<f64>::new(
+                                we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64,
+                                0.0_f64, 1.0_f64,
+                            )
+                        },
+                        false => Matrix3::<f64>::new(
+                            1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64,
                             1.0_f64,
-                        );
+                        ),
+                    };
 
-                        interpolated.position = r * interpolated.position;
+                    interpolated.position = rot * interpolated.position;
+
+                    if modeling.relativistic_clock_bias {
+                        if interpolated.velocity.is_none() {
+                            /*
+                             * we're interested in determining inst. speed vector
+                             * but the user did not provide it, let's eval. it ourselves
+                             */
+                            if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
+                                let dt = (t_tx - *p_ttx).to_seconds();
+                                interpolated.velocity =
+                                    Some((rot * interpolated.position - rot * p_position) / dt);
+                            }
+                        }
+
+                        if interpolated.velocity.is_some() {
+                            // otherwise, following calaculations would diverge
+                            let orbit = interpolated.orbit(t_tx, self.earth_frame);
+                            const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
+                            const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
+                            let orbit = interpolated.orbit(t_tx, self.earth_frame);
+                            let ea_rad = deg2rad(orbit.ea_deg());
+                            let gm =
+                                (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
+                            let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm
+                                / SPEED_OF_LIGHT
+                                / SPEED_OF_LIGHT
+                                * Unit::Second;
+                            debug!("{:?} ({}) : relativistic clock bias: {}", t_tx, c.sv, bias);
+                            c.clock_corr += bias;
+                        }
+
+                        self.prev_sv_state
+                            .insert(c.sv, (t_tx, interpolated.position));
                     }
 
                     debug!(
@@ -277,16 +332,41 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* remove observed signals above snr mask (if any) */
         if let Some(min_snr) = self.cfg.min_snr {
+            let mut nb_removed: usize = 0;
             for idx in 0..pool.len() {
-                let (init_code, init_phase) = (pool[idx].code.len(), pool[idx].phase.len());
-                pool[idx].min_snr_mask(min_snr);
-                let delta_code = init_code - pool[idx].code.len();
-                let delta_phase = init_phase - pool[idx].phase.len();
+                let (init_code, init_phase) = (
+                    pool[idx - nb_removed].code.len(),
+                    pool[idx - nb_removed].phase.len(),
+                );
+                pool[idx - nb_removed].min_snr_mask(min_snr);
+                let delta_code = init_code - pool[idx - nb_removed].code.len();
+                let delta_phase = init_phase - pool[idx - nb_removed].phase.len();
                 if delta_code > 0 || delta_phase > 0 {
                     debug!(
                         "{:?} ({}) : {} code | {} phase below snr mask",
-                        pool[idx].t, pool[idx].sv, delta_code, delta_phase
+                        pool[idx - nb_removed].t,
+                        pool[idx - nb_removed].sv,
+                        delta_code,
+                        delta_phase
                     );
+                }
+                /* make sure we're still compliant with the strategy */
+                match mode {
+                    Mode::SPP | Mode::LSQSPP => {
+                        if pool[idx - nb_removed].code.len() == 0 {
+                            debug!("{:?} ({}) dropped on bad snr", pool[idx].t, pool[idx].sv);
+                            let _ = pool.swap_remove(idx - nb_removed);
+                            nb_removed += 1;
+                        }
+                    },
+                    Mode::PPP => {
+                        let mut drop = !pool[idx - nb_removed].dual_freq_pseudorange();
+                        drop |= !pool[idx - nb_removed].dual_freq_phase();
+                        if drop {
+                            let _ = pool.swap_remove(idx - nb_removed);
+                            nb_removed += 1;
+                        }
+                    },
                 }
             }
         }
@@ -304,7 +384,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 };
                 if eclipsed {
                     debug!(
-                        "{:?} ({}): earth eclipsed, dropping",
+                        "{:?} ({}): dropped - eclipsed by earth",
                         pool[idx].t, pool[idx].sv
                     );
                     let _ = pool.swap_remove(idx);
@@ -329,7 +409,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             if let Ok(sv_data) = cd.resolve(
                 t,
                 &self.cfg,
-                self.mode,
+                mode,
                 (x0, y0, z0),
                 (lat_ddeg, lon_ddeg, altitude_above_sea_m),
                 iono_bias,
@@ -342,7 +422,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             }
         }
 
-        let w = self.cfg.lsq_weight_matrix(
+        let w = self.cfg.solver.lsq_weight_matrix(
             nb_candidates,
             pvt_sv_data
                 .iter()
@@ -350,12 +430,40 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 .collect(),
         );
 
-        let mut pvt_solution =
-            PVTSolution::new(g.clone(), w, y, pvt_sv_data, self.prev_state.clone())?;
+        let mut pvt_solution = PVTSolution::new(
+            g.clone(),
+            w.clone(),
+            y.clone(),
+            pvt_sv_data,
+            self.prev_state.clone(),
+        )?;
+
+        /*
+         * Solution validation : GDOP
+         */
+        if let Some(max_gdop) = solver_opts.gdop_threshold {
+            let gdop = pvt_solution.gdop();
+            if gdop > max_gdop {
+                // invalidate
+                return Err(Error::GDOPInvalidation(gdop));
+            }
+        }
+
+        if mode.is_recursive() {
+            /*
+             * Solution validation : residual vector
+             */
+            let mut residuals = DVector::<f64>::zeros(nb_candidates);
+            for i in 0..nb_candidates {
+                residuals[i] = y[i] - 0.0_f64 / w[(i, i)];
+            }
+            // let denom = m - n - 1;
+            // residuals.clone().transpose() * residuals / denom;
+        }
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
             pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
-            if self.mode.is_recursive() {
+            if mode.is_recursive() {
                 self.prev_state = Some(pvt_solution.estimate.clone());
             }
         }
@@ -367,16 +475,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
             pvt_solution.v.z = 0.0_f64;
-            pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
+            // pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
         }
 
         match solution {
             PVTSolutionType::TimeOnly => {
                 pvt_solution.p = Vector3::<f64>::default();
                 pvt_solution.v = Vector3::<f64>::default();
-                pvt_solution.estimate.covar[(0, 0)] = 0.0_f64;
-                pvt_solution.estimate.covar[(1, 1)] = 0.0_f64;
-                pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
+                // pvt_solution.estimate.covar[(0, 0)] = 0.0_f64;
+                // pvt_solution.estimate.covar[(1, 1)] = 0.0_f64;
+                // pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
             },
             _ => {},
         }

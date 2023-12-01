@@ -1,6 +1,6 @@
 [package]
 name = "gnss-rtk"
-version = "0.3.0"
+version = "0.3.1"
 license = "MIT OR Apache-2.0"
 authors = ["Guillaume W. Bres <guillaume.bressaix@gmail.com>"]
 description = "GNSS position solver"
@@ -15,6 +15,7 @@ readme = "README.md"
 log = "0.4"
 thiserror = "1"
 map_3d = "0.1.5"
+itertools = "0.12.0"
 nalgebra = "0.32.3"
 nyx-space = "=2.0.0-beta.0" 
 gnss-rs = { version = "2.1.2", features = ["serde"] }
