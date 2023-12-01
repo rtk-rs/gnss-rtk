@@ -2,10 +2,13 @@
 
 use gnss::prelude::SV;
 use hifitime::Unit;
+use itertools::Itertools;
 use log::debug;
 use map_3d::deg2rad;
+
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
+use nyx::md::prelude::Frame;
 
 use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, Vector3};
 use crate::solutions::{PVTBias, PVTSVData};
@@ -14,7 +17,6 @@ use crate::{
     bias::{IonosphericBias, TropoModel, TroposphericBias},
     Error,
 };
-use nyx::md::prelude::Frame;
 
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, Clone)]
@@ -94,6 +96,28 @@ impl Candidate {
             .iter()
             // .map(|pr| pr.value)
             .reduce(|k, _| k)
+    }
+    /*
+     * Returns true if we have pseudo range observ on two carriers
+     */
+    pub(crate) fn dual_freq_pseudorange(&self) -> bool {
+        self.code
+            .iter()
+            .map(|c| (c.frequency * 10.0) as u16)
+            .unique()
+            .count()
+            > 0
+    }
+    /*
+     * Returns true if we have phase observ on two carriers
+     */
+    pub(crate) fn dual_freq_phase(&self) -> bool {
+        self.phase
+            .iter()
+            .map(|c| (c.frequency * 10.0) as u16)
+            .unique()
+            .count()
+            > 0
     }
     /*
      * apply min SNR mask
