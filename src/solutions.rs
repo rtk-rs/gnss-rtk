@@ -167,15 +167,19 @@ impl PVTSolution {
     pub fn sv(&self) -> Vec<SV> {
         self.sv.keys().copied().collect()
     }
-    /// Returns Horizontal Dilution of Precision of this PVT
+    /// Returns Geometrical Dilution of Precision of Self
+    pub fn gdop(&self) -> f64 {
+        (self.estimate.covar[(0, 0)] + self.estimate.covar[(1, 1)] + self.estimate.covar[(2,2)] + self.estimate.covar[(3, 3)]).sqrt()
+    }
+    /// Returns Horizontal Dilution of Precision of Self
     pub fn hdop(&self) -> f64 {
         (self.estimate.covar[(0, 0)] + self.estimate.covar[(1, 1)]).sqrt()
     }
-    /// Returns Vertical Dilution of Precision of this PVT
+    /// Returns Vertical Dilution of Precision of Self
     pub fn vdop(&self) -> f64 {
         self.estimate.covar[(2, 2)].sqrt()
     }
-    /// Returns Time Dilution of Precision of this PVT
+    /// Returns Time Dilution of Precision of Self
     pub fn tdop(&self) -> f64 {
         self.estimate.covar[(3, 3)].sqrt()
     }

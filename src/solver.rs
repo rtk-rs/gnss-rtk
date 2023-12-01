@@ -17,10 +17,10 @@ use gnss::prelude::SV;
 use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
 
 use crate::{
+    cfg::Config,
+    candidate::Candidate,
     apriori::AprioriPosition,
     bias::{IonosphericBias, TroposphericBias},
-    candidate::Candidate,
-    cfg::Config,
     solutions::{Estimate, PVTSVData, PVTSolution, PVTSolutionType},
 };
 
@@ -91,6 +91,8 @@ pub enum Error {
     PhysicalNonSenseRxPriorTx,
     #[error("physical non sense: t_rx is too late")]
     PhysicalNonSenseRxTooLate,
+    #[error("solution invalidated: gdop too large {0:.3E}")]
+    GDOPInvalidation(f64),
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -154,12 +156,12 @@ where
     earth_frame: Frame,
     /* Sun frame */
     sun_frame: Frame,
-    /* prev. state vector for speed determination */
-    prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
     /* prev. estimate for recursive impl. */
     prev_state: Option<Estimate>,
+    /* prev. state vector for internal velocity determination */
+    prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
@@ -228,7 +230,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             self.apriori.geodetic.z,
         );
 
+        let mode = self.mode;
         let modeling = self.cfg.modeling;
+        let solver_opts = &self.cfg.solver;
         let interp_order = self.cfg.interp_order;
 
         /* interpolate positions */
@@ -355,7 +359,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 };
                 if eclipsed {
                     debug!(
-                        "{:?} ({}): earth eclipsed, dropping",
+                        "{:?} ({}): dropped - eclipsed by earth",
                         pool[idx].t, pool[idx].sv
                     );
                     let _ = pool.swap_remove(idx);
@@ -380,7 +384,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             if let Ok(sv_data) = cd.resolve(
                 t,
                 &self.cfg,
-                self.mode,
+                mode,
                 (x0, y0, z0),
                 (lat_ddeg, lon_ddeg, altitude_above_sea_m),
                 iono_bias,
@@ -393,8 +397,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             }
         }
 
-        let w = self.cfg.lsq_weight_matrix(
-            nb_candidates,
+        let w = self.cfg.solver.lsq_weight_matrix(
+            //nb_candidates,
+            pvt_sv_data.len(), 
             pvt_sv_data
                 .iter()
                 .map(|(sv, sv_data)| sv_data.elevation)
@@ -402,11 +407,34 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         );
 
         let mut pvt_solution =
-            PVTSolution::new(g.clone(), w, y, pvt_sv_data, self.prev_state.clone())?;
+            PVTSolution::new(g.clone(), w.clone(), y.clone(), pvt_sv_data, self.prev_state.clone())?;
 
+        /*
+         * Solution validation : GDOP
+         */
+        if let Some(max_gdop) = solver_opts.gdop_threshold {
+            let gdop = pvt_solution.gdop();
+            if gdop > max_gdop {
+                // invalidate
+                return Err(Error::GDOPInvalidation(gdop));
+            }
+        }
+        
+        if mode.is_recursive() {
+            /*
+             * Solution validation : residual vector
+             */
+            let mut residuals = DVector::<f64>::zeros(nb_candidates);
+            for i in 0..nb_candidates {
+                residuals[i] = y[i] - 0.0_f64 / w[(i , i)];
+            }
+            // let denom = m - n - 1;
+            // residuals.clone().transpose() * residuals / denom;
+        }
+        
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
             pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
-            if self.mode.is_recursive() {
+            if mode.is_recursive() {
                 self.prev_state = Some(pvt_solution.estimate.clone());
             }
         }
@@ -418,16 +446,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
             pvt_solution.v.z = 0.0_f64;
-            pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
+            // pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
         }
 
         match solution {
             PVTSolutionType::TimeOnly => {
                 pvt_solution.p = Vector3::<f64>::default();
                 pvt_solution.v = Vector3::<f64>::default();
-                pvt_solution.estimate.covar[(0, 0)] = 0.0_f64;
-                pvt_solution.estimate.covar[(1, 1)] = 0.0_f64;
-                pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
+                // pvt_solution.estimate.covar[(0, 0)] = 0.0_f64;
+                // pvt_solution.estimate.covar[(1, 1)] = 0.0_f64;
+                // pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
             },
             _ => {},
         }

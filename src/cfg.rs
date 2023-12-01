@@ -103,6 +103,35 @@ pub struct InternalDelay {
     pub frequency: f64,
 }
 
+#[derive(Default, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub struct SolverOpts {
+    /// GDOP Threshold (max. limit) to invalidate ongoing GDOP
+    pub gdop_threshold: Option<f64>,
+    /// Weight Matrix in LSQ solving process
+    #[cfg_attr(feature = "serde", serde(default = "default_lsq_weight"))]
+    pub lsq_weight: Option<LSQWeight>,
+}
+   
+impl SolverOpts {
+    /*
+     * form the weight matrix to be used in the solving process
+     */
+    pub(crate) fn lsq_weight_matrix(&self, nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
+        let mut mat = DMatrix::identity(sv_elev.len(), sv_elev.len());
+        match &self.lsq_weight {
+            Some(LSQWeight::LSQWeightCovar) => panic!("not implemented yet"),
+            Some(LSQWeight::LSQWeightMappingFunction(mapf)) => {
+                for i in 0..sv_elev.len() - 1 {
+                    mat[(i, i)] = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
+                }
+            },
+            None => {},
+        }
+        mat
+    }
+}
+
 /// Atmospherical, Physical and Environmental modeling
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -171,9 +200,9 @@ pub struct Config {
     /// Internal delays
     #[cfg_attr(feature = "serde", serde(default))]
     pub int_delay: Vec<InternalDelay>,
-    /// Weight Matrix in LSQ solving process
-    #[cfg_attr(feature = "serde", serde(default = "default_lsq_weight"))]
-    pub lsq_weight: Option<LSQWeight>,
+    /// Solver customization
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub solver: SolverOpts,
     /// Time Reference Delay, as defined by BIPM in
     /// "GPS Receivers Accurate Time Comparison" : the time delay
     /// between the GNSS receiver external reference clock and the sampling clock
@@ -203,8 +232,8 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn default(solver: Mode) -> Self {
-        match solver {
+    pub fn default(mode: Mode) -> Self {
+        match mode {
             Mode::SPP => Self {
                 timescale: default_timescale(),
                 fixed_altitude: None,
@@ -217,7 +246,10 @@ impl Config {
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
-                lsq_weight: None,
+                solver: SolverOpts {
+                    lsq_weight: None,
+                    gdop_threshold: None,
+                },
             },
             Mode::LSQSPP => Self {
                 timescale: default_timescale(),
@@ -231,13 +263,15 @@ impl Config {
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
-                lsq_weight: Some(LSQWeight::LSQWeightMappingFunction(
-                    ElevationMappingFunction {
-                        a: 0.03,
-                        b: 0.03,
-                        c: 100.0,
-                    },
-                )),
+                solver: SolverOpts {
+                    gdop_threshold: Some(30.0),
+                    lsq_weight: Some(LSQWeight::LSQWeightMappingFunction(
+                        ElevationMappingFunction {
+                            a: 0.03,
+                            b: 0.03,
+                            c: 100.0,
+                        })),
+                },
             },
             Mode::PPP => Self {
                 timescale: default_timescale(),
@@ -252,25 +286,17 @@ impl Config {
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
-                lsq_weight: default_lsq_weight(),
+                solver: SolverOpts {
+                    gdop_threshold: None, //TODO
+                    lsq_weight: Some(LSQWeight::LSQWeightMappingFunction(
+                        ElevationMappingFunction {
+                            a: 0.03,
+                            b: 0.03,
+                            c: 100.0,
+                        })),
+                },
             },
         }
-    }
-    /*
-     * form the weight matrix to be used in the solving process
-     */
-    pub(crate) fn lsq_weight_matrix(&self, nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
-        let mut mat = DMatrix::identity(sv_elev.len(), sv_elev.len());
-        match &self.lsq_weight {
-            Some(LSQWeight::LSQWeightCovar) => panic!("not implemented yet"),
-            Some(LSQWeight::LSQWeightMappingFunction(mapf)) => {
-                for i in 0..sv_elev.len() - 1 {
-                    mat[(i, i)] = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
-                }
-            },
-            None => {},
-        }
-        mat
     }
 }
 
