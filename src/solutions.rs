@@ -27,7 +27,7 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nalgebra::base::{DMatrix, DVector, Matrix1x4, Matrix4, Matrix4x1, MatrixXx4};
+use nalgebra::base::{DMatrix, DVector, Matrix1x4, Matrix3, Matrix4, Matrix4x1, MatrixXx4};
 use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
@@ -87,10 +87,10 @@ pub struct PVTSVData {
 
 #[derive(Default, Clone, Debug)]
 pub struct Estimate {
-    /* x: estimate */
+    /* x estimate */
     pub(crate) x: Matrix4x1<f64>,
-    /* and its covariance matrix */
-    pub(crate) covar: Matrix4<f64>,
+    /* Q matrix */
+    pub(crate) q: Matrix4<f64>,
 }
 
 /// PVT Solution, always expressed as the correction to apply
@@ -132,21 +132,21 @@ impl PVTSolution {
                     .try_inverse()
                     .ok_or(Error::MatrixInversionError)?;
                 let x = (q * g_prime.clone()) * w.clone() * y;
-                Estimate { x, covar: q }
+                Estimate { x, q }
             },
             Some(state) => {
                 let p_1 = state
-                    .covar
+                    .q
                     .try_inverse()
                     .ok_or(Error::CovarMatrixInversionError)?;
 
                 let q = g_prime.clone() * w.clone() * g.clone();
-                let covar = (p_1 + q)
+                let q = (p_1 + q)
                     .try_inverse()
                     .ok_or(Error::CovarMatrixInversionError)?;
 
-                let x = covar * (p_1 * state.x + (g_prime.clone() * w.clone() * y));
-                Estimate { x, covar }
+                let x = q * (p_1 * state.x + (g_prime.clone() * w.clone() * y));
+                Estimate { x, q }
             },
         };
 
@@ -167,24 +167,55 @@ impl PVTSolution {
     pub fn sv(&self) -> Vec<SV> {
         self.sv.keys().copied().collect()
     }
-    /// Returns Geometrical Dilution of Precision of Self
+    /// Returns Geometric Dilution of Precision of Self
     pub fn gdop(&self) -> f64 {
-        (self.estimate.covar[(0, 0)]
-            + self.estimate.covar[(1, 1)]
-            + self.estimate.covar[(2, 2)]
-            + self.estimate.covar[(3, 3)])
+        (self.estimate.q[(0, 0)]
+            + self.estimate.q[(1, 1)]
+            + self.estimate.q[(2, 2)]
+            + self.estimate.q[(3, 3)])
             .sqrt()
     }
+    /// Returns Position Diultion of Precision of Self
+    pub fn pdop(&self) -> f64 {
+        (self.estimate.q[(0, 0)] + self.estimate.q[(1, 1)] + self.estimate.q[(2, 2)]).sqrt()
+    }
+    fn q_enu(&self, lat: f64, lon: f64) -> Matrix3<f64> {
+        let r = Matrix3::<f64>::new(
+            -lon.sin(),
+            -lon.cos() * lat.sin(),
+            lat.cos() * lon.cos(),
+            lon.cos(),
+            -lat.sin() * lon.sin(),
+            lat.cos() * lon.sin(),
+            0.0_f64,
+            lat.cos(),
+            lon.sin(),
+        );
+        let q_3 = Matrix3::<f64>::new(
+            self.estimate.q[(0, 0)],
+            self.estimate.q[(0, 1)],
+            self.estimate.q[(0, 2)],
+            self.estimate.q[(1, 0)],
+            self.estimate.q[(1, 1)],
+            self.estimate.q[(1, 2)],
+            self.estimate.q[(2, 0)],
+            self.estimate.q[(2, 1)],
+            self.estimate.q[(2, 2)],
+        );
+        r.clone().transpose() * q_3 * r.clone()
+    }
     /// Returns Horizontal Dilution of Precision of Self
-    pub fn hdop(&self) -> f64 {
-        (self.estimate.covar[(0, 0)] + self.estimate.covar[(1, 1)]).sqrt()
+    pub fn hdop(&self, lat: f64, lon: f64) -> f64 {
+        let q_enu = self.q_enu(lat, lon);
+        (q_enu[(0, 0)] + q_enu[(1, 1)]).sqrt()
     }
     /// Returns Vertical Dilution of Precision of Self
-    pub fn vdop(&self) -> f64 {
-        self.estimate.covar[(2, 2)].sqrt()
+    pub fn vdop(&self, lat: f64, lon: f64) -> f64 {
+        let q_enu = self.q_enu(lat, lon);
+        q_enu[(1, 1)].sqrt()
     }
     /// Returns Time Dilution of Precision of Self
     pub fn tdop(&self) -> f64 {
-        self.estimate.covar[(3, 3)].sqrt()
+        self.estimate.q[(3, 3)].sqrt()
     }
 }

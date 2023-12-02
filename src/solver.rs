@@ -434,9 +434,17 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             g.clone(),
             w.clone(),
             y.clone(),
-            pvt_sv_data,
+            pvt_sv_data.clone(),
             self.prev_state.clone(),
         )?;
+
+        if mode.is_recursive() {
+            self.prev_state = Some(pvt_solution.estimate.clone());
+        }
+
+        if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
+            pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
+        }
 
         /*
          * Solution validation : GDOP
@@ -451,21 +459,40 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         if mode.is_recursive() {
             /*
-             * Solution validation : residual vector
+             * Solution validation : code residual
              */
-            let mut residuals = DVector::<f64>::zeros(nb_candidates);
-            for i in 0..nb_candidates {
-                residuals[i] = y[i] - 0.0_f64 / w[(i, i)];
-            }
-            // let denom = m - n - 1;
-            // residuals.clone().transpose() * residuals / denom;
-        }
+            let mut residuals = DVector::<f64>::zeros(pool.len());
+            for (idx, cd) in pool.iter().enumerate() {
+                let sv = pvt_sv_data
+                    .iter()
+                    .filter_map(|(sv, data)| if *sv == cd.sv { Some(data) } else { None })
+                    .reduce(|k, _| k)
+                    .unwrap();
 
-        if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
-            pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
-            if mode.is_recursive() {
-                self.prev_state = Some(pvt_solution.estimate.clone());
+                let pr = cd.prefered_pseudorange().unwrap().value;
+                let state = cd.state.unwrap().position;
+                let estimate = self.apriori.ecef + pvt_solution.p;
+
+                let (sv_x, sv_y, sv_z) = (state[0], state[1], state[2]);
+                let (x, y, z) = (estimate[0], estimate[1], estimate[2]);
+
+                let rho = ((sv_x - x).powi(2) + (sv_y - y).powi(2) + (sv_z - z).powi(2)).sqrt();
+
+                let c_dt = (cd.clock_corr.to_seconds() - pvt_solution.dt) * SPEED_OF_LIGHT;
+
+                residuals[idx] = pr;
+                residuals[idx] -= rho;
+                residuals[idx] += c_dt;
+                residuals[idx] -= sv.tropo_bias.value().unwrap_or(0.0);
+                residuals[idx] -= sv.iono_bias.value().unwrap_or(0.0);
+                residuals[idx] /= w[(idx, idx)];
+                debug!("{:?}: coderes={}/w={}", t, residuals[idx], w[(idx, idx)]);
             }
+
+            /*
+             * If stablized: validate new innovation
+             */
+            for i in 0..nb_candidates {}
         }
 
         /*

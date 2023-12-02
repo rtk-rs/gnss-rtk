@@ -84,7 +84,17 @@ fn default_relativistic_path_range() -> bool {
 }
 
 fn default_lsq_weight() -> Option<LSQWeight> {
-    None
+    Some(LSQWeight::LSQWeightMappingFunction(
+        ElevationMappingFunction {
+            a: 5.0,
+            b: 0.0,
+            c: 10.0,
+        },
+    ))
+}
+
+fn default_gdop_threshold() -> Option<f64> {
+    Some(0.15)
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -107,6 +117,7 @@ pub struct InternalDelay {
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct SolverOpts {
     /// GDOP Threshold (max. limit) to invalidate ongoing GDOP
+    #[cfg_attr(feature = "serde", serde(default = "default_gdop_threshold"))]
     pub gdop_threshold: Option<f64>,
     /// Weight Matrix in LSQ solving process
     #[cfg_attr(feature = "serde", serde(default = "default_lsq_weight"))]
@@ -123,7 +134,8 @@ impl SolverOpts {
             Some(LSQWeight::LSQWeightCovar) => panic!("not implemented yet"),
             Some(LSQWeight::LSQWeightMappingFunction(mapf)) => {
                 for i in 0..sv_elev.len() - 1 {
-                    mat[(i, i)] = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
+                    let sigma = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
+                    mat[(i, i)] = 1.0 / sigma.powi(2);
                 }
             },
             None => {},
@@ -248,7 +260,7 @@ impl Config {
                 externalref_delay: Default::default(),
                 solver: SolverOpts {
                     lsq_weight: None,
-                    gdop_threshold: None,
+                    gdop_threshold: default_gdop_threshold(),
                 },
             },
             Mode::LSQSPP => Self {
@@ -264,14 +276,8 @@ impl Config {
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
                 solver: SolverOpts {
-                    gdop_threshold: Some(30.0),
-                    lsq_weight: Some(LSQWeight::LSQWeightMappingFunction(
-                        ElevationMappingFunction {
-                            a: 0.03,
-                            b: 0.03,
-                            c: 100.0,
-                        },
-                    )),
+                    gdop_threshold: default_gdop_threshold(),
+                    lsq_weight: default_lsq_weight(),
                 },
             },
             Mode::PPP => Self {
@@ -288,14 +294,8 @@ impl Config {
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
                 solver: SolverOpts {
-                    gdop_threshold: None, //TODO
-                    lsq_weight: Some(LSQWeight::LSQWeightMappingFunction(
-                        ElevationMappingFunction {
-                            a: 0.03,
-                            b: 0.03,
-                            c: 100.0,
-                        },
-                    )),
+                    gdop_threshold: default_gdop_threshold(),
+                    lsq_weight: default_lsq_weight(),
                 },
             },
         }
