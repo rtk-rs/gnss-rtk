@@ -277,7 +277,7 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_sv_sunlight_rate: None,
-                min_sv_elev: Some(10.0),
+                min_sv_elev: Some(15.0),
                 min_snr: Some(30.0),
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),
@@ -314,10 +314,10 @@ impl Config {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum SolverMode {
-    /// Receiver is kept at fixed location
+pub enum PositioningMode {
+    /// Receiver is static
     #[default]
     Static,
-    /// Receiver is not static
+    /// Receiver is moving
     Kinematic,
 }
