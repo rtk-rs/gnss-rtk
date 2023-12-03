@@ -14,14 +14,17 @@ use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::{DVector, Vector3, DMatrix, Matrix3, MatrixXx4};
+use nalgebra::{DMatrix, DVector, Matrix3, MatrixXx4, Vector3};
 
 use crate::{
     apriori::AprioriPosition,
     bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
     cfg::Config,
-    solutions::{Estimate, PVTSVData, PVTSolution, PVTSolutionType},
+    solutions::{
+        validator::{SolutionInvalidation, SolutionValidator},
+        Estimate, PVTSVData, PVTSolution, PVTSolutionType,
+    },
 };
 
 /// Solving mode
@@ -91,8 +94,8 @@ pub enum Error {
     PhysicalNonSenseRxPriorTx,
     #[error("physical non sense: t_rx is too late")]
     PhysicalNonSenseRxTooLate,
-    #[error("solution invalidated: gdop too large {0:.3E}")]
-    GDOPInvalidation(f64),
+    #[error("invalidated solution: {0}")]
+    InvalidatedSolution(SolutionInvalidation),
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -446,27 +449,13 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
         }
 
-        /*
-         * Solution validation : GDOP
-         */
-        if let Some(max_gdop) = solver_opts.gdop_threshold {
-            let gdop = pvt_solution.gdop();
-            if gdop > max_gdop {
-                // invalidate
-                return Err(Error::GDOPInvalidation(gdop));
-            }
-        }
+        self.prev_pvt = Some((t, pvt_solution.clone()));
 
-        if mode.is_recursive() {
-            let validator = SolutionValidator::new(
-                &self.apriori.ecef, 
-                &pool, 
-                &w, 
-                &pvt_solution);
-            
-            if !validator.valid().is_ok() {
+        let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &w, &pvt_solution);
 
-            }
+        let valid = validator.valid(solver_opts);
+        if !valid.is_ok() {
+            return Err(Error::InvalidatedSolution(valid.err().unwrap()));
         }
 
         /*
@@ -476,21 +465,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.p.z = self.apriori.ecef.z - alt;
             pvt_solution.v.z = 0.0_f64;
-            // pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
         }
 
         match solution {
             PVTSolutionType::TimeOnly => {
                 pvt_solution.p = Vector3::<f64>::default();
                 pvt_solution.v = Vector3::<f64>::default();
-                // pvt_solution.estimate.covar[(0, 0)] = 0.0_f64;
-                // pvt_solution.estimate.covar[(1, 1)] = 0.0_f64;
-                // pvt_solution.estimate.covar[(2, 2)] = 0.0_f64;
             },
             _ => {},
         }
 
-        self.prev_pvt = Some((t, pvt_solution.clone()));
         Ok((t, pvt_solution))
     }
     /*
@@ -525,60 +509,5 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 n
             },
         }
-    }
-}
-
-pub enum SolutionInvalidation {
-    InnovationOutlier,
-    CodeResidual,
-}
-
-struct SolutionValidator {
-    residuals: DVector::<f64>,
-}
-
-impl SolutionValidator {
-    fn new(
-        apriori_ecef: &Vector3<f64>,
-        pool: &Vec<Candidate>, 
-        w: &DMatrix<f64>,
-        solution: &PVTSolution,
-    ) -> Self {
-            
-        let mut residuals = DVector::<f64>::zeros(pool.len());
-
-        for (idx, cd) in pool.iter().enumerate() {
-            let sv = solution.sv
-                .iter()
-                .filter_map(|(sv, data)| if *sv == cd.sv { Some(data) } else { None })
-                .reduce(|k, _| k)
-                .unwrap();
-
-            let pr = cd.prefered_pseudorange().unwrap().value;
-            let state = cd.state.unwrap().position;
-            let estimate = apriori_ecef + solution.p;
-
-            let (sv_x, sv_y, sv_z) = (state[0], state[1], state[2]);
-            let (x, y, z) = (estimate[0], estimate[1], estimate[2]);
-
-            let rho = ((sv_x - x).powi(2) + (sv_y - y).powi(2) + (sv_z - z).powi(2)).sqrt();
-
-            let dt = cd.clock_corr.to_seconds() - solution.dt;
-
-            residuals[idx] = pr;
-            residuals[idx] -= rho;
-            residuals[idx] += dt * SPEED_OF_LIGHT;
-            residuals[idx] -= sv.tropo_bias.value().unwrap_or(0.0);
-            residuals[idx] -= sv.iono_bias.value().unwrap_or(0.0);
-            residuals[idx] /= w[(idx, idx)];
-            debug!("{:?} ({}): coderes={}/w={}", cd.t, cd.sv, residuals[idx], w[(idx, idx)]);
-        }
-        Self { residuals }
-    }
-    /*
-     * Solution validation process
-     */
-    fn valid(&self) -> Result<(), SolutionInvalidation> {
-        Ok(())
     }
 }

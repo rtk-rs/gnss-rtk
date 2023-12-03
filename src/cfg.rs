@@ -3,8 +3,8 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use nalgebra::DMatrix; 
 use crate::prelude::{Mode, TimeScale};
+use nalgebra::DMatrix;
 
 /// Configuration Error
 #[derive(Debug, Error)]
@@ -97,6 +97,10 @@ fn default_gdop_threshold() -> Option<f64> {
     Some(0.15)
 }
 
+fn default_innov_threshold() -> Option<f64> {
+    None
+}
+
 #[derive(Default, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 /// System Internal Delay as defined by BIPM in
@@ -122,6 +126,9 @@ pub struct SolverOpts {
     /// Weight Matrix in LSQ solving process
     #[cfg_attr(feature = "serde", serde(default = "default_lsq_weight"))]
     pub lsq_weight: Option<LSQWeight>,
+    /// Threshold on new filter innovation
+    #[cfg_attr(feature = "serde", serde(default = "default_innov_threshold"))]
+    pub innovation_threshold: Option<f64>,
 }
 
 impl SolverOpts {
@@ -259,8 +266,9 @@ impl Config {
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
                 solver: SolverOpts {
-                    lsq_weight: None,
                     gdop_threshold: default_gdop_threshold(),
+                    lsq_weight: None,
+                    innovation_threshold: None,
                 },
             },
             Mode::LSQSPP => Self {
@@ -278,6 +286,7 @@ impl Config {
                 solver: SolverOpts {
                     gdop_threshold: default_gdop_threshold(),
                     lsq_weight: default_lsq_weight(),
+                    innovation_threshold: default_innov_threshold(),
                 },
             },
             Mode::PPP => Self {
@@ -296,6 +305,7 @@ impl Config {
                 solver: SolverOpts {
                     gdop_threshold: default_gdop_threshold(),
                     lsq_weight: default_lsq_weight(),
+                    innovation_threshold: default_innov_threshold(),
                 },
             },
         }

@@ -3,6 +3,8 @@ use crate::prelude::{Vector3, SV};
 use crate::Error;
 use std::collections::HashMap;
 
+pub(crate) mod validator;
+
 #[derive(Debug, Copy, Clone, Default)]
 pub enum PVTSolutionType {
     /// Default, complete solution with Position,
