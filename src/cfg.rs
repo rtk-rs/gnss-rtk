@@ -4,7 +4,7 @@ use thiserror::Error;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::{Mode, TimeScale};
-use nalgebra::{DMatrix, DVector, Matrix3, MatrixXx4, Vector3};
+use nalgebra::DMatrix;
 
 /// Configuration Error
 #[derive(Debug, Error)]
@@ -83,7 +83,26 @@ fn default_relativistic_path_range() -> bool {
     false
 }
 
+fn default_sv_apc() -> bool {
+    false
+}
+
 fn default_lsq_weight() -> Option<LSQWeight> {
+    //Some(LSQWeight::LSQWeightMappingFunction(
+    //    ElevationMappingFunction {
+    //        a: 5.0,
+    //        b: 0.0,
+    //        c: 10.0,
+    //    },
+    //))
+    None
+}
+
+fn default_gdop_threshold() -> Option<f64> {
+    Some(1.0)
+}
+
+fn default_innov_threshold() -> Option<f64> {
     None
 }
 
@@ -107,10 +126,14 @@ pub struct InternalDelay {
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct SolverOpts {
     /// GDOP Threshold (max. limit) to invalidate ongoing GDOP
+    #[cfg_attr(feature = "serde", serde(default = "default_gdop_threshold"))]
     pub gdop_threshold: Option<f64>,
     /// Weight Matrix in LSQ solving process
     #[cfg_attr(feature = "serde", serde(default = "default_lsq_weight"))]
     pub lsq_weight: Option<LSQWeight>,
+    /// Threshold on new filter innovation
+    #[cfg_attr(feature = "serde", serde(default = "default_innov_threshold"))]
+    pub innovation_threshold: Option<f64>,
 }
 
 impl SolverOpts {
@@ -123,7 +146,8 @@ impl SolverOpts {
             Some(LSQWeight::LSQWeightCovar) => panic!("not implemented yet"),
             Some(LSQWeight::LSQWeightMappingFunction(mapf)) => {
                 for i in 0..sv_elev.len() - 1 {
-                    mat[(i, i)] = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
+                    let sigma = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
+                    mat[(i, i)] = 1.0 / sigma.powi(2);
                 }
             },
             None => {},
@@ -141,6 +165,8 @@ pub struct Modeling {
     #[cfg_attr(feature = "serde", serde(default))]
     pub sv_total_group_delay: bool,
     #[cfg_attr(feature = "serde", serde(default))]
+    pub sv_apc: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
     pub relativistic_clock_bias: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub relativistic_path_range: bool,
@@ -156,6 +182,7 @@ impl Default for Modeling {
     fn default() -> Self {
         Self {
             sv_clock_bias: default_sv_clock(),
+            sv_apc: default_sv_apc(),
             iono_delay: default_iono(),
             tropo_delay: default_tropo(),
             sv_total_group_delay: default_sv_tgd(),
@@ -247,8 +274,9 @@ impl Config {
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
                 solver: SolverOpts {
+                    gdop_threshold: default_gdop_threshold(),
                     lsq_weight: None,
-                    gdop_threshold: None,
+                    innovation_threshold: None,
                 },
             },
             Mode::LSQSPP => Self {
@@ -257,21 +285,16 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_sv_sunlight_rate: None,
-                min_sv_elev: Some(10.0),
+                min_sv_elev: Some(15.0),
                 min_snr: Some(30.0),
                 modeling: Modeling::default(),
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
                 solver: SolverOpts {
-                    gdop_threshold: Some(30.0),
-                    lsq_weight: Some(LSQWeight::LSQWeightMappingFunction(
-                        ElevationMappingFunction {
-                            a: 0.03,
-                            b: 0.03,
-                            c: 100.0,
-                        },
-                    )),
+                    gdop_threshold: default_gdop_threshold(),
+                    lsq_weight: default_lsq_weight(),
+                    innovation_threshold: default_innov_threshold(),
                 },
             },
             Mode::PPP => Self {
@@ -288,14 +311,9 @@ impl Config {
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
                 solver: SolverOpts {
-                    gdop_threshold: None, //TODO
-                    lsq_weight: Some(LSQWeight::LSQWeightMappingFunction(
-                        ElevationMappingFunction {
-                            a: 0.03,
-                            b: 0.03,
-                            c: 100.0,
-                        },
-                    )),
+                    gdop_threshold: default_gdop_threshold(),
+                    lsq_weight: default_lsq_weight(),
+                    innovation_threshold: default_innov_threshold(),
                 },
             },
         }
@@ -304,10 +322,10 @@ impl Config {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum SolverMode {
-    /// Receiver is kept at fixed location
+pub enum PositioningMode {
+    /// Receiver is static
     #[default]
     Static,
-    /// Receiver is not static
+    /// Receiver is moving
     Kinematic,
 }
