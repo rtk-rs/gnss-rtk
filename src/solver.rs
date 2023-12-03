@@ -357,7 +357,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 match mode {
                     Mode::SPP | Mode::LSQSPP => {
                         if pool[idx - nb_removed].code.len() == 0 {
-                            debug!("{:?} ({}) dropped on bad snr", pool[idx].t, pool[idx].sv);
+                            debug!("{:?} ({}) dropped on bad snr", pool[idx - nb_removed].t, pool[idx - nb_removed].sv);
                             let _ = pool.swap_remove(idx - nb_removed);
                             nb_removed += 1;
                         }
@@ -376,9 +376,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* apply eclipse filter (if need be) */
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
-            for idx in 0..pool.len() - 1 {
-                let state = pool[idx].state.unwrap(); // infaillible
-                let orbit = state.orbit(pool[idx].t, self.earth_frame);
+            let mut nb_removed :usize = 0;
+            for idx in 0..pool.len() {
+                let state = pool[idx - nb_removed].state.unwrap(); // infaillible
+                let orbit = state.orbit(pool[idx - nb_removed].t, self.earth_frame);
                 let state = eclipse_state(&orbit, self.sun_frame, self.earth_frame, &self.cosmic);
                 let eclipsed = match state {
                     EclipseState::Umbra => true,
@@ -388,9 +389,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 if eclipsed {
                     debug!(
                         "{:?} ({}): dropped - eclipsed by earth",
-                        pool[idx].t, pool[idx].sv
+                        pool[idx - nb_removed].t, pool[idx - nb_removed].sv
                     );
-                    let _ = pool.swap_remove(idx);
+                    let _ = pool.swap_remove(idx - nb_removed);
+                    nb_removed += 1;
                 }
             }
         }
