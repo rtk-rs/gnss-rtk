@@ -42,7 +42,7 @@ impl SolutionValidator {
                 .unwrap();
 
             let pr = cd.prefered_pseudorange().unwrap().value;
-            let state = cd.state.unwrap().position;
+            let state = cd.state.unwrap().position();
             let estimate = apriori_ecef + solution.p;
 
             let (sv_x, sv_y, sv_z) = (state[0], state[1], state[2]);

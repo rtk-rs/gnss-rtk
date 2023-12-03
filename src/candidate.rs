@@ -4,7 +4,6 @@ use gnss::prelude::SV;
 use hifitime::Unit;
 use itertools::Itertools;
 use log::debug;
-use map_3d::deg2rad;
 
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
@@ -240,7 +239,8 @@ impl Candidate {
         let (x0, y0, z0) = apriori;
         let clock_corr = self.clock_corr.to_seconds();
         let (azimuth, elevation) = (state.azimuth, state.elevation);
-        let (sv_x, sv_y, sv_z) = state.position();
+        let sv_p = state.position();
+        let (sv_x, sv_y, sv_z) = (sv_p[0], sv_p[1], sv_p[2]);
 
         let mut sv_data = PVTSVData::default();
         sv_data.azimuth = azimuth;

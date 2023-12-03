@@ -22,7 +22,7 @@ pub mod prelude {
     pub use crate::candidate::{Candidate, Observation};
     pub use crate::cfg::Config;
     pub use crate::solutions::{PVTSolution, PVTSolutionType};
-    pub use crate::solver::{InterpolationResult, Mode, Solver};
+    pub use crate::solver::{InterpolatedPosition, InterpolationResult, Mode, Solver};
     // re-export
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};

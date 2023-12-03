@@ -14,7 +14,7 @@ use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::{DMatrix, DVector, Matrix3, MatrixXx4, Vector3};
+use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
 
 use crate::{
     apriori::AprioriPosition,
@@ -98,12 +98,27 @@ pub enum Error {
     InvalidatedSolution(SolutionInvalidation),
 }
 
+/// Position interpolator helper
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum InterpolatedPosition {
+    /// Providing Mass Center position
+    MassCenter(Vector3<f64>),
+    /// Providing APC position
+    AntennaPhaseCenter(Vector3<f64>),
+}
+
+impl Default for InterpolatedPosition {
+    fn default() -> Self {
+        Self::AntennaPhaseCenter(Vector3::<f64>::default())
+    }
+}
+
 /// Interpolation result (state vector) that needs to be
 /// resolved for every single candidate.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct InterpolationResult {
     /// Position vector in [m] ECEF
-    pub position: Vector3<f64>,
+    pub position: InterpolatedPosition,
     /// Velocity vector in [m/s] ECEF
     pub velocity: Option<Vector3<f64>>,
     /// Elevation compared to reference position and horizon in [°]
@@ -113,26 +128,54 @@ pub struct InterpolationResult {
 }
 
 impl InterpolationResult {
-    pub(crate) fn position(&self) -> (f64, f64, f64) {
-        (self.position[0], self.position[1], self.position[2])
+    pub(crate) fn position(&self) -> Vector3<f64> {
+        match self.position {
+            InterpolatedPosition::MassCenter(mc) => mc,
+            InterpolatedPosition::AntennaPhaseCenter(pc) => pc,
+        }
     }
-    pub(crate) fn velocity(&self) -> Option<(f64, f64, f64)> {
-        let velocity = self.velocity?;
-        Some((velocity[0], velocity[1], velocity[2]))
+    pub(crate) fn velocity(&self) -> Option<Vector3<f64>> {
+        self.velocity
     }
     pub(crate) fn orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
-        let (x, y, z) = self.position();
-        let (v_x, v_y, v_z) = self.velocity().unwrap_or((0.0_f64, 0.0_f64, 0.0_f64));
+        let p = self.position();
+        let v = self.velocity().unwrap_or(Vector3::<f64>::default());
         Orbit::cartesian(
-            x / 1000.0,
-            y / 1000.0,
-            z / 1000.0,
-            v_x / 1000.0,
-            v_y / 1000.0,
-            v_z / 1000.0,
+            p[0] / 1000.0,
+            p[1] / 1000.0,
+            p[2] / 1000.0,
+            v[0] / 1000.0,
+            v[1] / 1000.0,
+            v[2] / 1000.0,
             dt,
             frame,
         )
+    }
+    /*
+     * Applies the APC conversion, if need be
+     */
+    pub(crate) fn mc_apc_correction(&mut self, r_sun: Vector3<f64>, delta_apc: f64) {
+        match self.position {
+            InterpolatedPosition::MassCenter(r_sat) => {
+                let k = -r_sat / (r_sat[0].powi(2) + r_sat[1].powi(2) + r_sat[2].powi(2)).sqrt();
+                let norm = ((r_sun[0] - r_sat[0]).powi(2)
+                    + (r_sun[1] - r_sat[1]).powi(2)
+                    + (r_sun[2] - r_sat[2]).powi(2))
+                .sqrt();
+                let e = (r_sun - r_sat) / norm;
+                let j = Vector3::<f64>::new(k[0] * e[0], k[1] * e[1], k[2] * e[2]);
+                let i = Vector3::<f64>::new(j[0] * k[0], j[1] * k[1], j[2] * k[2]);
+                let r = Matrix3::<f64>::new(i[0], j[0], k[0], i[1], j[1], k[1], i[2], j[2], k[2]);
+                let r_dot = Vector3::<f64>::new(
+                    (i[0] + j[0] + k[0]) * delta_apc,
+                    (i[1] + j[1] + k[1]) * delta_apc,
+                    (i[2] + j[2] + k[2]) * delta_apc,
+                );
+                let r_apc = r_sat + r_dot;
+                self.position = InterpolatedPosition::AntennaPhaseCenter(r_apc);
+            },
+            _ => {},
+        }
     }
 }
 
@@ -155,9 +198,17 @@ where
     pub interpolator: I,
     /* Cosmic model */
     cosmic: Arc<Cosm>,
-    /* Earth frame */
+    /*
+     * (Reference) Earth frame.
+     * Could be relevant to rename this the day we want to
+     * resolve solutions on other Planets...  ; )
+     */
     earth_frame: Frame,
-    /* Sun frame */
+    /*
+     * Sun Body frame
+     * Could be relevant to rename this the day we want to resolve
+     * solutions in other Star systems....   o___O
+     */
     sun_frame: Frame,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
@@ -238,6 +289,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let solver_opts = &self.cfg.solver;
         let interp_order = self.cfg.interp_order;
 
+        let cosmic = &self.cosmic;
+        let earth_frame = self.earth_frame;
+
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
@@ -245,6 +299,11 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
 
                 if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
+                    if modeling.sv_apc {
+                        let r_sun = Self::sun_unit_vector(&earth_frame, cosmic, t_tx);
+                        interpolated.mc_apc_correction(r_sun, 0.0_f64);
+                    }
+
                     let mut c = c.clone();
 
                     let rot = match modeling.earth_rotation {
@@ -263,7 +322,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         ),
                     };
 
-                    interpolated.position = rot * interpolated.position;
+                    interpolated.position =
+                        InterpolatedPosition::AntennaPhaseCenter(rot * interpolated.position());
 
                     if modeling.relativistic_clock_bias {
                         if interpolated.velocity.is_none() {
@@ -274,7 +334,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
                                 let dt = (t_tx - *p_ttx).to_seconds();
                                 interpolated.velocity =
-                                    Some((rot * interpolated.position - rot * p_position) / dt);
+                                    Some((rot * interpolated.position() - rot * p_position) / dt);
                             }
                         }
 
@@ -296,7 +356,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         }
 
                         self.prev_sv_state
-                            .insert(c.sv, (t_tx, interpolated.position));
+                            .insert(c.sv, (t_tx, interpolated.position()));
                     }
 
                     debug!(
@@ -357,7 +417,11 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 match mode {
                     Mode::SPP | Mode::LSQSPP => {
                         if pool[idx - nb_removed].code.len() == 0 {
-                            debug!("{:?} ({}) dropped on bad snr", pool[idx - nb_removed].t, pool[idx - nb_removed].sv);
+                            debug!(
+                                "{:?} ({}) dropped on bad snr",
+                                pool[idx - nb_removed].t,
+                                pool[idx - nb_removed].sv
+                            );
                             let _ = pool.swap_remove(idx - nb_removed);
                             nb_removed += 1;
                         }
@@ -376,7 +440,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* apply eclipse filter (if need be) */
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
-            let mut nb_removed :usize = 0;
+            let mut nb_removed: usize = 0;
             for idx in 0..pool.len() {
                 let state = pool[idx - nb_removed].state.unwrap(); // infaillible
                 let orbit = state.orbit(pool[idx - nb_removed].t, self.earth_frame);
@@ -389,7 +453,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 if eclipsed {
                     debug!(
                         "{:?} ({}): dropped - eclipsed by earth",
-                        pool[idx - nb_removed].t, pool[idx - nb_removed].sv
+                        pool[idx - nb_removed].t,
+                        pool[idx - nb_removed].sv
                     );
                     let _ = pool.swap_remove(idx - nb_removed);
                     nb_removed += 1;
@@ -480,17 +545,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         Ok((t, pvt_solution))
     }
     /*
-     * Evaluates Sun/Earth vector, <!> expressed in Km <!>
-     * for all SV NAV Epochs in provided context
+     * Evaluates Sun/Earth vector in meter ECEF at given Epoch
      */
-    fn sun_earth_vector(&mut self, t: Epoch) -> Vector3<f64> {
+    fn sun_unit_vector(ref_frame: &Frame, cosmic: &Arc<Cosm>, t: Epoch) -> Vector3<f64> {
         let sun_body = Bodies::Sun;
-        let orbit = self.cosmic.celestial_state(
-            sun_body.ephem_path(),
-            t,
-            self.earth_frame,
-            LightTimeCalc::None,
-        );
+        let orbit =
+            cosmic.celestial_state(sun_body.ephem_path(), t, *ref_frame, LightTimeCalc::None);
         Vector3::new(
             orbit.x_km * 1000.0,
             orbit.y_km * 1000.0,

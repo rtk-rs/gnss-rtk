@@ -83,6 +83,10 @@ fn default_relativistic_path_range() -> bool {
     false
 }
 
+fn default_sv_apc() -> bool {
+    false
+}
+
 fn default_lsq_weight() -> Option<LSQWeight> {
     //Some(LSQWeight::LSQWeightMappingFunction(
     //    ElevationMappingFunction {
@@ -161,6 +165,8 @@ pub struct Modeling {
     #[cfg_attr(feature = "serde", serde(default))]
     pub sv_total_group_delay: bool,
     #[cfg_attr(feature = "serde", serde(default))]
+    pub sv_apc: bool,
+    #[cfg_attr(feature = "serde", serde(default))]
     pub relativistic_clock_bias: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub relativistic_path_range: bool,
@@ -176,6 +182,7 @@ impl Default for Modeling {
     fn default() -> Self {
         Self {
             sv_clock_bias: default_sv_clock(),
+            sv_apc: default_sv_apc(),
             iono_delay: default_iono(),
             tropo_delay: default_tropo(),
             sv_total_group_delay: default_sv_tgd(),
