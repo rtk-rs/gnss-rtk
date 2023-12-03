@@ -84,17 +84,18 @@ fn default_relativistic_path_range() -> bool {
 }
 
 fn default_lsq_weight() -> Option<LSQWeight> {
-    Some(LSQWeight::LSQWeightMappingFunction(
-        ElevationMappingFunction {
-            a: 5.0,
-            b: 0.0,
-            c: 10.0,
-        },
-    ))
+    //Some(LSQWeight::LSQWeightMappingFunction(
+    //    ElevationMappingFunction {
+    //        a: 5.0,
+    //        b: 0.0,
+    //        c: 10.0,
+    //    },
+    //))
+    None
 }
 
 fn default_gdop_threshold() -> Option<f64> {
-    Some(0.15)
+    Some(1.0)
 }
 
 fn default_innov_threshold() -> Option<f64> {
