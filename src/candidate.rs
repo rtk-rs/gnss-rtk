@@ -7,6 +7,7 @@ use log::debug;
 
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
+use nyx::md::prelude::Frame;
 
 use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, Vector3};
 use crate::solutions::{PVTBias, PVTSVData};
