@@ -14,7 +14,7 @@ use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
+use nalgebra::{DVector, Vector3, DMatrix, Matrix3, MatrixXx4};
 
 use crate::{
     apriori::AprioriPosition,
@@ -458,41 +458,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         if mode.is_recursive() {
-            /*
-             * Solution validation : code residual
-             */
-            let mut residuals = DVector::<f64>::zeros(pool.len());
-            for (idx, cd) in pool.iter().enumerate() {
-                let sv = pvt_sv_data
-                    .iter()
-                    .filter_map(|(sv, data)| if *sv == cd.sv { Some(data) } else { None })
-                    .reduce(|k, _| k)
-                    .unwrap();
+            let validator = SolutionValidator::new(
+                &self.apriori.ecef, 
+                &pool, 
+                &w, 
+                &pvt_solution);
+            
+            if !validator.valid().is_ok() {
 
-                let pr = cd.prefered_pseudorange().unwrap().value;
-                let state = cd.state.unwrap().position;
-                let estimate = self.apriori.ecef + pvt_solution.p;
-
-                let (sv_x, sv_y, sv_z) = (state[0], state[1], state[2]);
-                let (x, y, z) = (estimate[0], estimate[1], estimate[2]);
-
-                let rho = ((sv_x - x).powi(2) + (sv_y - y).powi(2) + (sv_z - z).powi(2)).sqrt();
-
-                let c_dt = (cd.clock_corr.to_seconds() - pvt_solution.dt) * SPEED_OF_LIGHT;
-
-                residuals[idx] = pr;
-                residuals[idx] -= rho;
-                residuals[idx] += c_dt;
-                residuals[idx] -= sv.tropo_bias.value().unwrap_or(0.0);
-                residuals[idx] -= sv.iono_bias.value().unwrap_or(0.0);
-                residuals[idx] /= w[(idx, idx)];
-                debug!("{:?}: coderes={}/w={}", t, residuals[idx], w[(idx, idx)]);
             }
-
-            /*
-             * If stablized: validate new innovation
-             */
-            for i in 0..nb_candidates {}
         }
 
         /*
@@ -551,5 +525,60 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 n
             },
         }
+    }
+}
+
+pub enum SolutionInvalidation {
+    InnovationOutlier,
+    CodeResidual,
+}
+
+struct SolutionValidator {
+    residuals: DVector::<f64>,
+}
+
+impl SolutionValidator {
+    fn new(
+        apriori_ecef: &Vector3<f64>,
+        pool: &Vec<Candidate>, 
+        w: &DMatrix<f64>,
+        solution: &PVTSolution,
+    ) -> Self {
+            
+        let mut residuals = DVector::<f64>::zeros(pool.len());
+
+        for (idx, cd) in pool.iter().enumerate() {
+            let sv = solution.sv
+                .iter()
+                .filter_map(|(sv, data)| if *sv == cd.sv { Some(data) } else { None })
+                .reduce(|k, _| k)
+                .unwrap();
+
+            let pr = cd.prefered_pseudorange().unwrap().value;
+            let state = cd.state.unwrap().position;
+            let estimate = apriori_ecef + solution.p;
+
+            let (sv_x, sv_y, sv_z) = (state[0], state[1], state[2]);
+            let (x, y, z) = (estimate[0], estimate[1], estimate[2]);
+
+            let rho = ((sv_x - x).powi(2) + (sv_y - y).powi(2) + (sv_z - z).powi(2)).sqrt();
+
+            let dt = cd.clock_corr.to_seconds() - solution.dt;
+
+            residuals[idx] = pr;
+            residuals[idx] -= rho;
+            residuals[idx] += dt * SPEED_OF_LIGHT;
+            residuals[idx] -= sv.tropo_bias.value().unwrap_or(0.0);
+            residuals[idx] -= sv.iono_bias.value().unwrap_or(0.0);
+            residuals[idx] /= w[(idx, idx)];
+            debug!("{:?} ({}): coderes={}/w={}", cd.t, cd.sv, residuals[idx], w[(idx, idx)]);
+        }
+        Self { residuals }
+    }
+    /*
+     * Solution validation process
+     */
+    fn valid(&self) -> Result<(), SolutionInvalidation> {
+        Ok(())
     }
 }

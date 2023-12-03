@@ -27,7 +27,7 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nalgebra::base::{DMatrix, DVector, Matrix1x4, Matrix3, Matrix4, Matrix4x1, MatrixXx4};
+use nalgebra::base::{DMatrix, DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4};
 use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]

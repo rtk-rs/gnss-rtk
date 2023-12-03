@@ -3,8 +3,8 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use nalgebra::DMatrix; 
 use crate::prelude::{Mode, TimeScale};
-use nalgebra::{DMatrix, DVector, Matrix3, MatrixXx4, Vector3};
 
 /// Configuration Error
 #[derive(Debug, Error)]
