@@ -178,32 +178,6 @@ impl InterpolationResult {
             frame,
         )
     }
-    /*
-     * Applies the APC conversion, if need be
-     */
-    pub(crate) fn mc_apc_correction(&mut self, r_sun: Vector3<f64>, delta_apc: f64) {
-        match self.position {
-            InterpolatedPosition::MassCenter(r_sat) => {
-                let k = -r_sat / (r_sat[0].powi(2) + r_sat[1].powi(2) + r_sat[2].powi(2)).sqrt();
-                let norm = ((r_sun[0] - r_sat[0]).powi(2)
-                    + (r_sun[1] - r_sat[1]).powi(2)
-                    + (r_sun[2] - r_sat[2]).powi(2))
-                .sqrt();
-                let e = (r_sun - r_sat) / norm;
-                let j = Vector3::<f64>::new(k[0] * e[0], k[1] * e[1], k[2] * e[2]);
-                let i = Vector3::<f64>::new(j[0] * k[0], j[1] * k[1], j[2] * k[2]);
-                let r = Matrix3::<f64>::new(i[0], j[0], k[0], i[1], j[1], k[1], i[2], j[2], k[2]);
-                let r_dot = Vector3::<f64>::new(
-                    (i[0] + j[0] + k[0]) * delta_apc,
-                    (i[1] + j[1] + k[1]) * delta_apc,
-                    (i[2] + j[2] + k[2]) * delta_apc,
-                );
-                let r_apc = r_sat + r_dot;
-                self.position = InterpolatedPosition::AntennaPhaseCenter(r_apc);
-            },
-            _ => {},
-        }
-    }
 }
 
 /// PVT Solver
@@ -319,11 +293,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
 
                 if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
-                    if modeling.sv_apc {
-                        let r_sun = Self::sun_unit_vector(&earth_frame, cosmic, t_tx);
-                        interpolated.mc_apc_correction(r_sun, 0.0_f64);
-                    }
-
                     let mut c = c.clone();
 
                     let rot = match modeling.earth_rotation {
@@ -492,6 +461,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
         let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
 
+        let r_sun = Self::sun_unit_vector(&self.earth_frame, &self.cosmic, t);
+
         for (row_index, cd) in pool.iter().enumerate() {
             if let Ok(sv_data) = cd.resolve(
                 t,
@@ -503,6 +474,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 row_index,
                 &mut y,
                 &mut g,
+                &r_sun,
             ) {
                 pvt_sv_data.insert(cd.sv, sv_data);
             }
