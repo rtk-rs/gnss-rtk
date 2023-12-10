@@ -124,15 +124,37 @@ impl Default for InterpolatedPosition {
 pub struct InterpolationResult {
     /// Position vector in [m] ECEF
     pub position: InterpolatedPosition,
-    /// Velocity vector in [m/s] ECEF
-    pub velocity: Option<Vector3<f64>>,
     /// Elevation compared to reference position and horizon in [°]
     pub elevation: f64,
     /// Azimuth compared to reference position and magnetic North in [°]
     pub azimuth: f64,
+    // Velocity vector in [m/s] ECEF that we calculated ourselves
+    velocity: Option<Vector3<f64>>,
 }
 
 impl InterpolationResult {
+    /// Builds InterpolationResults from a Mass Center (MC) position
+    /// as ECEF [m] coordinates
+    pub fn from_mass_center_position(pos: (f64, f64, f64)) -> Self {
+        let mut s = Self::default();
+        s.position = InterpolatedPosition::MassCenter(Vector3::<f64>::new(pos.0, pos.1, pos.2));
+        s
+    }
+    /// Builds InterpolationResults from an Antenna Phase Center (APC) position
+    /// as ECEF [m] coordinates
+    pub fn from_apc_position(pos: (f64, f64, f64)) -> Self {
+        let mut s = Self::default();
+        s.position =
+            InterpolatedPosition::AntennaPhaseCenter(Vector3::<f64>::new(pos.0, pos.1, pos.2));
+        s
+    }
+    /// Builds Self with given SV (elevation, azimuth) attitude
+    pub fn with_elevation_azimuth(&self, elev_azim: (f64, f64)) -> Self {
+        let mut s = self.clone();
+        s.elevation = elev_azim.0;
+        s.azimuth = elev_azim.1;
+        s
+    }
     pub(crate) fn position(&self) -> Vector3<f64> {
         match self.position {
             InterpolatedPosition::MassCenter(mc) => mc,
@@ -323,21 +345,21 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     interpolated.position =
                         InterpolatedPosition::AntennaPhaseCenter(rot * interpolated.position());
 
-                    if modeling.relativistic_clock_bias {
-                        if interpolated.velocity.is_none() {
-                            /*
-                             * we're interested in determining inst. speed vector
-                             * but the user did not provide it, let's eval. it ourselves
-                             */
-                            if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
-                                let dt = (t_tx - *p_ttx).to_seconds();
-                                interpolated.velocity =
-                                    Some((rot * interpolated.position() - rot * p_position) / dt);
-                            }
-                        }
+                    /* determine velocity */
+                    if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
+                        let dt = (t_tx - *p_ttx).to_seconds();
+                        interpolated.velocity =
+                            Some((rot * interpolated.position() - rot * p_position) / dt);
+                    }
 
+                    self.prev_sv_state
+                        .insert(c.sv, (t_tx, interpolated.position()));
+
+                    if modeling.relativistic_clock_bias {
+                        /*
+                         * following calculations need inst. velocity
+                         */
                         if interpolated.velocity.is_some() {
-                            // otherwise, following calaculations would diverge
                             let orbit = interpolated.orbit(t_tx, self.earth_frame);
                             const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
                             const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
@@ -352,9 +374,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             debug!("{:?} ({}) : relativistic clock bias: {}", t_tx, c.sv, bias);
                             c.clock_corr += bias;
                         }
-
-                        self.prev_sv_state
-                            .insert(c.sv, (t_tx, interpolated.position()));
                     }
 
                     debug!(
