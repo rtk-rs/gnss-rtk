@@ -291,6 +291,9 @@ pub struct Config {
     /// Internal delays
     #[cfg_attr(feature = "serde", serde(default))]
     pub int_delay: Vec<InternalDelay>,
+    /// Antenna Reference Point (ARP) as ENU offset [m]
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub arp_enu: Option<(f64, f64, f64)>,
     /// Solver customization
     #[cfg_attr(feature = "serde", serde(default))]
     pub solver: SolverOpts,
@@ -338,6 +341,7 @@ impl Config {
                 max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
+                arp_enu: None,
                 solver: SolverOpts {
                     gdop_threshold: default_gdop_threshold(),
                     tdop_threshold: default_tdop_threshold(),

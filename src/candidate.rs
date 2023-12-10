@@ -236,9 +236,23 @@ impl Candidate {
     ) -> Result<PVTSVData, Error> {
         // state
         let state = self.state.ok_or(Error::UnresolvedState)?;
-        let (x0, y0, z0) = apriori;
         let clock_corr = self.clock_corr.to_seconds();
         let (azimuth, elevation) = (state.azimuth, state.elevation);
+
+        /*
+         * compensate for ARP (if possible)
+         */
+        let apriori = match cfg.arp_enu {
+            Some(offset) => (
+                apriori.0 + offset.0,
+                apriori.1 + offset.1,
+                apriori.2 + offset.2,
+            ),
+            None => apriori,
+        };
+
+        let (x0, y0, z0) = apriori;
+
         let sv_p = state.position();
         let (sv_x, sv_y, sv_z) = (sv_p[0], sv_p[1], sv_p[2]);
 
@@ -269,10 +283,6 @@ impl Candidate {
             .ok_or(Error::MissingPseudoRange)?;
 
         let (pr, frequency) = (pr.value, pr.frequency);
-
-        /*
-         * TODO: frequency dependent delays
-         */
 
         /*
          * IONO + TROPO biases
