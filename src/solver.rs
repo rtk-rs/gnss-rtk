@@ -14,57 +14,18 @@ use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
+use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3, Vector4};
 
 use crate::{
     apriori::AprioriPosition,
     bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
-    cfg::Config,
+    cfg::{Config, Filter, Method},
     solutions::{
         validator::{SolutionInvalidation, SolutionValidator},
-        Estimate, PVTSVData, PVTSolution, PVTSolutionType,
+        PVTSVData, PVTSolution, PVTSolutionType,
     },
 };
-
-/// Solving mode
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub enum Mode {
-    /// Single Point Positioning (SPP).
-    /// Combine this to advanced configurations (refined compensations),
-    /// and you may achieve a precision of a few meters.
-    #[default]
-    SPP,
-    /// Least Square Single Point Positioning (SPP).
-    /// Combine this to advanced configurations (refined compensations),
-    /// and you may achieve metric precision in the best case.
-    LSQSPP,
-    /// Precise Point Positioning (PPP).
-    /// Combine this to advanced configurations (refined compensations)
-    /// and you may achieve centimetric precision.
-    PPP,
-}
-
-impl Mode {
-    fn is_ppp(&self) -> bool {
-        matches!(*self, Self::PPP)
-    }
-    fn is_spp(&self) -> bool {
-        !self.is_ppp()
-    }
-    fn is_recursive(&self) -> bool {
-        matches!(*self, Self::LSQSPP)
-    }
-}
-
-impl std::fmt::Display for Mode {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::PPP => write!(fmt, "PPP"),
-            Self::SPP | Self::LSQSPP => write!(fmt, "SPP"),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
@@ -96,6 +57,9 @@ pub enum Error {
     PhysicalNonSenseRxTooLate,
     #[error("invalidated solution: {0}")]
     InvalidatedSolution(SolutionInvalidation),
+    // Kalman filter bad op: should never happen
+    #[error("uninitialized kalman filter!")]
+    UninitializedKalmanFilter,
 }
 
 /// Position interpolator helper
@@ -105,6 +69,47 @@ pub enum InterpolatedPosition {
     MassCenter(Vector3<f64>),
     /// Providing APC position
     AntennaPhaseCenter(Vector3<f64>),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LSQState {
+    /* p matrix */
+    pub(crate) p: Matrix4<f64>,
+    /* x estimate */
+    pub(crate) x: Matrix4x1<f64>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct KfState {
+    /* p matrix */
+    pub(crate) p: Matrix4<f64>,
+    /* x estimate */
+    pub(crate) x: Matrix4x1<f64>,
+}
+
+// impl KfState {
+//     pub fn eval(&mut self,
+//         phi: &Matrix4<f64>,
+//         q: &Matrix4<f64>,
+//         x: &Vector4<f64>,
+//         p: &Matrix4x1<f64>,
+//     ) -> Result<Self, Error> {
+//         let x = phi * x;
+//         let p = (phi * p * phi.transpose()) + q;
+//         Ok(Self {
+//             x,
+//             p,
+//         })
+//     }
+// }
+
+// Filter state
+#[derive(Debug, Clone)]
+pub(crate) enum FilterState {
+    /// LSQ state
+    LSQState(LSQState),
+    /// KF state
+    KfState(KfState),
 }
 
 impl Default for InterpolatedPosition {
@@ -187,8 +192,6 @@ where
 {
     /// Solver parametrization
     pub cfg: Config,
-    /// Type of solver implemented
-    pub mode: Mode,
     /// apriori position
     pub apriori: AprioriPosition,
     /// SV state interpolation method. It is mandatory
@@ -212,19 +215,14 @@ where
     sun_frame: Frame,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
-    /* prev. estimate for recursive impl. */
-    prev_state: Option<Estimate>,
+    /* current filter state */
+    filter_state: Option<FilterState>,
     /* prev. state vector for internal velocity determination */
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
-    pub fn new(
-        mode: Mode,
-        apriori: AprioriPosition,
-        cfg: &Config,
-        interpolator: I,
-    ) -> Result<Self, Error> {
+    pub fn new(cfg: &Config, apriori: AprioriPosition, interpolator: I) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
         let earth_frame = cosmic.frame("EME2000");
@@ -232,7 +230,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /*
          * print some infos on latched config
          */
-        if mode.is_spp() && cfg.min_sv_sunlight_rate.is_some() {
+        if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("eclipse filter is not meaningful when using spp strategy");
         }
         if cfg.modeling.relativistic_path_range {
@@ -240,7 +238,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         Ok(Self {
-            mode,
             cosmic,
             sun_frame,
             earth_frame,
@@ -248,7 +245,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             interpolator,
             cfg: cfg.clone(),
             prev_sv_state: HashMap::new(),
-            prev_state: Option::<Estimate>::None,
+            filter_state: Option::<FilterState>::None,
             prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
     }
@@ -284,9 +281,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             self.apriori.geodetic.z,
         );
 
-        let mode = self.mode;
+        let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let solver_opts = &self.cfg.solver;
+        let filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
         let cosmic = &self.cosmic;
@@ -413,9 +411,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         delta_phase
                     );
                 }
-                /* make sure we're still compliant with the strategy */
-                match mode {
-                    Mode::SPP | Mode::LSQSPP => {
+                /* make sure we're still compliant */
+                match method {
+                    Method::SPP => {
                         if pool[idx - nb_removed].code.len() == 0 {
                             debug!(
                                 "{:?} ({}) dropped on bad snr",
@@ -426,7 +424,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             nb_removed += 1;
                         }
                     },
-                    Mode::PPP => {
+                    Method::PPP => {
                         let mut drop = !pool[idx - nb_removed].dual_freq_pseudorange();
                         drop |= !pool[idx - nb_removed].dual_freq_phase();
                         if drop {
@@ -479,7 +477,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             if let Ok(sv_data) = cd.resolve(
                 t,
                 &self.cfg,
-                mode,
                 (x0, y0, z0),
                 (lat_ddeg, lon_ddeg, altitude_above_sea_m),
                 iono_bias,
@@ -492,7 +489,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             }
         }
 
-        let w = self.cfg.solver.lsq_weight_matrix(
+        let w = self.cfg.solver.weight_matrix(
             nb_candidates,
             pvt_sv_data
                 .iter()
@@ -500,20 +497,21 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 .collect(),
         );
 
-        let mut pvt_solution = PVTSolution::new(
+        let (mut pvt_solution, new_state) = PVTSolution::new(
             g.clone(),
             w.clone(),
             y.clone(),
             pvt_sv_data.clone(),
-            self.prev_state.clone(),
+            filter,
+            self.filter_state.clone(),
         )?;
 
-        if mode.is_recursive() {
-            self.prev_state = Some(pvt_solution.estimate.clone());
+        if filter != Filter::None {
+            self.filter_state = new_state;
         }
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
-            pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
+            pvt_solution.vel = (pvt_solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
         }
 
         self.prev_pvt = Some((t, pvt_solution.clone()));
@@ -530,14 +528,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
          * what we expect based on the predefined setup.
          */
         if let Some(alt) = self.cfg.fixed_altitude {
-            pvt_solution.p.z = self.apriori.ecef.z - alt;
-            pvt_solution.v.z = 0.0_f64;
+            pvt_solution.pos.z = self.apriori.ecef.z - alt;
+            pvt_solution.vel.z = 0.0_f64;
         }
 
         match solution {
             PVTSolutionType::TimeOnly => {
-                pvt_solution.p = Vector3::<f64>::default();
-                pvt_solution.v = Vector3::<f64>::default();
+                pvt_solution.pos = Vector3::<f64>::default();
+                pvt_solution.vel = Vector3::<f64>::default();
             },
             _ => {},
         }

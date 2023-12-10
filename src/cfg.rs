@@ -3,7 +3,7 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::prelude::{Mode, TimeScale};
+use crate::prelude::TimeScale;
 use nalgebra::DMatrix;
 
 /// Configuration Error
@@ -11,6 +11,55 @@ use nalgebra::DMatrix;
 pub enum Error {
     #[error("unknown tropo model")]
     UnknownTropoModel(String),
+}
+
+/// Solving method
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub enum Method {
+    /// Single Point Positioning (SPP).
+    /// Uses pseudorange observations from a single carrier signal.
+    /// There is not point providing carrier phase obserations with this method.
+    /// SPP can work in degraged environments where a unique signal is sampled.
+    /// Combine this to advanced configurations and you may obtain metric precision.
+    #[default]
+    SPP,
+    /// Precise Point Positioning (PPP)
+    PPP,
+}
+
+impl std::fmt::Display for Method {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::SPP => write!(fmt, "SPP"),
+            Self::PPP => write!(fmt, "PPP"),
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+/// Positioning method
+pub enum Positioning {
+    /// Receiver is static
+    #[default]
+    Static,
+    /// Receiver is moving
+    Kinematic,
+}
+
+/// Filter to use in the solving process
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub enum Filter {
+    /// No filter. The "filter" part of the
+    /// [Config] struct is disregarded
+    None,
+    /// LSQ Filter. Heavy computation, converges much slower than a Kalman filter.
+    #[default]
+    LSQ,
+    /// Kalman Filter. Heavy+ computation, converges much faster than LSQ.
+    KF,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -32,11 +81,11 @@ impl ElevationMappingFunction {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum LSQWeight {
+pub enum WeightMatrix {
     /// a + b e-elev/c
-    LSQWeightMappingFunction(ElevationMappingFunction),
+    MappingFunction(ElevationMappingFunction),
     /// Advanced measurement noise covariance matrix
-    LSQWeightCovar,
+    Covar,
 }
 
 fn default_timescale() -> TimeScale {
@@ -87,8 +136,8 @@ fn default_sv_apc() -> bool {
     false
 }
 
-fn default_lsq_weight() -> Option<LSQWeight> {
-    //Some(LSQWeight::LSQWeightMappingFunction(
+fn default_weight_matrix() -> Option<WeightMatrix> {
+    //Some(WeightMatrix::WeightMatrixMappingFunction(
     //    ElevationMappingFunction {
     //        a: 5.0,
     //        b: 0.0,
@@ -98,11 +147,17 @@ fn default_lsq_weight() -> Option<LSQWeight> {
     None
 }
 
-fn default_gdop_threshold() -> Option<f64> {
-    Some(1.0)
+fn default_filter_opts() -> Option<FilterOpts> {
+    Some(FilterOpts {
+        weight_matrix: default_weight_matrix(),
+    })
 }
 
-fn default_innov_threshold() -> Option<f64> {
+fn default_gdop_threshold() -> Option<f64> {
+    None
+}
+
+fn default_tdop_threshold() -> Option<f64> {
     None
 }
 
@@ -125,32 +180,45 @@ pub struct InternalDelay {
 #[derive(Default, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct SolverOpts {
-    /// GDOP Threshold (max. limit) to invalidate ongoing GDOP
+    /// GDOP threshold to invalidate ongoing GDOP
     #[cfg_attr(feature = "serde", serde(default = "default_gdop_threshold"))]
     pub gdop_threshold: Option<f64>,
-    /// Weight Matrix in LSQ solving process
-    #[cfg_attr(feature = "serde", serde(default = "default_lsq_weight"))]
-    pub lsq_weight: Option<LSQWeight>,
-    /// Threshold on new filter innovation
-    #[cfg_attr(feature = "serde", serde(default = "default_innov_threshold"))]
-    pub innovation_threshold: Option<f64>,
+    /// TDOP threshold to invalidate ongoing TDOP
+    #[cfg_attr(feature = "serde", serde(default = "default_tdop_threshold"))]
+    pub tdop_threshold: Option<f64>,
+    /// Filter to use
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub filter: Filter,
+    /// Filter options
+    #[cfg_attr(feature = "serde", serde(default = "default_filter_opts"))]
+    pub filter_opts: Option<FilterOpts>,
+}
+
+#[derive(Default, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub struct FilterOpts {
+    /// Weight Matrix
+    #[cfg_attr(feature = "serde", serde(default = "default_weight_matrix"))]
+    pub weight_matrix: Option<WeightMatrix>,
 }
 
 impl SolverOpts {
     /*
      * form the weight matrix to be used in the solving process
      */
-    pub(crate) fn lsq_weight_matrix(&self, nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
+    pub(crate) fn weight_matrix(&self, nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
         let mut mat = DMatrix::identity(sv_elev.len(), sv_elev.len());
-        match &self.lsq_weight {
-            Some(LSQWeight::LSQWeightCovar) => panic!("not implemented yet"),
-            Some(LSQWeight::LSQWeightMappingFunction(mapf)) => {
-                for i in 0..sv_elev.len() - 1 {
-                    let sigma = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
-                    mat[(i, i)] = 1.0 / sigma.powi(2);
-                }
-            },
-            None => {},
+        if let Some(opts) = &self.filter_opts {
+            match &opts.weight_matrix {
+                Some(WeightMatrix::Covar) => panic!("not implemented yet"),
+                Some(WeightMatrix::MappingFunction(mapf)) => {
+                    for i in 0..sv_elev.len() - 1 {
+                        let sigma = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
+                        mat[(i, i)] = 1.0 / sigma.powi(2);
+                    }
+                },
+                None => {},
+            }
         }
         mat
     }
@@ -193,16 +261,9 @@ impl Default for Modeling {
     }
 }
 
-impl From<Mode> for Modeling {
-    fn from(mode: Mode) -> Self {
-        let s = Self::default();
-        match mode {
-            Mode::PPP => {
-                // TODO ?
-            },
-            _ => {},
-        }
-        s
+impl Modeling {
+    pub fn preset(method: Method, filter: Filter) -> Self {
+        Self::default()
     }
 }
 
@@ -212,10 +273,13 @@ pub struct Config {
     /// Time scale
     #[cfg_attr(feature = "serde", serde(default = "default_timescale"))]
     pub timescale: TimeScale,
+    /// Method to use
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub method: Method,
     /// (Position) interpolation filter order.
     /// A minimal order must be respected for correct results.
-    /// -  7 when working with broadcast ephemeris
-    /// - 11 when working with SP3
+    /// -  7 is the minimal value for metric resolution
+    /// - 11 is the standard when aiming at submetric resolution
     #[cfg_attr(feature = "serde", serde(default = "default_interp"))]
     pub interp_order: usize,
     /// Fixed altitude : reduces the need of 4 to 3 SV to resolve a solution
@@ -259,9 +323,10 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn default(mode: Mode) -> Self {
-        match mode {
-            Mode::SPP => Self {
+    pub fn preset(method: Method) -> Self {
+        match method {
+            Method::SPP => Self {
+                method,
                 timescale: default_timescale(),
                 fixed_altitude: None,
                 interp_order: default_interp(),
@@ -275,57 +340,12 @@ impl Config {
                 externalref_delay: Default::default(),
                 solver: SolverOpts {
                     gdop_threshold: default_gdop_threshold(),
-                    lsq_weight: None,
-                    innovation_threshold: None,
+                    tdop_threshold: default_tdop_threshold(),
+                    filter: Filter::LSQ,
+                    filter_opts: default_filter_opts(),
                 },
             },
-            Mode::LSQSPP => Self {
-                timescale: default_timescale(),
-                fixed_altitude: None,
-                interp_order: default_interp(),
-                code_smoothing: default_smoothing(),
-                min_sv_sunlight_rate: None,
-                min_sv_elev: Some(15.0),
-                min_snr: Some(30.0),
-                modeling: Modeling::default(),
-                max_sv: default_max_sv(),
-                int_delay: Default::default(),
-                externalref_delay: Default::default(),
-                solver: SolverOpts {
-                    gdop_threshold: default_gdop_threshold(),
-                    lsq_weight: default_lsq_weight(),
-                    innovation_threshold: default_innov_threshold(),
-                },
-            },
-            Mode::PPP => Self {
-                timescale: default_timescale(),
-                fixed_altitude: None,
-                interp_order: 11,
-                code_smoothing: default_smoothing(),
-                min_sv_sunlight_rate: Some(0.75),
-                min_sv_elev: Some(10.0),
-                min_snr: Some(30.0),
-                //TODO min_snr: Some(SNR::from_str("strong").unwrap()),
-                modeling: Modeling::default(),
-                max_sv: default_max_sv(),
-                int_delay: Default::default(),
-                externalref_delay: Default::default(),
-                solver: SolverOpts {
-                    gdop_threshold: default_gdop_threshold(),
-                    lsq_weight: default_lsq_weight(),
-                    innovation_threshold: default_innov_threshold(),
-                },
-            },
+            Method::PPP => panic!("not available yet"),
         }
     }
-}
-
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum PositioningMode {
-    /// Receiver is static
-    #[default]
-    Static,
-    /// Receiver is moving
-    Kinematic,
 }

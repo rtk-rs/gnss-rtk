@@ -9,7 +9,7 @@ use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
 use nyx::md::prelude::Frame;
 
-use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, Vector3};
+use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Method, Vector3};
 use crate::solutions::{PVTBias, PVTSVData};
 use crate::{
     bias,
@@ -226,7 +226,6 @@ impl Candidate {
         &self,
         t: Epoch,
         cfg: &Config,
-        mode: Mode,
         apriori: (f64, f64, f64),
         apriori_geo: (f64, f64, f64),
         iono_bias: &IonosphericBias,
