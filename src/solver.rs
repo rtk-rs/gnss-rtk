@@ -182,8 +182,9 @@ impl InterpolationResult {
 
 /// PVT Solver
 #[derive(Debug, Clone)]
-pub struct Solver<I>
+pub struct Solver<APC, I>
 where
+    APC: Fn(Epoch, SV, f64) -> Option<(f64, f64, f64)>,
     I: Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
 {
     /// Solver parametrization
@@ -195,6 +196,14 @@ where
     /// will not proceed further. User should provide the interpolation method.
     /// Other parameters are SV: Space Vehicle identity we want to resolve, and "usize" interpolation order.
     pub interpolator: I,
+    /// If the Position Interpolator I returns Mass Center positions,
+    /// and [Config].modeling.sv_apc is turned on, we need to apply the
+    /// tiny correction to convert the MC to APC.
+    /// This method should return for a given SV and frequency at current Epoch,
+    /// the correction expressed as ENU offset in meters.
+    /// If the interpolator returns Antenna Phase Centers directly, or
+    /// the SV APC correction is turned off, this interface remains completely idle.
+    pub apc_correction: APC,
     /* Cosmic model */
     cosmic: Arc<Cosm>,
     /*
@@ -215,10 +224,21 @@ where
     filter_state: Option<FilterState>,
     /* prev. state vector for internal velocity determination */
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
+    /* already determined APC retrieve */
+    sv_apc_corrections: Vec<((SV, f64), (f64, f64, f64))>,
 }
 
-impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
-    pub fn new(cfg: &Config, apriori: AprioriPosition, interpolator: I) -> Result<Self, Error> {
+impl<
+        APC: std::ops::Fn(Epoch, SV, f64) -> Option<(f64, f64, f64)>,
+        I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
+    > Solver<APC, I>
+{
+    pub fn new(
+        cfg: &Config,
+        apriori: AprioriPosition,
+        interpolator: I,
+        apc_correction: APC,
+    ) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
         let earth_frame = cosmic.frame("EME2000");
@@ -239,8 +259,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             earth_frame,
             apriori,
             interpolator,
+            apc_correction,
             cfg: cfg.clone(),
             prev_sv_state: HashMap::new(),
+            sv_apc_corrections: Vec::new(),
             filter_state: Option::<FilterState>::None,
             prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
