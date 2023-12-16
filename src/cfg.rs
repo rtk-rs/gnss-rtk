@@ -206,7 +206,7 @@ impl SolverOpts {
     /*
      * form the weight matrix to be used in the solving process
      */
-    pub(crate) fn weight_matrix(&self, nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
+    pub(crate) fn weight_matrix(&self, _nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
         let mut mat = DMatrix::identity(sv_elev.len(), sv_elev.len());
         if let Some(opts) = &self.filter_opts {
             match &opts.weight_matrix {
@@ -262,7 +262,7 @@ impl Default for Modeling {
 }
 
 impl Modeling {
-    pub fn preset(method: Method, filter: Filter) -> Self {
+    pub fn preset(_method: Method, _filter: Filter) -> Self {
         Self::default()
     }
 }

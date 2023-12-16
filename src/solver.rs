@@ -14,7 +14,7 @@ use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3, Vector4};
+use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
 
 use crate::{
     apriori::AprioriPosition,
@@ -150,7 +150,7 @@ impl InterpolationResult {
     }
     /// Builds Self with given SV (elevation, azimuth) attitude
     pub fn with_elevation_azimuth(&self, elev_azim: (f64, f64)) -> Self {
-        let mut s = self.clone();
+        let mut s = *self;
         s.elevation = elev_azim.0;
         s.azimuth = elev_azim.1;
         s
@@ -166,7 +166,7 @@ impl InterpolationResult {
     }
     pub(crate) fn orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
         let p = self.position();
-        let v = self.velocity().unwrap_or(Vector3::<f64>::default());
+        let v = self.velocity().unwrap_or_default();
         Orbit::cartesian(
             p[0] / 1000.0,
             p[1] / 1000.0,
@@ -305,13 +305,13 @@ impl<
         let filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
-        let cosmic = &self.cosmic;
-        let earth_frame = self.earth_frame;
+        let _cosmic = &self.cosmic;
+        let _earth_frame = self.earth_frame;
 
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
-            .filter_map(|mut c| {
+            .filter_map(|c| {
                 let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
 
                 if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
@@ -351,7 +351,7 @@ impl<
                          * following calculations need inst. velocity
                          */
                         if interpolated.velocity.is_some() {
-                            let orbit = interpolated.orbit(t_tx, self.earth_frame);
+                            let _orbit = interpolated.orbit(t_tx, self.earth_frame);
                             const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
                             const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
                             let orbit = interpolated.orbit(t_tx, self.earth_frame);
@@ -424,7 +424,7 @@ impl<
                 /* make sure we're still compliant */
                 match method {
                     Method::SPP => {
-                        if pool[idx - nb_removed].code.len() == 0 {
+                        if pool[idx - nb_removed].code.is_empty() {
                             debug!(
                                 "{:?} ({}) dropped on bad snr",
                                 pool[idx - nb_removed].t,
@@ -504,9 +504,7 @@ impl<
 
         let w = self.cfg.solver.weight_matrix(
             nb_candidates,
-            pvt_sv_data
-                .iter()
-                .map(|(sv, sv_data)| sv_data.elevation)
+            pvt_sv_data.values().map(|sv_data| sv_data.elevation)
                 .collect(),
         );
 
@@ -532,7 +530,7 @@ impl<
         let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &w, &pvt_solution);
 
         let valid = validator.valid(solver_opts);
-        if !valid.is_ok() {
+        if valid.is_err() {
             return Err(Error::InvalidatedSolution(valid.err().unwrap()));
         }
 

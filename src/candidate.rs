@@ -7,10 +7,10 @@ use log::debug;
 
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, Matrix3, MatrixXx4};
-use nyx::md::prelude::Frame;
+
 
 use crate::prelude::{
-    Config, Duration, Epoch, InterpolatedPosition, InterpolationResult, Method, Vector3,
+    Config, Duration, Epoch, InterpolatedPosition, InterpolationResult, Vector3,
 };
 use crate::solutions::{PVTBias, PVTSVData};
 use crate::{
@@ -263,7 +263,7 @@ impl Candidate {
             true => {
                 match state.position {
                     InterpolatedPosition::MassCenter(r_sat) => {
-                        let mut delta_apc = 0.0_f64; //TODO
+                        let delta_apc = 0.0_f64; //TODO
                         let k = -r_sat
                             / (r_sat[0].powi(2) + r_sat[1].powi(2) + r_sat[3].powi(2)).sqrt();
                         let norm = ((r_sun[0] - r_sat[0]).powi(2)
@@ -274,7 +274,7 @@ impl Candidate {
                         let e = (r_sun - r_sat) / norm;
                         let j = Vector3::<f64>::new(k[0] * e[0], k[1] * e[1], k[2] * e[2]);
                         let i = Vector3::<f64>::new(j[0] * k[0], j[1] * k[1], j[2] * k[2]);
-                        let r = Matrix3::<f64>::new(
+                        let _r = Matrix3::<f64>::new(
                             i[0], j[0], k[0], i[1], j[1], k[1], i[2], j[2], k[2],
                         );
                         let r_dot = Vector3::<f64>::new(

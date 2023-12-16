@@ -30,7 +30,7 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nalgebra::base::{DMatrix, DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4};
+use nalgebra::base::{DMatrix, DVector, Matrix3, Matrix4, MatrixXx4};
 use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
@@ -242,7 +242,7 @@ impl PVTSolution {
             self.q[(2, 1)],
             self.q[(2, 2)],
         );
-        r.clone().transpose() * q_3 * r.clone()
+        r.clone().transpose() * q_3 * r
     }
     /// Returns Horizontal Dilution of Precision of Self
     pub fn hdop(&self, lat: f64, lon: f64) -> f64 {
