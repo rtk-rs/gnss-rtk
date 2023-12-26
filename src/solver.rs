@@ -504,7 +504,9 @@ impl<
 
         let w = self.cfg.solver.weight_matrix(
             nb_candidates,
-            pvt_sv_data.values().map(|sv_data| sv_data.elevation)
+            pvt_sv_data
+                .values()
+                .map(|sv_data| sv_data.elevation)
                 .collect(),
         );
 
