@@ -6,10 +6,9 @@ use itertools::Itertools;
 use log::debug;
 
 use nyx::cosmic::SPEED_OF_LIGHT;
-use nyx::linalg::{DVector, MatrixXx4};
-use nyx::md::prelude::Frame;
+use nyx::linalg::{DVector, Matrix3, MatrixXx4};
 
-use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Mode, Vector3};
+use crate::prelude::{Config, Duration, Epoch, InterpolatedPosition, InterpolationResult, Vector3};
 use crate::solutions::{PVTBias, PVTSVData};
 use crate::{
     bias,
@@ -226,7 +225,6 @@ impl Candidate {
         &self,
         t: Epoch,
         cfg: &Config,
-        mode: Mode,
         apriori: (f64, f64, f64),
         apriori_geo: (f64, f64, f64),
         iono_bias: &IonosphericBias,
@@ -234,13 +232,61 @@ impl Candidate {
         row_index: usize,
         y: &mut DVector<f64>,
         g: &mut MatrixXx4<f64>,
+        r_sun: &Vector3<f64>,
     ) -> Result<PVTSVData, Error> {
         // state
         let state = self.state.ok_or(Error::UnresolvedState)?;
-        let (x0, y0, z0) = apriori;
         let clock_corr = self.clock_corr.to_seconds();
         let (azimuth, elevation) = (state.azimuth, state.elevation);
-        let sv_p = state.position();
+
+        /*
+         * compensate for ARP (if possible)
+         */
+        let apriori = match cfg.arp_enu {
+            Some(offset) => (
+                apriori.0 + offset.0,
+                apriori.1 + offset.1,
+                apriori.2 + offset.2,
+            ),
+            None => apriori,
+        };
+
+        let (x0, y0, z0) = apriori;
+
+        /*
+         * Compensate for APC (if desired)
+         */
+        let sv_p = match cfg.modeling.sv_apc {
+            true => {
+                match state.position {
+                    InterpolatedPosition::MassCenter(r_sat) => {
+                        let delta_apc = 0.0_f64; //TODO
+                        let k = -r_sat
+                            / (r_sat[0].powi(2) + r_sat[1].powi(2) + r_sat[3].powi(2)).sqrt();
+                        let norm = ((r_sun[0] - r_sat[0]).powi(2)
+                            + (r_sun[1] - r_sat[1]).powi(2)
+                            + (r_sun[2] - r_sat[2]).powi(2))
+                        .sqrt();
+
+                        let e = (r_sun - r_sat) / norm;
+                        let j = Vector3::<f64>::new(k[0] * e[0], k[1] * e[1], k[2] * e[2]);
+                        let i = Vector3::<f64>::new(j[0] * k[0], j[1] * k[1], j[2] * k[2]);
+                        let _r = Matrix3::<f64>::new(
+                            i[0], j[0], k[0], i[1], j[1], k[1], i[2], j[2], k[2],
+                        );
+                        let r_dot = Vector3::<f64>::new(
+                            (i[0] + j[0] + k[0]) * delta_apc,
+                            (i[1] + j[1] + k[1]) * delta_apc,
+                            (i[2] + j[2] + k[2]) * delta_apc,
+                        );
+                        r_sat + r_dot
+                    },
+                    InterpolatedPosition::AntennaPhaseCenter(r_sat) => r_sat,
+                }
+            },
+            false => state.position(),
+        };
+
         let (sv_x, sv_y, sv_z) = (sv_p[0], sv_p[1], sv_p[2]);
 
         let mut sv_data = PVTSVData::default();
@@ -270,10 +316,6 @@ impl Candidate {
             .ok_or(Error::MissingPseudoRange)?;
 
         let (pr, frequency) = (pr.value, pr.frequency);
-
-        /*
-         * TODO: frequency dependent delays
-         */
 
         /*
          * IONO + TROPO biases

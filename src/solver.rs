@@ -14,57 +14,18 @@ use nyx::md::prelude::{Bodies, Frame, LightTimeCalc};
 
 use gnss::prelude::SV;
 
-use nalgebra::{DVector, Matrix3, MatrixXx4, Vector3};
+use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
 
 use crate::{
     apriori::AprioriPosition,
     bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
-    cfg::Config,
+    cfg::{Config, Filter, Method},
     solutions::{
         validator::{SolutionInvalidation, SolutionValidator},
-        Estimate, PVTSVData, PVTSolution, PVTSolutionType,
+        PVTSVData, PVTSolution, PVTSolutionType,
     },
 };
-
-/// Solving mode
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub enum Mode {
-    /// Single Point Positioning (SPP).
-    /// Combine this to advanced configurations (refined compensations),
-    /// and you may achieve a precision of a few meters.
-    #[default]
-    SPP,
-    /// Least Square Single Point Positioning (SPP).
-    /// Combine this to advanced configurations (refined compensations),
-    /// and you may achieve metric precision in the best case.
-    LSQSPP,
-    /// Precise Point Positioning (PPP).
-    /// Combine this to advanced configurations (refined compensations)
-    /// and you may achieve centimetric precision.
-    PPP,
-}
-
-impl Mode {
-    fn is_ppp(&self) -> bool {
-        matches!(*self, Self::PPP)
-    }
-    fn is_spp(&self) -> bool {
-        !self.is_ppp()
-    }
-    fn is_recursive(&self) -> bool {
-        matches!(*self, Self::LSQSPP)
-    }
-}
-
-impl std::fmt::Display for Mode {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::PPP => write!(fmt, "PPP"),
-            Self::SPP | Self::LSQSPP => write!(fmt, "SPP"),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Error)]
 pub enum Error {
@@ -96,6 +57,9 @@ pub enum Error {
     PhysicalNonSenseRxTooLate,
     #[error("invalidated solution: {0}")]
     InvalidatedSolution(SolutionInvalidation),
+    // Kalman filter bad op: should never happen
+    #[error("uninitialized kalman filter!")]
+    UninitializedKalmanFilter,
 }
 
 /// Position interpolator helper
@@ -105,6 +69,47 @@ pub enum InterpolatedPosition {
     MassCenter(Vector3<f64>),
     /// Providing APC position
     AntennaPhaseCenter(Vector3<f64>),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LSQState {
+    /* p matrix */
+    pub(crate) p: Matrix4<f64>,
+    /* x estimate */
+    pub(crate) x: Matrix4x1<f64>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct KfState {
+    /* p matrix */
+    pub(crate) p: Matrix4<f64>,
+    /* x estimate */
+    pub(crate) x: Matrix4x1<f64>,
+}
+
+// impl KfState {
+//     pub fn eval(&mut self,
+//         phi: &Matrix4<f64>,
+//         q: &Matrix4<f64>,
+//         x: &Vector4<f64>,
+//         p: &Matrix4x1<f64>,
+//     ) -> Result<Self, Error> {
+//         let x = phi * x;
+//         let p = (phi * p * phi.transpose()) + q;
+//         Ok(Self {
+//             x,
+//             p,
+//         })
+//     }
+// }
+
+// Filter state
+#[derive(Debug, Clone)]
+pub(crate) enum FilterState {
+    /// LSQ state
+    LSQState(LSQState),
+    /// KF state
+    KfState(KfState),
 }
 
 impl Default for InterpolatedPosition {
@@ -119,15 +124,37 @@ impl Default for InterpolatedPosition {
 pub struct InterpolationResult {
     /// Position vector in [m] ECEF
     pub position: InterpolatedPosition,
-    /// Velocity vector in [m/s] ECEF
-    pub velocity: Option<Vector3<f64>>,
     /// Elevation compared to reference position and horizon in [°]
     pub elevation: f64,
     /// Azimuth compared to reference position and magnetic North in [°]
     pub azimuth: f64,
+    // Velocity vector in [m/s] ECEF that we calculated ourselves
+    velocity: Option<Vector3<f64>>,
 }
 
 impl InterpolationResult {
+    /// Builds InterpolationResults from a Mass Center (MC) position
+    /// as ECEF [m] coordinates
+    pub fn from_mass_center_position(pos: (f64, f64, f64)) -> Self {
+        let mut s = Self::default();
+        s.position = InterpolatedPosition::MassCenter(Vector3::<f64>::new(pos.0, pos.1, pos.2));
+        s
+    }
+    /// Builds InterpolationResults from an Antenna Phase Center (APC) position
+    /// as ECEF [m] coordinates
+    pub fn from_apc_position(pos: (f64, f64, f64)) -> Self {
+        let mut s = Self::default();
+        s.position =
+            InterpolatedPosition::AntennaPhaseCenter(Vector3::<f64>::new(pos.0, pos.1, pos.2));
+        s
+    }
+    /// Builds Self with given SV (elevation, azimuth) attitude
+    pub fn with_elevation_azimuth(&self, elev_azim: (f64, f64)) -> Self {
+        let mut s = *self;
+        s.elevation = elev_azim.0;
+        s.azimuth = elev_azim.1;
+        s
+    }
     pub(crate) fn position(&self) -> Vector3<f64> {
         match self.position {
             InterpolatedPosition::MassCenter(mc) => mc,
@@ -139,7 +166,7 @@ impl InterpolationResult {
     }
     pub(crate) fn orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
         let p = self.position();
-        let v = self.velocity().unwrap_or(Vector3::<f64>::default());
+        let v = self.velocity().unwrap_or_default();
         Orbit::cartesian(
             p[0] / 1000.0,
             p[1] / 1000.0,
@@ -151,44 +178,17 @@ impl InterpolationResult {
             frame,
         )
     }
-    /*
-     * Applies the APC conversion, if need be
-     */
-    pub(crate) fn mc_apc_correction(&mut self, r_sun: Vector3<f64>, delta_apc: f64) {
-        match self.position {
-            InterpolatedPosition::MassCenter(r_sat) => {
-                let k = -r_sat / (r_sat[0].powi(2) + r_sat[1].powi(2) + r_sat[2].powi(2)).sqrt();
-                let norm = ((r_sun[0] - r_sat[0]).powi(2)
-                    + (r_sun[1] - r_sat[1]).powi(2)
-                    + (r_sun[2] - r_sat[2]).powi(2))
-                .sqrt();
-                let e = (r_sun - r_sat) / norm;
-                let j = Vector3::<f64>::new(k[0] * e[0], k[1] * e[1], k[2] * e[2]);
-                let i = Vector3::<f64>::new(j[0] * k[0], j[1] * k[1], j[2] * k[2]);
-                let r = Matrix3::<f64>::new(i[0], j[0], k[0], i[1], j[1], k[1], i[2], j[2], k[2]);
-                let r_dot = Vector3::<f64>::new(
-                    (i[0] + j[0] + k[0]) * delta_apc,
-                    (i[1] + j[1] + k[1]) * delta_apc,
-                    (i[2] + j[2] + k[2]) * delta_apc,
-                );
-                let r_apc = r_sat + r_dot;
-                self.position = InterpolatedPosition::AntennaPhaseCenter(r_apc);
-            },
-            _ => {},
-        }
-    }
 }
 
 /// PVT Solver
 #[derive(Debug, Clone)]
-pub struct Solver<I>
+pub struct Solver<APC, I>
 where
+    APC: Fn(Epoch, SV, f64) -> Option<(f64, f64, f64)>,
     I: Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
 {
     /// Solver parametrization
     pub cfg: Config,
-    /// Type of solver implemented
-    pub mode: Mode,
     /// apriori position
     pub apriori: AprioriPosition,
     /// SV state interpolation method. It is mandatory
@@ -196,6 +196,14 @@ where
     /// will not proceed further. User should provide the interpolation method.
     /// Other parameters are SV: Space Vehicle identity we want to resolve, and "usize" interpolation order.
     pub interpolator: I,
+    /// If the Position Interpolator I returns Mass Center positions,
+    /// and [Config].modeling.sv_apc is turned on, we need to apply the
+    /// tiny correction to convert the MC to APC.
+    /// This method should return for a given SV and frequency at current Epoch,
+    /// the correction expressed as ENU offset in meters.
+    /// If the interpolator returns Antenna Phase Centers directly, or
+    /// the SV APC correction is turned off, this interface remains completely idle.
+    pub apc_correction: APC,
     /* Cosmic model */
     cosmic: Arc<Cosm>,
     /*
@@ -212,18 +220,24 @@ where
     sun_frame: Frame,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
-    /* prev. estimate for recursive impl. */
-    prev_state: Option<Estimate>,
+    /* current filter state */
+    filter_state: Option<FilterState>,
     /* prev. state vector for internal velocity determination */
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
+    /* already determined APC retrieve */
+    sv_apc_corrections: Vec<((SV, f64), (f64, f64, f64))>,
 }
 
-impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
+impl<
+        APC: std::ops::Fn(Epoch, SV, f64) -> Option<(f64, f64, f64)>,
+        I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
+    > Solver<APC, I>
+{
     pub fn new(
-        mode: Mode,
-        apriori: AprioriPosition,
         cfg: &Config,
+        apriori: AprioriPosition,
         interpolator: I,
+        apc_correction: APC,
     ) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
@@ -232,7 +246,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /*
          * print some infos on latched config
          */
-        if mode.is_spp() && cfg.min_sv_sunlight_rate.is_some() {
+        if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("eclipse filter is not meaningful when using spp strategy");
         }
         if cfg.modeling.relativistic_path_range {
@@ -240,15 +254,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         Ok(Self {
-            mode,
             cosmic,
             sun_frame,
             earth_frame,
             apriori,
             interpolator,
+            apc_correction,
             cfg: cfg.clone(),
             prev_sv_state: HashMap::new(),
-            prev_state: Option::<Estimate>::None,
+            sv_apc_corrections: Vec::new(),
+            filter_state: Option::<FilterState>::None,
             prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
     }
@@ -284,26 +299,22 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             self.apriori.geodetic.z,
         );
 
-        let mode = self.mode;
+        let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let solver_opts = &self.cfg.solver;
+        let filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
-        let cosmic = &self.cosmic;
-        let earth_frame = self.earth_frame;
+        let _cosmic = &self.cosmic;
+        let _earth_frame = self.earth_frame;
 
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
-            .filter_map(|mut c| {
+            .filter_map(|c| {
                 let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
 
                 if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
-                    if modeling.sv_apc {
-                        let r_sun = Self::sun_unit_vector(&earth_frame, cosmic, t_tx);
-                        interpolated.mc_apc_correction(r_sun, 0.0_f64);
-                    }
-
                     let mut c = c.clone();
 
                     let rot = match modeling.earth_rotation {
@@ -325,22 +336,22 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     interpolated.position =
                         InterpolatedPosition::AntennaPhaseCenter(rot * interpolated.position());
 
-                    if modeling.relativistic_clock_bias {
-                        if interpolated.velocity.is_none() {
-                            /*
-                             * we're interested in determining inst. speed vector
-                             * but the user did not provide it, let's eval. it ourselves
-                             */
-                            if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
-                                let dt = (t_tx - *p_ttx).to_seconds();
-                                interpolated.velocity =
-                                    Some((rot * interpolated.position() - rot * p_position) / dt);
-                            }
-                        }
+                    /* determine velocity */
+                    if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
+                        let dt = (t_tx - *p_ttx).to_seconds();
+                        interpolated.velocity =
+                            Some((rot * interpolated.position() - rot * p_position) / dt);
+                    }
 
+                    self.prev_sv_state
+                        .insert(c.sv, (t_tx, interpolated.position()));
+
+                    if modeling.relativistic_clock_bias {
+                        /*
+                         * following calculations need inst. velocity
+                         */
                         if interpolated.velocity.is_some() {
-                            // otherwise, following calaculations would diverge
-                            let orbit = interpolated.orbit(t_tx, self.earth_frame);
+                            let _orbit = interpolated.orbit(t_tx, self.earth_frame);
                             const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
                             const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
                             let orbit = interpolated.orbit(t_tx, self.earth_frame);
@@ -354,9 +365,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             debug!("{:?} ({}) : relativistic clock bias: {}", t_tx, c.sv, bias);
                             c.clock_corr += bias;
                         }
-
-                        self.prev_sv_state
-                            .insert(c.sv, (t_tx, interpolated.position()));
                     }
 
                     debug!(
@@ -413,10 +421,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         delta_phase
                     );
                 }
-                /* make sure we're still compliant with the strategy */
-                match mode {
-                    Mode::SPP | Mode::LSQSPP => {
-                        if pool[idx - nb_removed].code.len() == 0 {
+                /* make sure we're still compliant */
+                match method {
+                    Method::SPP => {
+                        if pool[idx - nb_removed].code.is_empty() {
                             debug!(
                                 "{:?} ({}) dropped on bad snr",
                                 pool[idx - nb_removed].t,
@@ -426,7 +434,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             nb_removed += 1;
                         }
                     },
-                    Mode::PPP => {
+                    Method::PPP => {
                         let mut drop = !pool[idx - nb_removed].dual_freq_pseudorange();
                         drop |= !pool[idx - nb_removed].dual_freq_phase();
                         if drop {
@@ -475,11 +483,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
         let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
 
+        let r_sun = Self::sun_unit_vector(&self.earth_frame, &self.cosmic, t);
+
         for (row_index, cd) in pool.iter().enumerate() {
             if let Ok(sv_data) = cd.resolve(
                 t,
                 &self.cfg,
-                mode,
                 (x0, y0, z0),
                 (lat_ddeg, lon_ddeg, altitude_above_sea_m),
                 iono_bias,
@@ -487,33 +496,35 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 row_index,
                 &mut y,
                 &mut g,
+                &r_sun,
             ) {
                 pvt_sv_data.insert(cd.sv, sv_data);
             }
         }
 
-        let w = self.cfg.solver.lsq_weight_matrix(
+        let w = self.cfg.solver.weight_matrix(
             nb_candidates,
             pvt_sv_data
-                .iter()
-                .map(|(sv, sv_data)| sv_data.elevation)
+                .values()
+                .map(|sv_data| sv_data.elevation)
                 .collect(),
         );
 
-        let mut pvt_solution = PVTSolution::new(
+        let (mut pvt_solution, new_state) = PVTSolution::new(
             g.clone(),
             w.clone(),
             y.clone(),
             pvt_sv_data.clone(),
-            self.prev_state.clone(),
+            filter,
+            self.filter_state.clone(),
         )?;
 
-        if mode.is_recursive() {
-            self.prev_state = Some(pvt_solution.estimate.clone());
+        if filter != Filter::None {
+            self.filter_state = new_state;
         }
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
-            pvt_solution.v = (pvt_solution.p - prev_pvt.p) / (t - *prev_t).to_seconds();
+            pvt_solution.vel = (pvt_solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
         }
 
         self.prev_pvt = Some((t, pvt_solution.clone()));
@@ -521,7 +532,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &w, &pvt_solution);
 
         let valid = validator.valid(solver_opts);
-        if !valid.is_ok() {
+        if valid.is_err() {
             return Err(Error::InvalidatedSolution(valid.err().unwrap()));
         }
 
@@ -530,14 +541,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
          * what we expect based on the predefined setup.
          */
         if let Some(alt) = self.cfg.fixed_altitude {
-            pvt_solution.p.z = self.apriori.ecef.z - alt;
-            pvt_solution.v.z = 0.0_f64;
+            pvt_solution.pos.z = self.apriori.ecef.z - alt;
+            pvt_solution.vel.z = 0.0_f64;
         }
 
         match solution {
             PVTSolutionType::TimeOnly => {
-                pvt_solution.p = Vector3::<f64>::default();
-                pvt_solution.v = Vector3::<f64>::default();
+                pvt_solution.pos = Vector3::<f64>::default();
+                pvt_solution.vel = Vector3::<f64>::default();
             },
             _ => {},
         }

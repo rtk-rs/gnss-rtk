@@ -12,6 +12,8 @@ use crate::{
 pub enum SolutionInvalidation {
     #[error("gdop limit exceeded {0}")]
     GDOPOutlier(f64),
+    #[error("tdop limit exceeded {0}")]
+    TDOPOutlier(f64),
     #[error("innovation outlier |{0}|")]
     InnovationOutlier(f64),
     #[error("coderes limit exceeded {0}")]
@@ -20,6 +22,7 @@ pub enum SolutionInvalidation {
 
 pub(crate) struct SolutionValidator {
     gdop: f64,
+    tdop: f64,
     residuals: DVector<f64>,
 }
 
@@ -31,6 +34,7 @@ impl SolutionValidator {
         solution: &PVTSolution,
     ) -> Self {
         let gdop = solution.gdop();
+        let tdop = solution.tdop();
         let mut residuals = DVector::<f64>::zeros(pool.len());
 
         for (idx, cd) in pool.iter().enumerate() {
@@ -43,7 +47,7 @@ impl SolutionValidator {
 
             let pr = cd.prefered_pseudorange().unwrap().value;
             let state = cd.state.unwrap().position();
-            let estimate = apriori_ecef + solution.p;
+            let estimate = apriori_ecef + solution.pos;
 
             let (sv_x, sv_y, sv_z) = (state[0], state[1], state[2]);
             let (x, y, z) = (estimate[0], estimate[1], estimate[2]);
@@ -66,7 +70,11 @@ impl SolutionValidator {
                 w[(idx, idx)]
             );
         }
-        Self { residuals, gdop }
+        Self {
+            residuals,
+            gdop,
+            tdop,
+        }
     }
     /*
      * Solution validation process
@@ -77,12 +85,9 @@ impl SolutionValidator {
                 return Err(SolutionInvalidation::GDOPOutlier(self.gdop));
             }
         }
-        if let Some(threshold) = opts.innovation_threshold {
-            for idx in 0..self.residuals.len() {
-                let res = self.residuals[idx].abs();
-                if res > threshold {
-                    return Err(SolutionInvalidation::InnovationOutlier(res));
-                }
+        if let Some(max_tdop) = opts.tdop_threshold {
+            if self.tdop > max_tdop {
+                return Err(SolutionInvalidation::TDOPOutlier(self.tdop));
             }
         }
         Ok(())

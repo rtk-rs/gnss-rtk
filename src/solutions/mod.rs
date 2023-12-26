@@ -1,5 +1,6 @@
 //! PVT Solutions
-use crate::prelude::{Vector3, SV};
+use crate::prelude::{Filter, Vector3, SV};
+use crate::solver::{FilterState, LSQState};
 use crate::Error;
 use std::collections::HashMap;
 
@@ -29,7 +30,7 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nalgebra::base::{DMatrix, DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4};
+use nalgebra::base::{DMatrix, DVector, Matrix3, Matrix4, MatrixXx4};
 use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
@@ -87,30 +88,22 @@ pub struct PVTSVData {
     pub iono_bias: PVTBias,
 }
 
-#[derive(Default, Clone, Debug)]
-pub struct Estimate {
-    /* x estimate */
-    pub(crate) x: Matrix4x1<f64>,
-    /* Q matrix */
-    pub(crate) q: Matrix4<f64>,
-}
-
 /// PVT Solution, always expressed as the correction to apply
 /// to an Apriori / static position.
 #[derive(Debug, Clone, Default)]
 // #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
     /// Position errors (in [m] ECEF)
-    pub p: Vector3<f64>,
+    pub pos: Vector3<f64>,
     /// Absolute Velocity (in [m/s] ECEF).
-    pub v: Vector3<f64>,
+    pub vel: Vector3<f64>,
     /// Time correction in [s]
     pub dt: f64,
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV
     pub sv: HashMap<SV, PVTSVData>,
-    // estimate
-    pub(crate) estimate: Estimate,
+    // Q matrix
+    q: Matrix4<f64>,
 }
 
 impl PVTSolution {
@@ -124,46 +117,95 @@ impl PVTSolution {
         w: DMatrix<f64>,
         y: DVector<f64>,
         sv: HashMap<SV, PVTSVData>,
-        p_state: Option<Estimate>,
-    ) -> Result<Self, Error> {
-        let g_prime = g.clone().transpose();
-
-        let estimate = match p_state {
-            None => {
-                let q = (g_prime.clone() * w.clone() * g.clone())
+        filter: Filter,
+        p_state: Option<FilterState>,
+    ) -> Result<(Self, Option<FilterState>), Error> {
+        let (q, x, new_state) = match filter {
+            Filter::None => {
+                let g_prime = g.clone().transpose();
+                let q = (g_prime.clone() * g.clone())
                     .try_inverse()
                     .ok_or(Error::MatrixInversionError)?;
-                let x = (q * g_prime.clone()) * w.clone() * y;
-                Estimate { x, q }
+
+                let p = (g_prime.clone() * w.clone() * g.clone())
+                    .try_inverse()
+                    .ok_or(Error::MatrixInversionError)?;
+
+                let x = p * (g_prime.clone() * w.clone() * y);
+                (q, x, None)
             },
-            Some(state) => {
-                let p_1 = state
-                    .q
-                    .try_inverse()
-                    .ok_or(Error::CovarMatrixInversionError)?;
+            Filter::LSQ => {
+                if let Some(FilterState::LSQState(p_state)) = p_state {
+                    let p_1 = p_state
+                        .p
+                        .try_inverse()
+                        .ok_or(Error::CovarMatrixInversionError)?;
 
-                let q = g_prime.clone() * w.clone() * g.clone();
-                let q = (p_1 + q)
-                    .try_inverse()
-                    .ok_or(Error::CovarMatrixInversionError)?;
+                    let g_prime = g.clone().transpose();
+                    let q = (g_prime.clone() * g.clone())
+                        .try_inverse()
+                        .ok_or(Error::MatrixInversionError)?;
 
-                let x = q * (p_1 * state.x + (g_prime.clone() * w.clone() * y));
-                Estimate { x, q }
+                    let p = g_prime.clone() * w.clone() * g.clone();
+                    let p = (p_1 + p)
+                        .try_inverse()
+                        .ok_or(Error::CovarMatrixInversionError)?;
+
+                    let x = p * (p_1 * p_state.x + (g_prime.clone() * w.clone() * y));
+                    (q, x, Some(FilterState::LSQState(LSQState { x, p })))
+                } else {
+                    let g_prime = g.clone().transpose();
+                    let q = (g_prime.clone() * g.clone())
+                        .try_inverse()
+                        .ok_or(Error::MatrixInversionError)?;
+
+                    let p = (g_prime.clone() * w.clone() * g.clone())
+                        .try_inverse()
+                        .ok_or(Error::MatrixInversionError)?;
+
+                    let x = (p * g_prime.clone()) * w.clone() * y;
+                    (q, x, Some(FilterState::LSQState(LSQState { x, p })))
+                }
+            },
+            Filter::KF => {
+                panic!("kalman filter not available yet");
+                //if let Some(FilterState::KfState(p_state)) = p_state {
+                //    let g_prime = g.clone().transpose();
+                //    let q = (g_prime.clone() * g.clone())
+                //        .try_inverse()
+                //        .ok_or(Error::MatrixInversionError)?;
+
+                //    //let p = (g_prime.clone() * w.clone() * g.clone())
+                //    //    .try_inverse()
+                //    //    .ok_or(Error::MatrixInversionError)?;
+                //    //
+                //    //let x = (p * g_prime.clone()) * w.clone() * y;
+                //    //
+                //    //(q, x, Some(FilterState::KfState(KfState {
+                //    //    x,
+                //    //    p,
+                //    //})))
+                //} else {
+                //    return Err(Error::UninitializedKalmanFilter);
+                //}
             },
         };
 
-        let dt = estimate.x[3] / SPEED_OF_LIGHT;
+        let dt = x[3] / SPEED_OF_LIGHT;
         if dt.is_nan() {
             return Err(Error::TimeIsNan);
         }
 
-        Ok(Self {
-            sv,
-            p: Vector3::new(estimate.x[0], estimate.x[1], estimate.x[2]),
-            v: Vector3::<f64>::default(),
-            dt,
-            estimate,
-        })
+        Ok((
+            (Self {
+                sv,
+                pos: Vector3::new(x[0], x[1], x[2]),
+                vel: Vector3::<f64>::default(),
+                dt,
+                q,
+            }),
+            new_state,
+        ))
     }
     /// Returns list of Space Vehicles (SV) that help form this solution.
     pub fn sv(&self) -> Vec<SV> {
@@ -171,15 +213,11 @@ impl PVTSolution {
     }
     /// Returns Geometric Dilution of Precision of Self
     pub fn gdop(&self) -> f64 {
-        (self.estimate.q[(0, 0)]
-            + self.estimate.q[(1, 1)]
-            + self.estimate.q[(2, 2)]
-            + self.estimate.q[(3, 3)])
-            .sqrt()
+        (self.q[(0, 0)] + self.q[(1, 1)] + self.q[(2, 2)] + self.q[(3, 3)]).sqrt()
     }
     /// Returns Position Diultion of Precision of Self
     pub fn pdop(&self) -> f64 {
-        (self.estimate.q[(0, 0)] + self.estimate.q[(1, 1)] + self.estimate.q[(2, 2)]).sqrt()
+        (self.q[(0, 0)] + self.q[(1, 1)] + self.q[(2, 2)]).sqrt()
     }
     fn q_enu(&self, lat: f64, lon: f64) -> Matrix3<f64> {
         let r = Matrix3::<f64>::new(
@@ -194,17 +232,17 @@ impl PVTSolution {
             lon.sin(),
         );
         let q_3 = Matrix3::<f64>::new(
-            self.estimate.q[(0, 0)],
-            self.estimate.q[(0, 1)],
-            self.estimate.q[(0, 2)],
-            self.estimate.q[(1, 0)],
-            self.estimate.q[(1, 1)],
-            self.estimate.q[(1, 2)],
-            self.estimate.q[(2, 0)],
-            self.estimate.q[(2, 1)],
-            self.estimate.q[(2, 2)],
+            self.q[(0, 0)],
+            self.q[(0, 1)],
+            self.q[(0, 2)],
+            self.q[(1, 0)],
+            self.q[(1, 1)],
+            self.q[(1, 2)],
+            self.q[(2, 0)],
+            self.q[(2, 1)],
+            self.q[(2, 2)],
         );
-        r.clone().transpose() * q_3 * r.clone()
+        r.clone().transpose() * q_3 * r
     }
     /// Returns Horizontal Dilution of Precision of Self
     pub fn hdop(&self, lat: f64, lon: f64) -> f64 {
@@ -214,10 +252,10 @@ impl PVTSolution {
     /// Returns Vertical Dilution of Precision of Self
     pub fn vdop(&self, lat: f64, lon: f64) -> f64 {
         let q_enu = self.q_enu(lat, lon);
-        q_enu[(1, 1)].sqrt()
+        q_enu[(2, 2)].sqrt()
     }
     /// Returns Time Dilution of Precision of Self
     pub fn tdop(&self) -> f64 {
-        self.estimate.q[(3, 3)].sqrt()
+        self.q[(3, 3)].sqrt()
     }
 }
