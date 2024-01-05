@@ -15,7 +15,7 @@ We use `nalgebra` in the solving process (Matrix, Vectors..).
 We use `nyx` for ephemerides, orbital calculations, navigation filters, etc..  
 `Hifitime` is at the very basis of this work and allows pretty much everything here.  
 [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework.  
-[The RNX2CGGTTS and its Wiki](https://github.com/georust/rinex/wiki) is another interesting application of this framework.
+[RINEX-Cli](https://github.com/georust/rinex) uses this framework extensively.
 
 PVT Solutions
 =============
