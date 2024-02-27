@@ -20,7 +20,7 @@ use crate::{
     apriori::AprioriPosition,
     bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
-    cfg::{Config, Filter, Method},
+    cfg::{Config, FilterTypeEnum, Method},
     navigation::pvt::{
         validator::{SolutionInvalidation, SolutionValidator},
         PVTSVData, PVTSolution, PVTSolutionType,

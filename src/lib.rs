@@ -20,7 +20,7 @@ pub mod prelude {
     pub use crate::apriori::AprioriPosition;
     pub use crate::bias::{BdModel, IonosphericBias, KbModel, NgModel, TroposphericBias};
     pub use crate::candidate::{Candidate, Observation};
-    pub use crate::cfg::{Config, Filter, Method};
+    pub use crate::cfg::{Config, FilterTypeEnum, Method};
     pub use crate::navigation::pvt::{PVTSolution, PVTSolutionType};
     pub use crate::solver::{InterpolatedPosition, InterpolationResult, Solver};
     // re-export

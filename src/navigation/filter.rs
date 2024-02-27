@@ -1,12 +1,9 @@
-mod lsq;
-use lsq::State as LSQState;
-
 use thiserror::Error;
 
 use super::Input as NavInput;
 use super::Output as NavOutput;
 
-use crate::cfg::Filter as FilterTypeEnum;
+use crate::cfg::FilterTypeEnum;
 
 use nalgebra::Vector4;
 
@@ -20,7 +17,7 @@ pub enum Error {
 
 pub struct FilterState {
     /// r { x, y, z, dt } vector
-    r: Vector4<f64>, 
+    r: Vector4<f64>,
     /// P = G' * w * g
     p: Matrix4<f64>,
 }
@@ -36,20 +33,15 @@ impl Filter {
         let new_state = if let Some(state) = self.state {
             match self.filter {
                 FilterTypeEnum::LSQ => {
-                    let p_1 = state
-                        .p
-                        .try_inverse()
-                        .ok_or(Error::MatrixInversionError)?;
-                    
+                    let p_1 = state.p.try_inverse().ok_or(Error::MatrixInversionError)?;
+
                     let g_prime = nav.g.clone().transpose();
                     let q = (g_prime.clone() * nav.g.clone())
                         .try_inverse()
                         .ok_or(Error::MatrixInversionError)?;
-                    
+
                     let p = g_prime.clone() * nav.w.clone() * nav.g.clone();
-                    let p = (p_1 + p)
-                        .try_inverse()
-                        .ok_or(Error::MatrixInversionError)?;
+                    let p = (p_1 + p).try_inverse().ok_or(Error::MatrixInversionError)?;
 
                     let r = p * (p_1 * p_state.x + (g_prime.clone() * nav.w.clone() * nav.y));
                     FilterState { r, p }
@@ -66,7 +58,7 @@ impl Filter {
             let p = (g_prime.clone() * nav.w.clone() * nav.g.clone())
                 .try_inverse()
                 .ok_or(Error::MatrixInversionError)?;
-            
+
             let r = p * (g_prime.clone() * nav.w.clone() * nav.y);
             FilterState { r, p }
         };
@@ -77,7 +69,7 @@ impl Filter {
             q,
             r: new_state.r.clone(),
         })
-    }   
+    }
 }
 
 // // Filter state

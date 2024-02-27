@@ -9,17 +9,10 @@ use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, Matrix3, MatrixXx4};
 
 use crate::{
-    prelude::{
-        Config, 
-        Duration, 
-        Epoch, 
-        InterpolatedPosition, 
-        InterpolationResult, 
-        Vector3,
-    },
-    navigation::pvt::{PVTBias, PVTSVData},
     bias,
     bias::{IonosphericBias, TropoModel, TroposphericBias},
+    navigation::pvt::{PVTBias, PVTSVData},
+    prelude::{Config, Duration, Epoch, InterpolatedPosition, InterpolationResult, Vector3},
     Error,
 };
 

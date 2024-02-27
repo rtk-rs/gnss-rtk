@@ -1,7 +1,7 @@
-pub mod pvt;
 pub mod filter;
+pub mod pvt;
 
-use nalgebra::{DVector, DMatrix, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
 
 pub struct Input {
     /// G matrix

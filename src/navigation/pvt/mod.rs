@@ -1,7 +1,7 @@
 //! PVT Solutions
 use super::Input as NavInput;
-use crate::solver::{FilterState, LSQState};
 use crate::prelude::{FilterTypeEnum, Vector3, SV};
+use crate::solver::{FilterState, LSQState};
 use crate::Error;
 use std::collections::HashMap;
 
@@ -30,8 +30,8 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nyx::cosmic::SPEED_OF_LIGHT;
 use nalgebra::base::{DMatrix, DVector, Matrix3, Matrix4, MatrixXx4};
+use nyx::cosmic::SPEED_OF_LIGHT;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -80,9 +80,9 @@ pub struct PVTSVData {
     pub azimuth: f64,
     /// Elevation angle at resolution time
     pub elevation: f64,
-    /// Measured or modeled Tropospheric Delay 
+    /// Measured or modeled Tropospheric Delay
     pub tropo_bias: PVTBias,
-    /// Measured or modeled Ionospheric Delay 
+    /// Measured or modeled Ionospheric Delay
     pub iono_bias: PVTBias,
 }
 
@@ -114,28 +114,22 @@ impl PVTSolution {
         p_state: Option<FilterState>,
     ) -> Result<Self, Error> {
         let nav = f.resolve(nav)?;
-        
+
         let dt = nav.r[3] / SPEED_OF_LIGHT;
         if dt.is_nan() {
             return Err(Error::TimeIsNan);
         }
-
-        Ok((
-            (Self {
-                sv,
-                pos: Vector3::new(nav.r[0], nav.r[1], nav.r[2]),
-                vel: Vector3::<f64>::default(),
-                dt,
-                q_mat: nav.q.clone(),
-            }),
-        ))
+        Ok(Self {
+            sv,
+            pos: Vector3::new(nav.r[0], nav.r[1], nav.r[2]),
+            vel: Vector3::<f64>::default(),
+            dt,
+            q_mat: nav.q.clone(),
+        })
     }
     /// Returns list of Space Vehicles (SV) that help form this solution.
     pub fn sv(&self) -> Vec<SV> {
-        self.sv
-            .keys()
-            .copied()
-            .collect()
+        self.sv.keys().copied().collect()
     }
     /// Returns Geometric Dilution of Precision of Self
     pub fn gdop(&self) -> f64 {

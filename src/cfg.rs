@@ -51,8 +51,8 @@ pub enum Positioning {
 /// Filter to use in the solving process
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub(crate) enum FilterTypeEnum {
-    /// No filter. 
+pub enum FilterTypeEnum {
+    /// No filter.
     /// [Config.filter] is disregarded.
     /// Navigation solutions will not improve over time.
     NoFilter,
@@ -75,7 +75,7 @@ pub struct ElevationMappingFunction {
 }
 
 impl ElevationMappingFunction {
-    pub(crate) fn eval(&self, elev_sv: f64) -> f64 {
+    pub fn eval(&self, elev_sv: f64) -> f64 {
         self.a + self.b * (elev_sv / self.c).exp()
     }
 }
@@ -207,7 +207,7 @@ impl SolverOpts {
     /*
      * form the weight matrix to be used in the solving process
      */
-    pub(crate) fn weight_matrix(&self, _nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
+    pub fn weight_matrix(&self, _nb_rows: usize, sv_elev: Vec<f64>) -> DMatrix<f64> {
         let mut mat = DMatrix::identity(sv_elev.len(), sv_elev.len());
         if let Some(opts) = &self.filter_opts {
             match &opts.weight_matrix {
