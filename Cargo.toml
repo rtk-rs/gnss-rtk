@@ -15,8 +15,8 @@ readme = "README.md"
 log = "0.4"
 thiserror = "1"
 map_3d = "0.1.5"
-itertools = "0.12.0"
-nalgebra = "0.32.3"
+itertools = "0.12"
+nalgebra = "0.32"
 nyx-space = "=2.0.0-beta.0" 
 gnss-rs = { version = "2.1.3", features = ["serde"] }
 hifitime = { version = "3.9.0", features = ["serde", "std"] }

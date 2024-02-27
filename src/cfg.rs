@@ -51,15 +51,16 @@ pub enum Positioning {
 /// Filter to use in the solving process
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum Filter {
-    /// No filter. The "filter" part of the
-    /// [Config] struct is disregarded
-    None,
-    /// LSQ Filter. Heavy computation, converges much slower than a Kalman filter.
+pub(crate) enum FilterTypeEnum {
+    /// No filter. 
+    /// [Config.filter] is disregarded.
+    /// Navigation solutions will not improve over time.
+    NoFilter,
+    /// LSQ filter. Heavy computation, converges much slower than a Self::Kalman.
     #[default]
     LSQ,
-    /// Kalman Filter. Heavy+ computation, converges much faster than LSQ.
-    KF,
+    /// Kalman filter. Heavy+ computations, converges faster than Self::LSQ.
+    Kalman,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -188,7 +189,7 @@ pub struct SolverOpts {
     pub tdop_threshold: Option<f64>,
     /// Filter to use
     #[cfg_attr(feature = "serde", serde(default))]
-    pub filter: Filter,
+    pub filter_type: FilterTypeEnum,
     /// Filter options
     #[cfg_attr(feature = "serde", serde(default = "default_filter_opts"))]
     pub filter_opts: Option<FilterOpts>,
@@ -262,7 +263,7 @@ impl Default for Modeling {
 }
 
 impl Modeling {
-    pub fn preset(_method: Method, _filter: Filter) -> Self {
+    pub fn preset(_method: Method, _filter: FilterTypeEnum) -> Self {
         Self::default()
     }
 }
@@ -345,7 +346,7 @@ impl Config {
                 solver: SolverOpts {
                     gdop_threshold: default_gdop_threshold(),
                     tdop_threshold: default_tdop_threshold(),
-                    filter: Filter::LSQ,
+                    filter_type: FilterTypeEnum::LSQ,
                     filter_opts: default_filter_opts(),
                 },
             },

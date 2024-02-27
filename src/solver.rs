@@ -21,7 +21,7 @@ use crate::{
     bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
     cfg::{Config, Filter, Method},
-    solutions::{
+    navigation::pvt::{
         validator::{SolutionInvalidation, SolutionValidator},
         PVTSVData, PVTSolution, PVTSolutionType,
     },

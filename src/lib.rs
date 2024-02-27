@@ -9,7 +9,7 @@ mod apriori;
 mod bias;
 mod candidate;
 mod cfg;
-mod solutions;
+mod navigation;
 mod solver;
 
 // pub export
@@ -21,7 +21,7 @@ pub mod prelude {
     pub use crate::bias::{BdModel, IonosphericBias, KbModel, NgModel, TroposphericBias};
     pub use crate::candidate::{Candidate, Observation};
     pub use crate::cfg::{Config, Filter, Method};
-    pub use crate::solutions::{PVTSolution, PVTSolutionType};
+    pub use crate::navigation::pvt::{PVTSolution, PVTSolutionType};
     pub use crate::solver::{InterpolatedPosition, InterpolationResult, Solver};
     // re-export
     pub use gnss::prelude::{Constellation, SV};

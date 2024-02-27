@@ -8,9 +8,16 @@ use log::debug;
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, Matrix3, MatrixXx4};
 
-use crate::prelude::{Config, Duration, Epoch, InterpolatedPosition, InterpolationResult, Vector3};
-use crate::solutions::{PVTBias, PVTSVData};
 use crate::{
+    prelude::{
+        Config, 
+        Duration, 
+        Epoch, 
+        InterpolatedPosition, 
+        InterpolationResult, 
+        Vector3,
+    },
+    navigation::pvt::{PVTBias, PVTSVData},
     bias,
     bias::{IonosphericBias, TropoModel, TroposphericBias},
     Error,
