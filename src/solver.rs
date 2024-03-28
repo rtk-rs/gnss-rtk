@@ -312,71 +312,85 @@ impl<
         let mut pool: Vec<Candidate> = pool
             .iter()
             .filter_map(|c| {
-                let (t_tx, dt_ttx) = c.transmission_time(&self.cfg).ok()?;
+                match c.transmission_time(&self.cfg) {
+                    Ok((t_tx, dt_ttx)) => {
+                        debug!("{:?} ({}) : signal travel time: {}", t_tx, c.sv, dt_ttx);
+                        if let Some(mut interpolated) =
+                            (self.interpolator)(t_tx, c.sv, interp_order)
+                        {
+                            let mut c = c.clone();
 
-                if let Some(mut interpolated) = (self.interpolator)(t_tx, c.sv, interp_order) {
-                    let mut c = c.clone();
+                            let rot = match modeling.earth_rotation {
+                                true => {
+                                    const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
+                                    let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
+                                    let (we_cos, we_sin) = (we.cos(), we.sin());
+                                    Matrix3::<f64>::new(
+                                        we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64,
+                                        0.0_f64, 1.0_f64,
+                                    )
+                                },
+                                false => Matrix3::<f64>::new(
+                                    1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64,
+                                    0.0_f64, 1.0_f64,
+                                ),
+                            };
 
-                    let rot = match modeling.earth_rotation {
-                        true => {
-                            const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
-                            let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
-                            let (we_cos, we_sin) = (we.cos(), we.sin());
-                            Matrix3::<f64>::new(
-                                we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64,
-                                0.0_f64, 1.0_f64,
-                            )
-                        },
-                        false => Matrix3::<f64>::new(
-                            1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64,
-                            1.0_f64,
-                        ),
-                    };
+                            interpolated.position = InterpolatedPosition::AntennaPhaseCenter(
+                                rot * interpolated.position(),
+                            );
 
-                    interpolated.position =
-                        InterpolatedPosition::AntennaPhaseCenter(rot * interpolated.position());
+                            /* determine velocity */
+                            if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
+                                let dt = (t_tx - *p_ttx).to_seconds();
+                                interpolated.velocity =
+                                    Some((rot * interpolated.position() - rot * p_position) / dt);
+                            }
 
-                    /* determine velocity */
-                    if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
-                        let dt = (t_tx - *p_ttx).to_seconds();
-                        interpolated.velocity =
-                            Some((rot * interpolated.position() - rot * p_position) / dt);
-                    }
+                            self.prev_sv_state
+                                .insert(c.sv, (t_tx, interpolated.position()));
 
-                    self.prev_sv_state
-                        .insert(c.sv, (t_tx, interpolated.position()));
+                            if modeling.relativistic_clock_bias {
+                                /*
+                                 * following calculations need inst. velocity
+                                 */
+                                if interpolated.velocity.is_some() {
+                                    let _orbit = interpolated.orbit(t_tx, self.earth_frame);
+                                    const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
+                                    const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
+                                    let orbit = interpolated.orbit(t_tx, self.earth_frame);
+                                    let ea_rad = deg2rad(orbit.ea_deg());
+                                    let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84
+                                        * EARTH_GRAVITATIONAL_CONST)
+                                        .sqrt();
+                                    let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm
+                                        / SPEED_OF_LIGHT
+                                        / SPEED_OF_LIGHT
+                                        * Unit::Second;
+                                    debug!(
+                                        "{:?} ({}) : relativistic clock bias: {}",
+                                        t_tx, c.sv, bias
+                                    );
+                                    c.clock_corr += bias;
+                                }
+                            }
 
-                    if modeling.relativistic_clock_bias {
-                        /*
-                         * following calculations need inst. velocity
-                         */
-                        if interpolated.velocity.is_some() {
-                            let _orbit = interpolated.orbit(t_tx, self.earth_frame);
-                            const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
-                            const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
-                            let orbit = interpolated.orbit(t_tx, self.earth_frame);
-                            let ea_rad = deg2rad(orbit.ea_deg());
-                            let gm =
-                                (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
-                            let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm
-                                / SPEED_OF_LIGHT
-                                / SPEED_OF_LIGHT
-                                * Unit::Second;
-                            debug!("{:?} ({}) : relativistic clock bias: {}", t_tx, c.sv, bias);
-                            c.clock_corr += bias;
+                            debug!(
+                                "{:?} ({}) : interpolated state: {:?}",
+                                t_tx, c.sv, interpolated.position
+                            );
+
+                            c.state = Some(interpolated);
+                            Some(c)
+                        } else {
+                            warn!("{:?} ({}) : interpolation failed", t_tx, c.sv);
+                            None
                         }
-                    }
-
-                    debug!(
-                        "{:?} ({}) : interpolated state: {:?}",
-                        t_tx, c.sv, interpolated.position
-                    );
-
-                    c.state = Some(interpolated);
-                    Some(c)
-                } else {
-                    warn!("{:?} ({}) : interpolation failed", t_tx, c.sv);
-                    None
+                    },
+                    Err(e) => {
+                        error!("{} - transsmision time error: {:?}", c.sv, e);
+                        None
+                    },
                 }
             })
             .collect();
@@ -519,8 +533,11 @@ impl<
             self.filter_state.clone(),
         )?;
 
-        if filter != Filter::None {
-            self.filter_state = new_state;
+        let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &w, &pvt_solution);
+
+        let valid = validator.valid(solver_opts);
+        if valid.is_err() {
+            return Err(Error::InvalidatedSolution(valid.err().unwrap()));
         }
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
@@ -529,16 +546,13 @@ impl<
 
         self.prev_pvt = Some((t, pvt_solution.clone()));
 
-        let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &w, &pvt_solution);
-
-        let valid = validator.valid(solver_opts);
-        if valid.is_err() {
-            return Err(Error::InvalidatedSolution(valid.err().unwrap()));
+        if filter != Filter::None {
+            self.filter_state = new_state;
         }
 
         /*
-         * slightly rework the solution so it ""physically"" (/ looks like)
-         * what we expect based on the predefined setup.
+         * slightly rework the solution so it ""looks"" like
+         * what we expect based on the defined setup.
          */
         if let Some(alt) = self.cfg.fixed_altitude {
             pvt_solution.pos.z = self.apriori.ecef.z - alt;

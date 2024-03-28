@@ -85,15 +85,33 @@ impl Candidate {
         }
     }
     /*
-     * Returns one pseudo range observation [m], disregarding its frequency.
-     * Infaillible, because we don't allow to build Self without at least
-     * 1 PR observation
+     * Returns one pseudo range observation [m], whatever the frequency.
+     * Best SNR is preferred though (if such information was provided).
      */
     pub(crate) fn prefered_pseudorange(&self) -> Option<&Observation> {
-        self.code
-            .iter()
-            // .map(|pr| pr.value)
-            .reduce(|k, _| k)
+        let mut snr = Option::<f64>::None;
+        let mut code = Option::<&Observation>::None;
+        for c in &self.code {
+            if code.is_none() {
+                code = Some(c);
+                snr = c.snr;
+            } else {
+                // prefer best SNR if possible
+                if let Some(s1) = c.snr {
+                    if snr.is_some() {
+                        let s2 = snr.unwrap();
+                        if s1 > s2 {
+                            snr = Some(s1);
+                            code = Some(c);
+                        }
+                    } else {
+                        snr = Some(s1);
+                        code = Some(c);
+                    }
+                }
+            }
+        }
+        code
     }
     /*
      * Returns true if we have pseudo range observ on two carriers
@@ -101,7 +119,7 @@ impl Candidate {
     pub(crate) fn dual_freq_pseudorange(&self) -> bool {
         self.code
             .iter()
-            .map(|c| (c.frequency * 10.0) as u16)
+            .map(|c| (c.frequency * 100.0) as u16)
             .unique()
             .count()
             > 0
@@ -112,7 +130,7 @@ impl Candidate {
     pub(crate) fn dual_freq_phase(&self) -> bool {
         self.phase
             .iter()
-            .map(|c| (c.frequency * 10.0) as u16)
+            .map(|c| (c.frequency * 100.0) as u16)
             .unique()
             .count()
             > 0
@@ -271,9 +289,6 @@ impl Candidate {
                         let e = (r_sun - r_sat) / norm;
                         let j = Vector3::<f64>::new(k[0] * e[0], k[1] * e[1], k[2] * e[2]);
                         let i = Vector3::<f64>::new(j[0] * k[0], j[1] * k[1], j[2] * k[2]);
-                        let _r = Matrix3::<f64>::new(
-                            i[0], j[0], k[0], i[1], j[1], k[1], i[2], j[2], k[2],
-                        );
                         let r_dot = Vector3::<f64>::new(
                             (i[0] + j[0] + k[0]) * delta_apc,
                             (i[1] + j[1] + k[1]) * delta_apc,

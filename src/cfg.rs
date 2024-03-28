@@ -137,14 +137,14 @@ fn default_sv_apc() -> bool {
 }
 
 fn default_weight_matrix() -> Option<WeightMatrix> {
-    //Some(WeightMatrix::WeightMatrixMappingFunction(
+    None
+    //Some(WeightMatrix::MappingFunction(
     //    ElevationMappingFunction {
     //        a: 5.0,
     //        b: 0.0,
     //        c: 10.0,
     //    },
     //))
-    None
 }
 
 fn default_filter_opts() -> Option<FilterOpts> {
@@ -267,7 +267,7 @@ impl Modeling {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Config {
     /// Time scale
