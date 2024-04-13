@@ -22,9 +22,10 @@ pub mod prelude {
     pub use crate::candidate::{Candidate, Observation};
     pub use crate::cfg::{Config, Filter, Method};
     pub use crate::solutions::{PVTSolution, PVTSolutionType};
-    pub use crate::solver::{InterpolatedPosition, InterpolationResult, Solver};
+    pub use crate::solver::{InterpolationResult, Solver};
     // re-export
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};
     pub use nalgebra::Vector3;
+    pub use nyx::md::prelude::{Arc, Bodies, Cosm, Frame, LightTimeCalc};
 }

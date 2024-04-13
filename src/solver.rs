@@ -62,15 +62,6 @@ pub enum Error {
     UninitializedKalmanFilter,
 }
 
-/// Position interpolator helper
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum InterpolatedPosition {
-    /// Providing Mass Center position
-    MassCenter(Vector3<f64>),
-    /// Providing APC position
-    AntennaPhaseCenter(Vector3<f64>),
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct LSQState {
     /* p matrix */
@@ -112,40 +103,26 @@ pub(crate) enum FilterState {
     KfState(KfState),
 }
 
-impl Default for InterpolatedPosition {
-    fn default() -> Self {
-        Self::AntennaPhaseCenter(Vector3::<f64>::default())
-    }
-}
-
 /// Interpolation result (state vector) that needs to be
 /// resolved for every single candidate.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct InterpolationResult {
-    /// Position vector in [m] ECEF
-    pub position: InterpolatedPosition,
     /// Elevation compared to reference position and horizon in [°]
     pub elevation: f64,
     /// Azimuth compared to reference position and magnetic North in [°]
     pub azimuth: f64,
+    /// APC Position vector in [m] ECEF
+    pub position: Vector3<f64>,
     // Velocity vector in [m/s] ECEF that we calculated ourselves
     velocity: Option<Vector3<f64>>,
 }
 
 impl InterpolationResult {
-    /// Builds InterpolationResults from a Mass Center (MC) position
-    /// as ECEF [m] coordinates
-    pub fn from_mass_center_position(pos: (f64, f64, f64)) -> Self {
-        let mut s = Self::default();
-        s.position = InterpolatedPosition::MassCenter(Vector3::<f64>::new(pos.0, pos.1, pos.2));
-        s
-    }
     /// Builds InterpolationResults from an Antenna Phase Center (APC) position
     /// as ECEF [m] coordinates
     pub fn from_apc_position(pos: (f64, f64, f64)) -> Self {
         let mut s = Self::default();
-        s.position =
-            InterpolatedPosition::AntennaPhaseCenter(Vector3::<f64>::new(pos.0, pos.1, pos.2));
+        s.position = Vector3::<f64>::new(pos.0, pos.1, pos.2);
         s
     }
     /// Builds Self with given SV (elevation, azimuth) attitude
@@ -155,17 +132,11 @@ impl InterpolationResult {
         s.azimuth = elev_azim.1;
         s
     }
-    pub(crate) fn position(&self) -> Vector3<f64> {
-        match self.position {
-            InterpolatedPosition::MassCenter(mc) => mc,
-            InterpolatedPosition::AntennaPhaseCenter(pc) => pc,
-        }
-    }
     pub(crate) fn velocity(&self) -> Option<Vector3<f64>> {
         self.velocity
     }
     pub(crate) fn orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
-        let p = self.position();
+        let p = self.position;
         let v = self.velocity().unwrap_or_default();
         Orbit::cartesian(
             p[0] / 1000.0,
@@ -180,30 +151,21 @@ impl InterpolationResult {
     }
 }
 
-/// PVT Solver
+/// PVT Solver.
+/// I: Interpolated SV APC coordinates interface.
+/// You are required to provide APC coordinates at requested ("t", "sv"),
+/// expressed in meters [ECEF], for this to proceed.
 #[derive(Debug, Clone)]
-pub struct Solver<APC, I>
+pub struct Solver<I>
 where
-    APC: Fn(Epoch, SV, f64) -> Option<(f64, f64, f64)>,
     I: Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
 {
     /// Solver parametrization
     pub cfg: Config,
     /// apriori position
     pub apriori: AprioriPosition,
-    /// SV state interpolation method. It is mandatory
-    /// to resolve the SV state at the requested Epoch otherwise the solver
-    /// will not proceed further. User should provide the interpolation method.
-    /// Other parameters are SV: Space Vehicle identity we want to resolve, and "usize" interpolation order.
+    /// Interpolated SV state.
     pub interpolator: I,
-    /// If the Position Interpolator I returns Mass Center positions,
-    /// and [Config].modeling.sv_apc is turned on, we need to apply the
-    /// tiny correction to convert the MC to APC.
-    /// This method should return for a given SV and frequency at current Epoch,
-    /// the correction expressed as ENU offset in meters.
-    /// If the interpolator returns Antenna Phase Centers directly, or
-    /// the SV APC correction is turned off, this interface remains completely idle.
-    pub apc_correction: APC,
     /* Cosmic model */
     cosmic: Arc<Cosm>,
     /*
@@ -224,45 +186,30 @@ where
     filter_state: Option<FilterState>,
     /* prev. state vector for internal velocity determination */
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
-    /* already determined APC retrieve */
-    sv_apc_corrections: Vec<((SV, f64), (f64, f64, f64))>,
 }
 
-impl<
-        APC: std::ops::Fn(Epoch, SV, f64) -> Option<(f64, f64, f64)>,
-        I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
-    > Solver<APC, I>
-{
-    pub fn new(
-        cfg: &Config,
-        apriori: AprioriPosition,
-        interpolator: I,
-        apc_correction: APC,
-    ) -> Result<Self, Error> {
+impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
+    pub fn new(cfg: &Config, apriori: AprioriPosition, interpolator: I) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
         let earth_frame = cosmic.frame("EME2000");
-
         /*
          * print some infos on latched config
          */
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
-            warn!("eclipse filter is not meaningful when using spp strategy");
+            warn!("Eclipse filter is not meaningful in SPP mode");
         }
         if cfg.modeling.relativistic_path_range {
-            warn!("relativistic path range cannot be modeled at the moment");
+            warn!("Relativistic path range cannot be modeled at the moment");
         }
-
         Ok(Self {
             cosmic,
             sun_frame,
             earth_frame,
             apriori,
             interpolator,
-            apc_correction,
             cfg: cfg.clone(),
             prev_sv_state: HashMap::new(),
-            sv_apc_corrections: Vec::new(),
             filter_state: Option::<FilterState>::None,
             prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
@@ -336,19 +283,17 @@ impl<
                                 ),
                             };
 
-                            interpolated.position = InterpolatedPosition::AntennaPhaseCenter(
-                                rot * interpolated.position(),
-                            );
+                            interpolated.position = rot * interpolated.position;
 
                             /* determine velocity */
                             if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
                                 let dt = (t_tx - *p_ttx).to_seconds();
                                 interpolated.velocity =
-                                    Some((rot * interpolated.position() - rot * p_position) / dt);
+                                    Some((rot * interpolated.position - rot * p_position) / dt);
                             }
 
                             self.prev_sv_state
-                                .insert(c.sv, (t_tx, interpolated.position()));
+                                .insert(c.sv, (t_tx, interpolated.position));
 
                             if modeling.relativistic_clock_bias {
                                 /*
@@ -374,11 +319,7 @@ impl<
                                     c.clock_corr += bias;
                                 }
                             }
-
-                            debug!(
-                                "{:?} ({}) : interpolated state: {:?}",
-                                t_tx, c.sv, interpolated.position
-                            );
+                            debug!("{:?} ({}) : {:?}", t_tx, c.sv, interpolated);
 
                             c.state = Some(interpolated);
                             Some(c)
@@ -497,8 +438,6 @@ impl<
         let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
         let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
 
-        let r_sun = Self::sun_unit_vector(&self.earth_frame, &self.cosmic, t);
-
         for (row_index, cd) in pool.iter().enumerate() {
             if let Ok(sv_data) = cd.resolve(
                 t,
@@ -510,7 +449,6 @@ impl<
                 row_index,
                 &mut y,
                 &mut g,
-                &r_sun,
             ) {
                 pvt_sv_data.insert(cd.sv, sv_data);
             }
@@ -568,19 +506,6 @@ impl<
         }
 
         Ok((t, pvt_solution))
-    }
-    /*
-     * Evaluates Sun/Earth vector in meter ECEF at given Epoch
-     */
-    fn sun_unit_vector(ref_frame: &Frame, cosmic: &Arc<Cosm>, t: Epoch) -> Vector3<f64> {
-        let sun_body = Bodies::Sun;
-        let orbit =
-            cosmic.celestial_state(sun_body.ephem_path(), t, *ref_frame, LightTimeCalc::None);
-        Vector3::new(
-            orbit.x_km * 1000.0,
-            orbit.y_km * 1000.0,
-            orbit.z_km * 1000.0,
-        )
     }
     /*
      * Returns nb of vehicles we need to gather

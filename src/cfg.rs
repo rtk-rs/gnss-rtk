@@ -132,10 +132,6 @@ fn default_relativistic_path_range() -> bool {
     false
 }
 
-fn default_sv_apc() -> bool {
-    false
-}
-
 fn default_weight_matrix() -> Option<WeightMatrix> {
     None
     //Some(WeightMatrix::MappingFunction(
@@ -233,8 +229,6 @@ pub struct Modeling {
     #[cfg_attr(feature = "serde", serde(default))]
     pub sv_total_group_delay: bool,
     #[cfg_attr(feature = "serde", serde(default))]
-    pub sv_apc: bool,
-    #[cfg_attr(feature = "serde", serde(default))]
     pub relativistic_clock_bias: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub relativistic_path_range: bool,
@@ -250,7 +244,6 @@ impl Default for Modeling {
     fn default() -> Self {
         Self {
             sv_clock_bias: default_sv_clock(),
-            sv_apc: default_sv_apc(),
             iono_delay: default_iono(),
             tropo_delay: default_tropo(),
             sv_total_group_delay: default_sv_tgd(),
@@ -279,7 +272,7 @@ pub struct Config {
     /// (Position) interpolation filter order.
     /// A minimal order must be respected for correct results.
     /// -  7 is the minimal value for metric resolution
-    /// - 11 is the standard when aiming at submetric resolution
+    /// - 11 is the standard when pushing for submetric resolution
     #[cfg_attr(feature = "serde", serde(default = "default_interp"))]
     pub interp_order: usize,
     /// Fixed altitude : reduces the need of 4 to 3 SV to resolve a solution
