@@ -42,6 +42,8 @@ pub enum Error {
     UndefinedAprioriPosition,
     #[error("missing pseudo range observation")]
     MissingPseudoRange,
+    #[error("cannot form signal combination: missing dual freq signals")]
+    PseudoRangeCombination,
     #[error("at least one pseudo range observation is mandatory")]
     NeedsAtLeastOnePseudoRange,
     #[error("failed to model or measure ionospheric delay")]
@@ -251,9 +253,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
-        let _cosmic = &self.cosmic;
-        let _earth_frame = self.earth_frame;
-
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
@@ -389,8 +388,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         }
                     },
                     Method::PPP => {
-                        let mut drop = !pool[idx - nb_removed].dual_freq_pseudorange();
-                        drop |= !pool[idx - nb_removed].dual_freq_phase();
+                        let mut drop = false;
+                        if !pool[idx - nb_removed].dual_pseudorange() {
+                            error!(
+                                "{} ({}) PPP missing one code observation",
+                                pool[idx - nb_removed].t,
+                                pool[idx - nb_removed].sv
+                            );
+                            drop = true;
+                        }
                         if drop {
                             let _ = pool.swap_remove(idx - nb_removed);
                             nb_removed += 1;
@@ -414,7 +420,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 };
                 if eclipsed {
                     debug!(
-                        "{:?} ({}): dropped - eclipsed by earth",
+                        "{:?} ({}): dropped - eclipsed by Earth",
                         pool[idx - nb_removed].t,
                         pool[idx - nb_removed].sv
                     );
@@ -424,21 +430,25 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             }
         }
 
-        /* make sure we still have enough SV */
-        let nb_candidates = pool.len();
-        if nb_candidates < min_required {
+        // adapt to navigation
+        let mut index = 0;
+        pool.retain(|_| {
+            index += 1;
+            index < min_required + 1
+        });
+
+        if pool.len() != min_required {
             return Err(Error::NotEnoughFittingCandidates);
-        } else {
-            debug!("{:?}: {} elected sv", t, nb_candidates);
         }
 
         /* form matrix */
-        let mut y = DVector::<f64>::zeros(nb_candidates);
-        let mut g = MatrixXx4::<f64>::zeros(nb_candidates);
-        let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(nb_candidates);
+        let mut row_index = 0;
+        let mut y = DVector::<f64>::zeros(min_required);
+        let mut g = MatrixXx4::<f64>::zeros(min_required);
+        let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(min_required);
 
-        for (row_index, cd) in pool.iter().enumerate() {
-            if let Ok(sv_data) = cd.resolve(
+        for cd in pool.iter() {
+            match cd.resolve(
                 t,
                 &self.cfg,
                 (x0, y0, z0),
@@ -449,12 +459,22 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 &mut y,
                 &mut g,
             ) {
-                pvt_sv_data.insert(cd.sv, sv_data);
+                Ok(sv_data) => {
+                    pvt_sv_data.insert(cd.sv, sv_data);
+                    row_index += 1;
+                },
+                Err(e) => {
+                    error!("{:?} - {} failed to form candidate : {}", t, cd.sv, e);
+                },
             }
         }
 
+        if row_index != min_required {
+            return Err(Error::NotEnoughFittingCandidates);
+        }
+
         let w = self.cfg.solver.weight_matrix(
-            nb_candidates,
+            min_required,
             pvt_sv_data
                 .values()
                 .map(|sv_data| sv_data.elevation)

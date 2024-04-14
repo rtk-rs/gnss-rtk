@@ -22,9 +22,9 @@ pub enum Method {
     /// There is not point providing carrier phase obserations with this method.
     /// SPP can work in degraged environments where a unique signal is sampled.
     /// Combine this to advanced configurations and you may obtain metric precision.
-    #[default]
     SPP,
-    /// Precise Point Positioning (PPP)
+    /// Code based Precise Point Positioning (PPP)
+    #[default]
     PPP,
 }
 
@@ -94,10 +94,6 @@ fn default_timescale() -> TimeScale {
 
 fn default_interp() -> usize {
     11
-}
-
-fn default_max_sv() -> usize {
-    10
 }
 
 fn default_smoothing() -> bool {
@@ -312,10 +308,6 @@ pub struct Config {
     /// modeling
     #[cfg_attr(feature = "serde", serde(default))]
     pub modeling: Modeling,
-    /// Max. number of vehicules to consider.
-    /// The more the merrier, but it also means heavier computations
-    #[cfg_attr(feature = "serde", serde(default = "default_max_sv"))]
-    pub max_sv: usize,
 }
 
 impl Config {
@@ -323,26 +315,44 @@ impl Config {
         match method {
             Method::SPP => Self {
                 method,
-                timescale: default_timescale(),
+                arp_enu: None,
                 fixed_altitude: None,
+                timescale: default_timescale(),
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
-                min_sv_sunlight_rate: None,
-                min_sv_elev: Some(15.0),
                 min_snr: Some(30.0),
+                min_sv_elev: Some(15.0),
+                min_sv_sunlight_rate: None,
                 modeling: Modeling::default(),
-                max_sv: default_max_sv(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
-                arp_enu: None,
                 solver: SolverOpts {
+                    filter: Filter::LSQ,
                     gdop_threshold: default_gdop_threshold(),
                     tdop_threshold: default_tdop_threshold(),
-                    filter: Filter::LSQ,
                     filter_opts: default_filter_opts(),
                 },
             },
-            Method::PPP => panic!("not available yet"),
+            Method::PPP => Self {
+                method,
+                arp_enu: None,
+                fixed_altitude: None,
+                timescale: default_timescale(),
+                interp_order: default_interp(),
+                code_smoothing: default_smoothing(),
+                min_snr: Some(30.0),
+                min_sv_elev: Some(15.0),
+                min_sv_sunlight_rate: None,
+                modeling: Modeling::default(),
+                int_delay: Default::default(),
+                externalref_delay: Default::default(),
+                solver: SolverOpts {
+                    filter: Filter::LSQ,
+                    gdop_threshold: default_gdop_threshold(),
+                    tdop_threshold: default_tdop_threshold(),
+                    filter_opts: default_filter_opts(),
+                },
+            },
         }
     }
 }

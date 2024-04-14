@@ -13,6 +13,7 @@ use crate::solutions::{PVTBias, PVTSVData};
 use crate::{
     bias,
     bias::{IonosphericBias, TropoModel, TroposphericBias},
+    prelude::Method,
     Error,
 };
 
@@ -92,12 +93,12 @@ impl Candidate {
      * Returns one pseudo range observation [m], whatever the frequency.
      * Best SNR is preferred though (if such information was provided).
      */
-    pub(crate) fn prefered_pseudorange(&self) -> Option<&Observation> {
+    pub(crate) fn prefered_pseudorange(&self) -> Option<Observation> {
         let mut snr = Option::<f64>::None;
-        let mut code = Option::<&Observation>::None;
+        let mut code = Option::<Observation>::None;
         for c in &self.code {
             if code.is_none() {
-                code = Some(c);
+                code = Some(c.clone());
                 snr = c.snr;
             } else {
                 // prefer best SNR if possible
@@ -106,11 +107,11 @@ impl Candidate {
                         let s2 = snr.unwrap();
                         if s1 > s2 {
                             snr = Some(s1);
-                            code = Some(c);
+                            code = Some(c.clone());
                         }
                     } else {
                         snr = Some(s1);
-                        code = Some(c);
+                        code = Some(c.clone());
                     }
                 }
             }
@@ -118,26 +119,70 @@ impl Candidate {
         code
     }
     /*
-     * Returns true if we have pseudo range observ on two carriers
+     * Returns true if we're ppp compatible
      */
-    pub(crate) fn dual_freq_pseudorange(&self) -> bool {
+    pub(crate) fn ppp_compatible(&self) -> bool {
+        self.dual_pseudorange() // && self.dual_phase() //TODO
+    }
+    pub(crate) fn dual_pseudorange(&self) -> bool {
         self.code
             .iter()
-            .map(|c| (c.frequency * 100.0) as u16)
+            .map(|c| (c.frequency / 1000.0) as u16)
             .unique()
             .count()
-            > 0
+            > 1
     }
-    /*
-     * Returns true if we have phase observ on two carriers
-     */
-    pub(crate) fn dual_freq_phase(&self) -> bool {
+    pub(crate) fn dual_phase(&self) -> bool {
         self.phase
             .iter()
-            .map(|c| (c.frequency * 100.0) as u16)
+            .map(|c| (c.frequency / 1000.0) as u16)
             .unique()
             .count()
-            > 0
+            > 1
+    }
+    /*
+     * Forms combination
+     */
+    pub(crate) fn pseudorange_combination(&self) -> Option<Observation> {
+        let mut codes = (
+            Option::<&Observation>::None,
+            Option::<&Observation>::None,
+            Option::<&Observation>::None,
+        );
+        for code in &self.code {
+            let freq = (code.frequency / 1.0E6) as u16;
+            if freq == 1575 {
+                codes.0 = Some(code);
+            } else if freq == 1227 {
+                codes.1 = Some(code);
+            } else if freq == 1176 {
+                codes.2 = Some(code);
+            }
+        }
+
+        let c_l1 = codes.0?;
+        let f_l1 = 1575.42_64 * 1.0E6_f64;
+
+        let (c_lx, f_lx) = match codes.1 {
+            Some(pr) => (pr, 1227.6_f64 * 1.0E6_f64),
+            None => match codes.2 {
+                Some(pr) => (pr, 1176.45_f64 * 1.0E6_f64),
+                None => {
+                    return None;
+                },
+            },
+        };
+
+        let alpha = 1.0 / (f_l1.powi(2) - f_lx.powi(2));
+        let beta = f_l1.powi(2);
+        let gamma = f_lx.powi(2);
+        Some({
+            Observation {
+                snr: None,
+                frequency: c_l1.frequency,
+                value: alpha * (beta * c_l1.value - gamma * c_lx.value),
+            }
+        })
     }
     /*
      * apply min SNR mask
@@ -297,11 +342,16 @@ impl Candidate {
             y[row_index] -= delay * SPEED_OF_LIGHT;
         }
 
-        let pr = self
-            .prefered_pseudorange()
-            .ok_or(Error::MissingPseudoRange)?;
+        let code = match cfg.method {
+            Method::SPP => self
+                .prefered_pseudorange()
+                .ok_or(Error::MissingPseudoRange)?,
+            Method::PPP => self
+                .pseudorange_combination()
+                .ok_or(Error::PseudoRangeCombination)?,
+        };
 
-        let (pr, frequency) = (pr.value, pr.frequency);
+        let (pr, frequency) = (code.value, code.frequency);
 
         /*
          * IONO + TROPO biases
@@ -310,8 +360,8 @@ impl Candidate {
             t,
             elevation,
             azimuth,
-            apriori_geo,
             frequency,
+            apriori_geo,
         };
 
         /*
@@ -333,14 +383,16 @@ impl Candidate {
         /*
          * IONO
          */
-        if cfg.modeling.iono_delay {
-            if let Some(bias) = iono_bias.bias(&rtm) {
-                debug!(
-                    "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
-                    t, rtm.frequency, bias
-                );
-                models += bias;
-                sv_data.iono_bias = PVTBias::modeled(bias);
+        if cfg.method == Method::SPP {
+            if cfg.modeling.iono_delay {
+                if let Some(bias) = iono_bias.bias(&rtm) {
+                    debug!(
+                        "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
+                        t, rtm.frequency, bias
+                    );
+                    models += bias;
+                    sv_data.iono_bias = PVTBias::modeled(bias);
+                }
             }
         }
 
@@ -354,7 +406,6 @@ impl Candidate {
         }
 
         y[row_index] = pr - rho - models;
-
         Ok(sv_data)
     }
 }
