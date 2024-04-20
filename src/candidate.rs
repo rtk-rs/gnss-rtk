@@ -10,10 +10,9 @@ use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
 
 use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Vector3};
-use crate::solutions::{PVTBias, PVTSVData};
 use crate::{
     bias,
-    bias::{IonosphericBias, TropoModel, TroposphericBias},
+    bias::{IonosphereBias, TropoModel, TroposphereBias},
     prelude::Method,
     Error,
 };
@@ -283,129 +282,6 @@ impl Candidate {
             dt
         );
         Ok((e_tx, dt))
-    }
-    /*
-     * Resolves Self
-     */
-    pub(crate) fn resolve(
-        &self,
-        t: Epoch,
-        cfg: &Config,
-        apriori: (f64, f64, f64),
-        apriori_geo: (f64, f64, f64),
-        iono_bias: &IonosphericBias,
-        tropo_bias: &TroposphericBias,
-        row_index: usize,
-        y: &mut DVector<f64>,
-        g: &mut MatrixXx4<f64>,
-    ) -> Result<PVTSVData, Error> {
-        // state
-        let state = self.state.ok_or(Error::UnresolvedState)?;
-        let clock_corr = self.clock_corr.to_seconds();
-        let (azimuth, elevation) = (state.azimuth, state.elevation);
-
-        /*
-         * compensate for ARP (if possible)
-         */
-        let apriori = match cfg.arp_enu {
-            Some(offset) => (
-                apriori.0 + offset.0,
-                apriori.1 + offset.1,
-                apriori.2 + offset.2,
-            ),
-            None => apriori,
-        };
-
-        let (x0, y0, z0) = apriori;
-        let (sv_x, sv_y, sv_z) = (state.position[0], state.position[1], state.position[2]);
-
-        let mut sv_data = PVTSVData::default();
-        sv_data.azimuth = azimuth;
-        sv_data.elevation = elevation;
-
-        let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
-        g[(row_index, 0)] = (x0 - sv_x) / rho;
-        g[(row_index, 1)] = (y0 - sv_y) / rho;
-        g[(row_index, 2)] = (z0 - sv_z) / rho;
-        g[(row_index, 3)] = 1.0_f64;
-
-        let mut models = 0.0_f64;
-        if cfg.modeling.sv_clock_bias {
-            models -= clock_corr * SPEED_OF_LIGHT;
-        }
-
-        /*
-         * Possible delay compensations
-         */
-        if let Some(delay) = cfg.externalref_delay {
-            y[row_index] -= delay * SPEED_OF_LIGHT;
-        }
-
-        let code = match cfg.method {
-            Method::SPP => self
-                .prefered_pseudorange()
-                .ok_or(Error::MissingPseudoRange)?,
-            Method::CODE_PPP => self
-                .pseudorange_combination()
-                .ok_or(Error::PseudoRangeCombination)?,
-        };
-
-        let (pr, frequency) = (code.value, code.frequency);
-
-        /*
-         * IONO + TROPO biases
-         */
-        let rtm = bias::RuntimeParam {
-            t,
-            elevation,
-            azimuth,
-            frequency,
-            apriori_geo,
-        };
-
-        /*
-         * TROPO
-         */
-        if cfg.modeling.tropo_delay {
-            if tropo_bias.needs_modeling() {
-                let bias = TroposphericBias::model(TropoModel::Niel, &rtm);
-                debug!("{:?} : modeled tropo delay {:.3E}[m]", t, bias);
-                models += bias;
-                sv_data.tropo_bias = PVTBias::modeled(bias);
-            } else if let Some(bias) = tropo_bias.bias(&rtm) {
-                debug!("{:?} : measured tropo delay {:.3E}[m]", t, bias);
-                models += bias;
-                sv_data.tropo_bias = PVTBias::measured(bias);
-            }
-        }
-
-        /*
-         * IONO
-         */
-        if cfg.method == Method::SPP {
-            if cfg.modeling.iono_delay {
-                if let Some(bias) = iono_bias.bias(&rtm) {
-                    debug!(
-                        "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
-                        t, rtm.frequency, bias
-                    );
-                    models += bias;
-                    sv_data.iono_bias = PVTBias::modeled(bias);
-                }
-            }
-        }
-
-        /*
-         * Possible frequency dependent delays
-         */
-        for delay in &cfg.int_delay {
-            if delay.frequency == frequency {
-                y[row_index] += delay.delay * SPEED_OF_LIGHT;
-            }
-        }
-
-        y[row_index] = pr - rho - models;
-        Ok(sv_data)
     }
 }
 

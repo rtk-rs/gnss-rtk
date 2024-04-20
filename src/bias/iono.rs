@@ -7,7 +7,7 @@ use std::f64::consts::PI;
 /// any resolution attempt. Fill as much as you can.
 /// If this structure is empty, you should then provide observations
 /// on at least two carrier signals so the solver can estimate this bias.
-pub struct IonosphericBias {
+pub struct IonosphereBias {
     /// Klobuchar Model to apply
     pub kb_model: Option<KbModel>,
     /// Nequick-G model to apply
@@ -117,7 +117,7 @@ impl BdModel {
     }
 }
 
-impl IonosphericBias {
+impl IonosphereBias {
     pub(crate) fn bias(&self, rtm: &RuntimeParam) -> Option<f64> {
         if let Some(_stec) = self.stec_meas {
             // TODO

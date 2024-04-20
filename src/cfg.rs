@@ -29,14 +29,14 @@ pub enum Method {
     /// Both phase observations and Ionosphere modeling are not required.
     /// Exhibits metric accuracy on high quality data.
     #[default]
-    CODE_PPP,
+    CodePPP,
 }
 
 impl std::fmt::Display for Method {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::SPP => write!(fmt, "SPP"),
-            Self::CODE_PPP => write!(fmt, "Code-PPP"),
+            Self::CodePPP => write!(fmt, "Code-PPP"),
         }
     }
 }
@@ -361,7 +361,7 @@ impl Config {
                     filter_opts: default_filter_opts(),
                 },
             },
-            Method::CODE_PPP => Self {
+            Method::CodePPP => Self {
                 method,
                 arp_enu: None,
                 fixed_altitude: None,

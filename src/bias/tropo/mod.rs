@@ -23,12 +23,12 @@ impl std::str::FromStr for TropoModel {
     }
 }
 
-/// Tropospheric Components to attach any
+/// Troposphere Components to attach any
 /// resolution attempt. Fill as much as you can.
 /// An empty structure will not impeach the solver to compensate
 /// for this effect.
 #[derive(Default, Copy, Clone, Debug)]
-pub struct TroposphericBias {
+pub struct TroposphereBias {
     /// Undifferentiated total Zenith delay (Dry + Wet components), in meters of delay
     pub total: Option<f64>,
     /// Zenith Dry and Zenith Wet delay components, in meters of delay
@@ -55,7 +55,7 @@ fn niel_model(prm: &RuntimeParam) -> f64 {
     f * delta_r
 }
 
-impl TroposphericBias {
+impl TroposphereBias {
     pub(crate) fn needs_modeling(&self) -> bool {
         self.total.is_none() && self.zwd_zdd.is_none()
     }

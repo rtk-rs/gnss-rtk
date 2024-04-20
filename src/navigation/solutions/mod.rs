@@ -36,57 +36,7 @@ use nyx::cosmic::SPEED_OF_LIGHT;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// Modeled (estimated) or measured Time Delay.
-#[derive(Debug, Copy, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct PVTBias {
-    /// Measured delay [meters of delay]
-    pub measured: Option<f64>,
-    /// Modeled delay [meters of delay]
-    pub modeled: Option<f64>,
-}
-
-impl PVTBias {
-    /// Time Delay in [s], whether it was modeled
-    /// or physically measured (prefered).
-    pub fn value(&self) -> Option<f64> {
-        if self.measured.is_none() {
-            self.modeled
-        } else {
-            self.measured
-        }
-    }
-    /// Builds a measured Time Delay from a measurement in [s]
-    pub fn measured(measurement: f64) -> Self {
-        Self {
-            measured: Some(measurement),
-            modeled: None,
-        }
-    }
-    /// Builds a modeled Time Delay from a model in [s]
-    pub fn modeled(model: f64) -> Self {
-        Self {
-            modeled: Some(model),
-            measured: None,
-        }
-    }
-}
-
-/// Data attached to each individual SV that helped form the PVT solution.
-#[derive(Debug, Copy, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct PVTSVData {
-    /// Azimuth angle at resolution time
-    pub azimuth: f64,
-    /// Elevation angle at resolution time
-    pub elevation: f64,
-    /// Either measured or modeled Tropospheric Delay
-    /// that impacted L1 signal
-    pub tropo_bias: PVTBias,
-    /// Either measured or modeled Ionospheric Delay
-    /// that impacted L1 signal
-    pub iono_bias: PVTBias,
-}
+use super::SVInput;
 
 /// PVT Solution, always expressed as the correction to apply
 /// to an Apriori / static position.
@@ -101,7 +51,7 @@ pub struct PVTSolution {
     pub dt: f64,
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV
-    pub sv: HashMap<SV, PVTSVData>,
+    pub sv: HashMap<SV, SVInput>,
     // Q matrix
     q: Matrix4<f64>,
 }
@@ -116,7 +66,7 @@ impl PVTSolution {
         g: MatrixXx4<f64>,
         w: DMatrix<f64>,
         y: DVector<f64>,
-        sv: HashMap<SV, PVTSVData>,
+        sv: HashMap<SV, SVInput>,
         filter: Filter,
         p_state: Option<FilterState>,
     ) -> Result<(Self, Option<FilterState>), Error> {

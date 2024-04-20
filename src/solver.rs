@@ -18,14 +18,14 @@ use nyx::{
 
 use crate::{
     apriori::AprioriPosition,
-    bias::{IonosphericBias, TroposphericBias},
+    bias::{IonosphereBias, TroposphereBias},
     candidate::Candidate,
     cfg::{Config, Filter, Method},
-    prelude::{Duration, Epoch},
-    solutions::{
-        validator::{SolutionInvalidation, SolutionValidator},
-        PVTSVData, PVTSolution, PVTSolutionType,
+    navigation::{
+        solutions::validator::{SolutionInvalidation, SolutionValidator},
+        Input as NavigationInput, PVTSolution, PVTSolutionType, SVInput,
     },
+    prelude::{Duration, Epoch},
 };
 
 #[derive(Debug, Clone, Error)]
@@ -221,15 +221,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     /// "t": sampling instant.
     /// "solution": desired PVTSolutionType.
     /// "pool": List of candidates.
-    /// iono_bias: possible IonosphericBias if you can provide such info.
-    /// tropo_bias: possible TroposphericBias if you can provide such info.
+    /// iono_bias: possible IonosphereBias if you can provide such info.
+    /// tropo_bias: possible TroposphereBias if you can provide such info.
     pub fn resolve(
         &mut self,
         t: Epoch,
         solution: PVTSolutionType,
         pool: Vec<Candidate>,
-        iono_bias: &IonosphericBias,
-        tropo_bias: &TroposphericBias,
+        iono_bias: &IonosphereBias,
+        tropo_bias: &TroposphereBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = Self::min_required(solution, &self.cfg);
 
@@ -267,12 +267,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         Some(el) => el,
                         None => 0.0_f64,
                     };
-
                     let min_azim = match self.cfg.min_sv_azim {
                         Some(az) => az,
                         None => 0.0_f64,
                     };
-
                     let max_azim = match self.cfg.max_sv_azim {
                         Some(az) => az,
                         None => 360.0_f64,
@@ -374,7 +372,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             nb_removed += 1;
                         }
                     },
-                    Method::CODE_PPP => {
+                    Method::CodePPP => {
                         let mut drop = false;
                         if !pool[idx - nb_removed].dual_pseudorange() {
                             error!(
@@ -434,51 +432,28 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             return Err(Error::NotEnoughFittingCandidates);
         }
 
-        /* form matrix */
-        let mut row_index = 0;
-        let mut y = DVector::<f64>::zeros(min_required);
-        let mut g = MatrixXx4::<f64>::zeros(min_required);
-        let mut pvt_sv_data = HashMap::<SV, PVTSVData>::with_capacity(min_required);
-
-        for cd in pool.iter() {
-            match cd.resolve(
-                t,
-                &self.cfg,
-                (x0, y0, z0),
-                (lat_ddeg, lon_ddeg, altitude_above_sea_m),
-                iono_bias,
-                tropo_bias,
-                row_index,
-                &mut y,
-                &mut g,
-            ) {
-                Ok(sv_data) => {
-                    pvt_sv_data.insert(cd.sv, sv_data);
-                    row_index += 1;
-                },
-                Err(e) => {
-                    error!("{:?} - {} failed to form candidate : {}", t, cd.sv, e);
-                },
-            }
-        }
-
-        if row_index != min_required {
-            return Err(Error::NotEnoughFittingCandidates);
-        }
+        let mut input = NavigationInput::new(
+            (x0, y0, z0),
+            (lat_ddeg, lon_ddeg, altitude_above_sea_m),
+            &self.cfg,
+            &pool,
+            iono_bias,
+            tropo_bias,
+        )
+        .map_err(|_| Error::NotEnoughFittingCandidates)?;
 
         let w = self.cfg.solver.weight_matrix(
             min_required,
-            pvt_sv_data
-                .values()
-                .map(|sv_data| sv_data.elevation)
-                .collect(),
+            input.sv.values().map(|sv_data| sv_data.elevation).collect(),
         );
 
+        debug!("w: {}", w);
+
         let (mut pvt_solution, new_state) = PVTSolution::new(
-            g.clone(),
+            input.g.clone(),
             w.clone(),
-            y.clone(),
-            pvt_sv_data.clone(),
+            input.y.clone(),
+            input.sv.clone(),
             filter,
             self.filter_state.clone(),
         )?;
