@@ -374,7 +374,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             nb_removed += 1;
                         }
                     },
-                    Method::PPP => {
+                    Method::CODE_PPP => {
                         let mut drop = false;
                         if !pool[idx - nb_removed].dual_pseudorange() {
                             error!(

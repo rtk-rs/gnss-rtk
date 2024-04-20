@@ -345,7 +345,7 @@ impl Candidate {
             Method::SPP => self
                 .prefered_pseudorange()
                 .ok_or(Error::MissingPseudoRange)?,
-            Method::PPP => self
+            Method::CODE_PPP => self
                 .pseudorange_combination()
                 .ok_or(Error::PseudoRangeCombination)?,
         };

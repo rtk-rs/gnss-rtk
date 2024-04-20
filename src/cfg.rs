@@ -9,8 +9,10 @@ use nalgebra::DMatrix;
 /// Configuration Error
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("unknown tropo model")]
+    #[error("unknown tropo model \"{0}\"")]
     UnknownTropoModel(String),
+    // #[error("unknown strategy \"{0}\"")]
+    // UnknownMethod(String),
 }
 
 /// Solving method
@@ -18,24 +20,37 @@ pub enum Error {
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub enum Method {
     /// Single Point Positioning (SPP).
-    /// Uses pseudorange observations from a single carrier signal.
-    /// There is not point providing carrier phase obserations with this method.
-    /// SPP can work in degraged environments where a unique signal is sampled.
-    /// Combine this to advanced configurations and you may obtain metric precision.
+    /// Code based navigation on a single carrier frequency.
+    /// Phase observations are not required, and Ionosphere model must be provided
+    /// for best results. Exhibits metric accuracy on high quality data.
     SPP,
-    /// Code based Precise Point Positioning (PPP)
+    /// Code based Precise Point Positioning (PPP).
+    /// Code based navigation on dual carrier frequencies.
+    /// Both phase observations and Ionosphere modeling are not required.
+    /// Exhibits metric accuracy on high quality data.
     #[default]
-    PPP,
+    CODE_PPP,
 }
 
 impl std::fmt::Display for Method {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::SPP => write!(fmt, "SPP"),
-            Self::PPP => write!(fmt, "PPP"),
+            Self::CODE_PPP => write!(fmt, "Code-PPP"),
         }
     }
 }
+
+// impl std::str::FromStr for  Method {
+//     type Err = Error;
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         match s.trim().to_lowercase().as_str() {
+//             "spp" => Ok(Self::SPP),
+//             "code-ppp" => Ok(Self::Code_PPP),
+//             _ => Err(Error::UnknownMethod(s.to_string())),
+//         }
+//     }
+// }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
@@ -346,7 +361,7 @@ impl Config {
                     filter_opts: default_filter_opts(),
                 },
             },
-            Method::PPP => Self {
+            Method::CODE_PPP => Self {
                 method,
                 arp_enu: None,
                 fixed_altitude: None,
