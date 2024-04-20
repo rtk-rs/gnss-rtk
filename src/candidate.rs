@@ -129,9 +129,6 @@ impl Candidate {
         }
         code
     }
-    /*
-     * Returns true if we're ppp compatible
-     */
     pub(crate) fn code_ppp_compatible(&self) -> bool {
         self.dual_pseudorange()
     }
@@ -281,41 +278,69 @@ mod test {
         let l1_freq = 1575.42_f64 * 1.0E6_f64;
         let l2_freq = 1176.45_f64 * 1.0E6_f64;
         let l5_freq = 1176.45_f64 * 1.0E6_f64;
-        let codes = vec![
-            Observation {
-                value: 1.0,
-                snr: None,
-                frequency: l1_freq,
-            },
-            Observation {
-                value: 2.0,
-                snr: None,
-                frequency: l2_freq,
-            },
-            Observation {
-                value: 3.0,
-                snr: None,
-                frequency: l5_freq,
-            },
-        ];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Vector3::<f64>::default(),
-            Duration::default(),
-            None,
-            codes,
-            vec![],
-            vec![],
-        );
-        assert_eq!(
-            cd.prefered_pseudorange(),
-            Some(Observation {
-                value: 1.0,
-                snr: None,
-                frequency: l1_freq,
-            })
-        );
+
+        for (observations, prefered) in [
+            (
+                vec![
+                    Observation {
+                        value: 1.0,
+                        snr: None,
+                        frequency: l1_freq,
+                    },
+                    Observation {
+                        value: 2.0,
+                        snr: None,
+                        frequency: l2_freq,
+                    },
+                    Observation {
+                        value: 3.0,
+                        snr: None,
+                        frequency: l5_freq,
+                    },
+                ],
+                Observation {
+                    value: 1.0,
+                    snr: None,
+                    frequency: l1_freq,
+                },
+            ),
+            (
+                vec![
+                    Observation {
+                        value: 1.0,
+                        snr: None,
+                        frequency: l1_freq,
+                    },
+                    Observation {
+                        value: 2.0,
+                        snr: Some(2.0),
+                        frequency: l2_freq,
+                    },
+                    Observation {
+                        value: 3.0,
+                        snr: None,
+                        frequency: l5_freq,
+                    },
+                ],
+                Observation {
+                    value: 2.0,
+                    snr: Some(2.0),
+                    frequency: l2_freq,
+                },
+            ),
+        ] {
+            let cd = Candidate::new(
+                SV::default(),
+                Epoch::default(),
+                Vector3::<f64>::default(),
+                Duration::default(),
+                None,
+                observations,
+                vec![],
+                vec![],
+            );
+            assert_eq!(cd.prefered_pseudorange(), Some(prefered),);
+        }
     }
     #[test]
     fn best_snr() {
