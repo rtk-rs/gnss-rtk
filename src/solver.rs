@@ -1,25 +1,27 @@
 //! PVT solver
 use std::collections::HashMap;
 
-use hifitime::{Epoch, Unit};
+use gnss::prelude::SV;
+use hifitime::Unit;
 use log::{debug, error, warn};
 use map_3d::deg2rad;
+use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
 use thiserror::Error;
 
-use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
-use nyx::cosmic::Orbit;
-use nyx::cosmic::SPEED_OF_LIGHT;
-use nyx::md::prelude::{Arc, Cosm, Frame};
-
-use gnss::prelude::SV;
-
-use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
+use nyx::{
+    cosmic::{
+        eclipse::{eclipse_state, EclipseState},
+        Orbit, SPEED_OF_LIGHT,
+    },
+    md::prelude::{Arc, Cosm, Frame},
+};
 
 use crate::{
     apriori::AprioriPosition,
     bias::{IonosphericBias, TroposphericBias},
     candidate::Candidate,
     cfg::{Config, Filter, Method},
+    prelude::{Duration, Epoch},
     solutions::{
         validator::{SolutionInvalidation, SolutionValidator},
         PVTSVData, PVTSolution, PVTSolutionType,
@@ -256,102 +258,71 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
-            .filter_map(|c| {
-                match c.transmission_time(&self.cfg) {
-                    Ok((t_tx, dt_ttx)) => {
-                        debug!("{:?} ({}) : signal travel time: {}", t_tx, c.sv, dt_ttx);
-                        if let Some(mut interpolated) =
-                            (self.interpolator)(t_tx, c.sv, interp_order)
-                        {
-                            let mut c = c.clone();
+            .filter_map(|cd| match cd.transmission_time(&self.cfg) {
+                Ok((t_tx, dt_tx)) => {
+                    debug!("{:?} ({}) : signal propagation {}", t_tx, cd.sv, dt_tx);
+                    let interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
 
-                            let rot = match modeling.earth_rotation {
-                                true => {
-                                    const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
-                                    let we = EARTH_OMEGA_E_WGS84 * dt_ttx;
-                                    let (we_cos, we_sin) = (we.cos(), we.sin());
-                                    Matrix3::<f64>::new(
-                                        we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64,
-                                        0.0_f64, 1.0_f64,
-                                    )
-                                },
-                                false => Matrix3::<f64>::new(
-                                    1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64,
-                                    0.0_f64, 1.0_f64,
-                                ),
-                            };
-
-                            interpolated.position = rot * interpolated.position;
-
-                            /* determine velocity */
-                            if let Some((p_ttx, p_position)) = self.prev_sv_state.get(&c.sv) {
-                                let dt = (t_tx - *p_ttx).to_seconds();
-                                interpolated.velocity =
-                                    Some((rot * interpolated.position - rot * p_position) / dt);
-                            }
-
-                            self.prev_sv_state
-                                .insert(c.sv, (t_tx, interpolated.position));
-
-                            if modeling.relativistic_clock_bias {
-                                /*
-                                 * following calculations need inst. velocity
-                                 */
-                                if interpolated.velocity.is_some() {
-                                    let _orbit = interpolated.orbit(t_tx, self.earth_frame);
-                                    const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
-                                    const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
-                                    let orbit = interpolated.orbit(t_tx, self.earth_frame);
-                                    let ea_rad = deg2rad(orbit.ea_deg());
-                                    let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84
-                                        * EARTH_GRAVITATIONAL_CONST)
-                                        .sqrt();
-                                    let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm
-                                        / SPEED_OF_LIGHT
-                                        / SPEED_OF_LIGHT
-                                        * Unit::Second;
-                                    debug!(
-                                        "{:?} ({}) : relativistic clock bias: {}",
-                                        t_tx, c.sv, bias
-                                    );
-                                    c.clock_corr += bias;
-                                }
-                            }
-                            debug!("{:?} ({}) : {:?}", t_tx, c.sv, interpolated);
-
-                            c.state = Some(interpolated);
-                            Some(c)
-                        } else {
-                            warn!("{:?} ({}) : interpolation failed", t_tx, c.sv);
+                    if let Some(min_elev) = self.cfg.min_sv_elev {
+                        if interpolated.elevation < min_elev {
+                            debug!(
+                                "{:?} ({}) - {:?} rejected : below elevation mask",
+                                cd.t, cd.sv, interpolated
+                            );
                             None
+                        } else {
+                            let mut cd = cd.clone();
+                            let interpolated =
+                                Self::rotate_position(modeling.earth_rotation, interpolated, dt_tx);
+                            let interpolated = self.velocities(t_tx, cd.sv, interpolated);
+                            cd.t_tx = t_tx;
+                            debug!("{:?} ({}) : {:?}", cd.t, cd.sv, interpolated);
+                            cd.state = Some(interpolated);
+                            Some(cd)
                         }
-                    },
-                    Err(e) => {
-                        error!("{} - transsmision time error: {:?}", c.sv, e);
-                        None
-                    },
-                }
+                    } else {
+                        let mut cd = cd.clone();
+                        let interpolated =
+                            Self::rotate_position(modeling.earth_rotation, interpolated, dt_tx);
+                        let interpolated = self.velocities(t_tx, cd.sv, interpolated);
+                        cd.t_tx = t_tx;
+                        cd.state = Some(interpolated);
+                        debug!("{:?} ({}) : {:?}", cd.t, cd.sv, interpolated);
+                        Some(cd)
+                    }
+                },
+                Err(e) => {
+                    error!("{} - transmision time error: {:?}", cd.sv, e);
+                    None
+                },
             })
             .collect();
-
-        /* apply elevation filter (if any) */
-        if let Some(min_elev) = self.cfg.min_sv_elev {
-            let mut idx: usize = 0;
-            let mut nb_removed: usize = 0;
-            while idx < pool.len() {
-                if let Some(state) = pool[idx - nb_removed].state {
-                    if state.elevation < min_elev {
-                        debug!(
-                            "{:?} ({}) : below elevation mask",
-                            pool[idx - nb_removed].t,
-                            pool[idx - nb_removed].sv
-                        );
-                        let _ = pool.swap_remove(idx - nb_removed);
-                        nb_removed += 1;
-                    }
+        /*
+         * Update internal state
+         */
+        for cd in pool.iter_mut() {
+            if modeling.relativistic_clock_bias {
+                /*
+                 * following calculations need inst. velocity
+                 */
+                let state = cd.state.unwrap();
+                if state.velocity.is_some() {
+                    const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
+                    const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
+                    let orbit = state.orbit(cd.t_tx, self.earth_frame);
+                    let ea_rad = deg2rad(orbit.ea_deg());
+                    let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
+                    let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm
+                        / SPEED_OF_LIGHT
+                        / SPEED_OF_LIGHT
+                        * Unit::Second;
+                    debug!("{:?} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                    cd.clock_corr += bias;
                 }
-                idx += 1;
             }
+
+            self.prev_sv_state
+                .insert(cd.sv, (cd.t_tx, cd.state.unwrap().position));
         }
 
         /* remove observed signals above snr mask (if any) */
@@ -431,6 +402,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         // adapt to navigation
+        pool.sort_by(|cd_a, cd_b| {
+            let state_a = cd_a.state.unwrap();
+            let state_b = cd_b.state.unwrap();
+            state_b.elevation.partial_cmp(&state_a.elevation).unwrap()
+        });
+
         let mut index = 0;
         pool.retain(|_| {
             index += 1;
@@ -540,5 +517,46 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 n
             },
         }
+    }
+    /*
+     * Apply appropriate adjustments
+     */
+    fn rotate_position(
+        rotate: bool,
+        interpolated: InterpolationResult,
+        dt_tx: Duration,
+    ) -> InterpolationResult {
+        let mut reworked = interpolated.clone();
+        let rot = if rotate {
+            const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
+            let dt_tx = dt_tx.to_seconds();
+            let we = EARTH_OMEGA_E_WGS84 * dt_tx;
+            let (we_cos, we_sin) = (we.cos(), we.sin());
+            Matrix3::<f64>::new(
+                we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64,
+            )
+        } else {
+            Matrix3::<f64>::new(
+                1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64,
+            )
+        };
+        reworked.position = rot * interpolated.position;
+        reworked
+    }
+    /*
+     * Determine velocities
+     */
+    fn velocities(
+        &self,
+        t_tx: Epoch,
+        sv: SV,
+        interpolated: InterpolationResult,
+    ) -> InterpolationResult {
+        let mut reworked = interpolated.clone();
+        if let Some((p_ttx, p_pos)) = self.prev_sv_state.get(&sv) {
+            let dt = (t_tx - *p_ttx).to_seconds();
+            reworked.velocity = Some((interpolated.position - p_pos) / dt);
+        }
+        reworked
     }
 }
