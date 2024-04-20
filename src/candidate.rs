@@ -4,6 +4,7 @@ use gnss::prelude::SV;
 use hifitime::Unit;
 use itertools::Itertools;
 use log::debug;
+use std::cmp::Ordering;
 
 use nyx::cosmic::SPEED_OF_LIGHT;
 use nyx::linalg::{DVector, MatrixXx4};
@@ -18,7 +19,7 @@ use crate::{
 };
 
 /// Signal observation to attach to each candidate
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Observation {
     /// carrier frequency [Hz]
     pub frequency: f64,
@@ -33,8 +34,10 @@ pub struct Observation {
 pub struct Candidate {
     /// SV
     pub sv: SV,
-    /// Signal sampling Epoch
+    /// Sampling Epoch
     pub t: Epoch,
+    /// Tx Epoch
+    pub t_tx: Epoch,
     /// state that needs to be resolved
     pub state: Option<InterpolationResult>,
     // SV group delay
@@ -69,16 +72,14 @@ impl Candidate {
         phase: Vec<Observation>,
         doppler: Vec<Observation>,
     ) -> Result<Self, Error> {
-        debug!(
-            "{:?} ({}) - clock state: {:?} - correction {}",
-            t, sv, clock_state, clock_corr,
-        );
         if code.is_empty() {
+            // TODO check this outside, and base on current strategy
             Err(Error::NeedsAtLeastOnePseudoRange)
         } else {
             Ok(Self {
                 sv,
                 t,
+                t_tx: t,
                 clock_state,
                 clock_corr,
                 code,
@@ -88,6 +89,27 @@ impl Candidate {
                 state: None,
             })
         }
+    }
+    /*
+     * Returns best observed SNR, whatever the signal
+     */
+    pub(crate) fn best_snr(&self) -> Option<f64> {
+        self.code
+            .iter()
+            .chain(self.phase.iter())
+            .chain(self.doppler.iter())
+            .max_by(|a, b| {
+                if let Some(snr_a) = a.snr {
+                    if let Some(snr_b) = b.snr {
+                        snr_a.partial_cmp(&snr_b).unwrap()
+                    } else {
+                        Ordering::Greater
+                    }
+                } else {
+                    Ordering::Less
+                }
+            })
+            .map(|c| c.snr)?
     }
     /*
      * Returns one pseudo range observation [m], whatever the frequency.
@@ -161,7 +183,7 @@ impl Candidate {
         }
 
         let c_l1 = codes.0?;
-        let f_l1 = 1575.42_64 * 1.0E6_f64;
+        let f_l1 = 1575.42_f64 * 1.0E6_f64;
 
         let (c_lx, f_lx) = match codes.1 {
             Some(pr) => (pr, 1227.6_f64 * 1.0E6_f64),
@@ -188,62 +210,28 @@ impl Candidate {
      * apply min SNR mask
      */
     pub(crate) fn min_snr_mask(&mut self, min_snr: f64) {
-        self.code = self
-            .code
-            .iter()
-            .filter_map(|c| {
-                let snr = c.snr?;
-                if snr < min_snr {
-                    None
-                } else {
-                    Some(c.clone())
-                }
-            })
-            .collect();
-        self.doppler = self
-            .doppler
-            .iter()
-            .filter_map(|c| {
-                let snr = c.snr?;
-                if snr < min_snr {
-                    None
-                } else {
-                    Some(c.clone())
-                }
-            })
-            .collect();
-        self.phase = self
-            .phase
-            .iter()
-            .filter_map(|c| {
-                let snr = c.snr?;
-                if snr < min_snr {
-                    None
-                } else {
-                    Some(c.clone())
-                }
-            })
-            .collect();
+        self.code.retain(|c| {
+            if let Some(snr) = c.snr {
+                snr >= min_snr
+            } else {
+                false
+            }
+        });
+        self.doppler.retain(|d| {
+            if let Some(snr) = d.snr {
+                snr >= min_snr
+            } else {
+                false
+            }
+        });
+        self.phase.retain(|p| {
+            if let Some(snr) = p.snr {
+                snr >= min_snr
+            } else {
+                false
+            }
+        });
     }
-    /*
-     * Try to form signal combination
-    fn combination(&self) -> Option<Combination> {
-        if self.pseudo_range.len() == 1 {
-            return None;
-        }
-        let pr_a = &self.pseudo_range[0];
-        let pr_b = &self.pseudo_range[1];
-        let (pr_a, fr_a) = (pr_a.value, pr_a.frequency);
-        let (pr_b, fr_b) = (pr_b.value, pr_b.frequency);
-        //NB: pour phase c'est pareil
-        let value = fr_a.powi(2) * pr_a - fr_b.powi(2) * pr_b / (fr_a.powi(2) - fr_b.powi(2));
-        Some(Combination {
-            value,
-            f1: fr_a,
-            f2: fr_b,
-        })
-    }
-     */
     /*
      * Computes signal transmission Epoch
      * returns (t_tx, dt_ttx)
@@ -251,7 +239,7 @@ impl Candidate {
      * "dt_ttx": elapsed duration in seconds in given timescale
      * "frame": Solid body reference Frame
      */
-    pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, f64), Error> {
+    pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, Duration), Error> {
         let (t, ts) = (self.t, self.t.time_scale);
         let seconds_ts = t.to_duration().to_seconds();
 
@@ -265,7 +253,10 @@ impl Candidate {
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
 
         if cfg.modeling.sv_clock_bias {
-            debug!("{:?} ({}) clock_corr: {}", t, self.sv, self.clock_corr);
+            debug!(
+                "{:?} ({}) clock correction: {}",
+                t, self.sv, self.clock_corr
+            );
             e_tx -= self.clock_corr;
         }
 
@@ -276,14 +267,20 @@ impl Candidate {
             }
         }
 
-        let dt = (t - e_tx).to_seconds();
-        if dt < 0.0 {
-            Err(Error::PhysicalNonSenseRxPriorTx)
-        } else if dt > 0.1 {
-            Err(Error::PhysicalNonSenseRxTooLate)
-        } else {
-            Ok((e_tx, dt))
-        }
+        let dt_secs = (t - e_tx).to_seconds();
+        let dt = Duration::from_seconds(dt_secs);
+        assert!(
+            dt_secs > 0.0,
+            "physical non sense - RX {:?} prior TX {:?}",
+            t,
+            e_tx
+        );
+        assert!(
+            dt_secs <= 0.1,
+            "something's wrong - {} propagation delay is suspicious",
+            dt
+        );
+        Ok((e_tx, dt))
     }
     /*
      * Resolves Self
@@ -407,5 +404,125 @@ impl Candidate {
 
         y[row_index] = pr - rho - models;
         Ok(sv_data)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::prelude::{Candidate, Duration, Epoch, Observation, Vector3, SV};
+    #[test]
+    fn prefered_pseudorange() {
+        let l1_freq = 1575.42_f64 * 1.0E6_f64;
+        let l2_freq = 1176.45_f64 * 1.0E6_f64;
+        let l5_freq = 1176.45_f64 * 1.0E6_f64;
+        let codes = vec![
+            Observation {
+                value: 1.0,
+                snr: None,
+                frequency: l1_freq,
+            },
+            Observation {
+                value: 2.0,
+                snr: None,
+                frequency: l2_freq,
+            },
+            Observation {
+                value: 3.0,
+                snr: None,
+                frequency: l5_freq,
+            },
+        ];
+        let cd = Candidate::new(
+            SV::default(),
+            Epoch::default(),
+            Vector3::<f64>::default(),
+            Duration::default(),
+            codes,
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            cd.prefered_pseudorange(),
+            Some(Observation {
+                value: 1.0,
+                snr: None,
+                frequency: l1_freq,
+            })
+        );
+    }
+    #[test]
+    fn best_snr() {
+        let l1_freq = 1575.42_f64 * 1.0E6_f64;
+        let l2_freq = 1176.45_f64 * 1.0E6_f64;
+        let l5_freq = 1176.45_f64 * 1.0E6_f64;
+
+        let codes = vec![
+            Observation {
+                value: 1.0,
+                snr: None,
+                frequency: l1_freq,
+            },
+            Observation {
+                value: 2.0,
+                snr: None,
+                frequency: l2_freq,
+            },
+            Observation {
+                value: 3.0,
+                snr: Some(10.0),
+                frequency: l5_freq,
+            },
+            Observation {
+                value: 4.0,
+                snr: Some(11.0),
+                frequency: l2_freq,
+            },
+            Observation {
+                value: 5.0,
+                snr: Some(9.0),
+                frequency: l2_freq,
+            },
+        ];
+        let cd = Candidate::new(
+            SV::default(),
+            Epoch::default(),
+            Vector3::<f64>::default(),
+            Duration::default(),
+            codes,
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(cd.best_snr(), Some(11.0));
+
+        let codes = vec![
+            Observation {
+                value: 1.0,
+                snr: Some(1.0),
+                frequency: l1_freq,
+            },
+            Observation {
+                value: 2.0,
+                snr: Some(1.1),
+                frequency: l2_freq,
+            },
+            Observation {
+                value: 3.0,
+                snr: Some(1.2),
+                frequency: l5_freq,
+            },
+        ];
+        let cd = Candidate::new(
+            SV::default(),
+            Epoch::default(),
+            Vector3::<f64>::default(),
+            Duration::default(),
+            codes,
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(cd.best_snr(), Some(1.2));
     }
 }
