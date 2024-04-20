@@ -1,16 +1,17 @@
 use log::debug;
-use nalgebra::{DMatrix, DVector, Vector3};
+use nalgebra::{DVector, Vector3};
 use nyx::cosmic::SPEED_OF_LIGHT;
 use thiserror::Error;
 
 use crate::{
     cfg::SolverOpts,
-    prelude::{Candidate, PVTSolution},
+    navigation::{Input, Output},
+    prelude::Candidate,
 };
 
 #[derive(Clone, Debug, Error)]
 pub enum SolutionInvalidation {
-    #[error("gdop limit exceeded {0}")]
+    #[error("gdop limit exceeded")]
     GDOPOutlier(f64),
     #[error("tdop limit exceeded {0}")]
     TDOPOutlier(f64),
@@ -20,25 +21,25 @@ pub enum SolutionInvalidation {
     CodeResidual(f64),
 }
 
-pub(crate) struct SolutionValidator {
+pub(crate) struct Validator {
     gdop: f64,
     tdop: f64,
     residuals: DVector<f64>,
 }
 
-impl SolutionValidator {
+impl Validator {
     pub fn new(
         apriori_ecef: &Vector3<f64>,
         pool: &Vec<Candidate>,
-        w: &DMatrix<f64>,
-        solution: &PVTSolution,
+        input: &Input,
+        output: &Output,
     ) -> Self {
-        let gdop = solution.gdop();
-        let tdop = solution.tdop();
+        let gdop = output.gdop;
+        let tdop = output.tdop;
         let mut residuals = DVector::<f64>::zeros(pool.len());
 
         for (idx, cd) in pool.iter().enumerate() {
-            let sv = solution
+            let sv = input
                 .sv
                 .iter()
                 .filter_map(|(sv, data)| if *sv == cd.sv { Some(data) } else { None })
@@ -47,27 +48,31 @@ impl SolutionValidator {
 
             let pr = cd.prefered_pseudorange().unwrap().value;
             let state = cd.state.unwrap().position;
-            let estimate = apriori_ecef + solution.pos;
+
+            let (x, y, z) = (
+                apriori_ecef[0] + output.state.x[0],
+                apriori_ecef[1] + output.state.x[1],
+                apriori_ecef[2] + output.state.x[2],
+            );
 
             let (sv_x, sv_y, sv_z) = (state[0], state[1], state[2]);
-            let (x, y, z) = (estimate[0], estimate[1], estimate[2]);
 
             let rho = ((sv_x - x).powi(2) + (sv_y - y).powi(2) + (sv_z - z).powi(2)).sqrt();
 
-            let dt = cd.clock_corr.to_seconds() - solution.dt;
+            let dt = cd.clock_corr.to_seconds() - output.state.x[3] / SPEED_OF_LIGHT;
 
             residuals[idx] = pr;
             residuals[idx] -= rho;
-            residuals[idx] += dt * SPEED_OF_LIGHT;
+            residuals[idx] += output.state.x[3];
             residuals[idx] -= sv.tropo_bias.value().unwrap_or(0.0);
             residuals[idx] -= sv.iono_bias.value().unwrap_or(0.0);
-            residuals[idx] /= w[(idx, idx)];
+            residuals[idx] /= input.w[(idx, idx)];
             debug!(
                 "{:?} ({}): coderes={}/w={}",
                 cd.t,
                 cd.sv,
                 residuals[idx],
-                w[(idx, idx)]
+                input.w[(idx, idx)]
             );
         }
         Self {
@@ -79,7 +84,7 @@ impl SolutionValidator {
     /*
      * Solution validation process
      */
-    pub fn valid(&self, opts: &SolverOpts) -> Result<(), SolutionInvalidation> {
+    pub fn validate(&self, opts: &SolverOpts) -> Result<(), SolutionInvalidation> {
         if let Some(max_gdop) = opts.gdop_threshold {
             if self.gdop > max_gdop {
                 return Err(SolutionInvalidation::GDOPOutlier(self.gdop));

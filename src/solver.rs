@@ -5,7 +5,7 @@ use gnss::prelude::SV;
 use hifitime::Unit;
 use log::{debug, error, warn};
 use map_3d::deg2rad;
-use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
+use nalgebra::{Matrix3, Matrix4, Matrix4x1, Vector3};
 use thiserror::Error;
 
 use nyx::{
@@ -20,10 +20,10 @@ use crate::{
     apriori::AprioriPosition,
     bias::{IonosphereBias, TroposphereBias},
     candidate::Candidate,
-    cfg::{Config, Filter, Method},
+    cfg::{Config, Method},
     navigation::{
-        solutions::validator::{SolutionInvalidation, SolutionValidator},
-        Input as NavigationInput, PVTSolution, PVTSolutionType, SVInput,
+        solutions::validator::Validator as SolutionValidator, Input as NavigationInput, Navigation,
+        PVTSolution, PVTSolutionType,
     },
     prelude::{Duration, Epoch},
 };
@@ -36,8 +36,6 @@ pub enum Error {
     NotEnoughFittingCandidates,
     #[error("failed to invert navigation matrix")]
     MatrixInversionError,
-    #[error("failed to invert covar matrix")]
-    CovarMatrixInversionError,
     #[error("reolved NaN: invalid input matrix")]
     TimeIsNan,
     #[error("undefined apriori position")]
@@ -58,52 +56,11 @@ pub enum Error {
     PhysicalNonSenseRxPriorTx,
     #[error("physical non sense: t_rx is too late")]
     PhysicalNonSenseRxTooLate,
-    #[error("invalidated solution: {0}")]
-    InvalidatedSolution(SolutionInvalidation),
+    #[error("invalidated solution")]
+    InvalidatedSolution,
     // Kalman filter bad op: should never happen
     #[error("uninitialized kalman filter!")]
     UninitializedKalmanFilter,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct LSQState {
-    /* p matrix */
-    pub(crate) p: Matrix4<f64>,
-    /* x estimate */
-    pub(crate) x: Matrix4x1<f64>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct KfState {
-    /* p matrix */
-    pub(crate) p: Matrix4<f64>,
-    /* x estimate */
-    pub(crate) x: Matrix4x1<f64>,
-}
-
-// impl KfState {
-//     pub fn eval(&mut self,
-//         phi: &Matrix4<f64>,
-//         q: &Matrix4<f64>,
-//         x: &Vector4<f64>,
-//         p: &Matrix4x1<f64>,
-//     ) -> Result<Self, Error> {
-//         let x = phi * x;
-//         let p = (phi * p * phi.transpose()) + q;
-//         Ok(Self {
-//             x,
-//             p,
-//         })
-//     }
-// }
-
-// Filter state
-#[derive(Debug, Clone)]
-pub(crate) enum FilterState {
-    /// LSQ state
-    LSQState(LSQState),
-    /// KF state
-    KfState(KfState),
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -172,21 +129,17 @@ where
     /* Cosmic model */
     cosmic: Arc<Cosm>,
     /*
-     * (Reference) Earth frame.
-     * Could be relevant to rename this the day we want to
-     * resolve solutions on other Planets...  ; )
+     * Solid / Earth body frame.
      */
     earth_frame: Frame,
     /*
-     * Sun Body frame
-     * Could be relevant to rename this the day we want to resolve
-     * solutions in other Star systems....   o___O
+     * Sun / Star body frame
      */
     sun_frame: Frame,
+    // navigator
+    nav: Navigation,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
-    /* current filter state */
-    filter_state: Option<FilterState>,
     /* prev. state vector for internal velocity determination */
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
@@ -213,7 +166,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             interpolator,
             cfg: cfg.clone(),
             prev_sv_state: HashMap::new(),
-            filter_state: Option::<FilterState>::None,
+            nav: Navigation::new(cfg.solver.filter),
             prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
     }
@@ -226,15 +179,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     pub fn resolve(
         &mut self,
         t: Epoch,
-        solution: PVTSolutionType,
+        pvt_type: PVTSolutionType,
         pool: Vec<Candidate>,
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
-        let min_required = Self::min_required(solution, &self.cfg);
+        let min_required = Self::min_required(pvt_type, &self.cfg);
 
         if pool.len() < min_required {
-            return Err(Error::NotEnoughInputCandidates(solution));
+            return Err(Error::NotEnoughInputCandidates(pvt_type));
         }
 
         let (x0, y0, z0) = (
@@ -432,7 +385,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             return Err(Error::NotEnoughFittingCandidates);
         }
 
-        let mut input = NavigationInput::new(
+        let input = NavigationInput::new(
             (x0, y0, z0),
             (lat_ddeg, lon_ddeg, altitude_above_sea_m),
             &self.cfg,
@@ -442,57 +395,52 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         )
         .map_err(|_| Error::NotEnoughFittingCandidates)?;
 
-        let w = self.cfg.solver.weight_matrix(
-            min_required,
-            input.sv.values().map(|sv_data| sv_data.elevation).collect(),
-        );
+        let output = self.nav.resolve(&input)?;
+        let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &input, &output);
 
-        debug!("w: {}", w);
-
-        let (mut pvt_solution, new_state) = PVTSolution::new(
-            input.g.clone(),
-            w.clone(),
-            input.y.clone(),
-            input.sv.clone(),
-            filter,
-            self.filter_state.clone(),
-        )?;
-
-        let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &w, &pvt_solution);
-
-        let valid = validator.valid(solver_opts);
-        if valid.is_err() {
-            return Err(Error::InvalidatedSolution(valid.err().unwrap()));
+        match validator.validate(solver_opts) {
+            Ok(_) => self.nav.validate(),
+            Err(e) => {
+                error!("solution invalidated - {}", e);
+                return Err(Error::InvalidatedSolution);
+            },
         }
+
+        let mut solution = PVTSolution {
+            q: output.q.clone(),
+            dt: output.state.x[3] / SPEED_OF_LIGHT,
+            sv: input.sv.clone(),
+            vel: Vector3::<f64>::default(),
+            pos: Vector3::new(output.state.x[0], output.state.x[1], output.state.x[2]),
+            gdop: output.gdop,
+            tdop: output.tdop,
+            pdop: output.pdop,
+        };
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
-            pvt_solution.vel = (pvt_solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
+            solution.vel = (solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
         }
 
-        self.prev_pvt = Some((t, pvt_solution.clone()));
-
-        if filter != Filter::None {
-            self.filter_state = new_state;
-        }
+        self.prev_pvt = Some((t, solution.clone()));
 
         /*
          * slightly rework the solution so it ""looks"" like
          * what we expect based on the defined setup.
          */
         if let Some(alt) = self.cfg.fixed_altitude {
-            pvt_solution.pos.z = self.apriori.ecef.z - alt;
-            pvt_solution.vel.z = 0.0_f64;
+            solution.pos.z = self.apriori.ecef.z - alt;
+            solution.vel.z = 0.0_f64;
         }
 
-        match solution {
+        match pvt_type {
             PVTSolutionType::TimeOnly => {
-                pvt_solution.pos = Vector3::<f64>::default();
-                pvt_solution.vel = Vector3::<f64>::default();
+                solution.pos = Vector3::<f64>::default();
+                solution.vel = Vector3::<f64>::default();
             },
             _ => {},
         }
 
-        Ok((t, pvt_solution))
+        Ok((t, solution))
     }
     /*
      * Returns nb of vehicles we need to gather

@@ -1,8 +1,13 @@
 //! PVT Solutions
-use crate::prelude::{Filter, Vector3, SV};
-use crate::solver::{FilterState, LSQState};
-use crate::Error;
+// use crate::Error;
+use crate::prelude::{Vector3, SV};
 use std::collections::HashMap;
+// use crate::solver::{FilterState, LSQState};
+
+// use nyx::cosmic::SPEED_OF_LIGHT;
+use super::SVInput;
+use nalgebra::base::Matrix3;
+use nalgebra::base::Matrix4;
 
 pub(crate) mod validator;
 
@@ -30,17 +35,9 @@ impl std::fmt::Display for PVTSolutionType {
     }
 }
 
-use nalgebra::base::{DMatrix, DVector, Matrix3, Matrix4, MatrixXx4};
-use nyx::cosmic::SPEED_OF_LIGHT;
-
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-
-use super::SVInput;
-
 /// PVT Solution, always expressed as the correction to apply
 /// to an Apriori / static position.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 // #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
     /// Position errors (in [m] ECEF)
@@ -52,122 +49,20 @@ pub struct PVTSolution {
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV
     pub sv: HashMap<SV, SVInput>,
-    // Q matrix
-    q: Matrix4<f64>,
+    /// Geometric Dilution of Precision
+    pub gdop: f64,
+    /// Time Dilution of Precision
+    pub tdop: f64,
+    /// Position Dilution of Precision
+    pub pdop: f64,
+    // Q
+    pub(crate) q: Matrix4<f64>,
 }
 
 impl PVTSolution {
-    /// Builds a new PVTSolution from
-    /// "g": the navigation matrix
-    /// "w": diagonal weight matrix
-    /// "y": the navigation vector
-    /// "sv": attached SV data
-    pub(crate) fn new(
-        g: MatrixXx4<f64>,
-        w: DMatrix<f64>,
-        y: DVector<f64>,
-        sv: HashMap<SV, SVInput>,
-        filter: Filter,
-        p_state: Option<FilterState>,
-    ) -> Result<(Self, Option<FilterState>), Error> {
-        let (q, x, new_state) = match filter {
-            Filter::None => {
-                let g_prime = g.clone().transpose();
-                let q = (g_prime.clone() * g.clone())
-                    .try_inverse()
-                    .ok_or(Error::MatrixInversionError)?;
-
-                let p = (g_prime.clone() * w.clone() * g.clone())
-                    .try_inverse()
-                    .ok_or(Error::MatrixInversionError)?;
-
-                let x = p * (g_prime.clone() * w.clone() * y);
-                (q, x, None)
-            },
-            Filter::LSQ => {
-                if let Some(FilterState::LSQState(p_state)) = p_state {
-                    let p_1 = p_state
-                        .p
-                        .try_inverse()
-                        .ok_or(Error::CovarMatrixInversionError)?;
-
-                    let g_prime = g.clone().transpose();
-                    let q = (g_prime.clone() * g.clone())
-                        .try_inverse()
-                        .ok_or(Error::MatrixInversionError)?;
-
-                    let p = g_prime.clone() * w.clone() * g.clone();
-                    let p = (p_1 + p)
-                        .try_inverse()
-                        .ok_or(Error::CovarMatrixInversionError)?;
-
-                    let x = p * (p_1 * p_state.x + (g_prime.clone() * w.clone() * y));
-                    (q, x, Some(FilterState::LSQState(LSQState { x, p })))
-                } else {
-                    let g_prime = g.clone().transpose();
-                    let q = (g_prime.clone() * g.clone())
-                        .try_inverse()
-                        .ok_or(Error::MatrixInversionError)?;
-
-                    let p = (g_prime.clone() * w.clone() * g.clone())
-                        .try_inverse()
-                        .ok_or(Error::MatrixInversionError)?;
-
-                    let x = (p * g_prime.clone()) * w.clone() * y;
-                    (q, x, Some(FilterState::LSQState(LSQState { x, p })))
-                }
-            },
-            Filter::KF => {
-                panic!("kalman filter not available yet");
-                //if let Some(FilterState::KfState(p_state)) = p_state {
-                //    let g_prime = g.clone().transpose();
-                //    let q = (g_prime.clone() * g.clone())
-                //        .try_inverse()
-                //        .ok_or(Error::MatrixInversionError)?;
-
-                //    //let p = (g_prime.clone() * w.clone() * g.clone())
-                //    //    .try_inverse()
-                //    //    .ok_or(Error::MatrixInversionError)?;
-                //    //
-                //    //let x = (p * g_prime.clone()) * w.clone() * y;
-                //    //
-                //    //(q, x, Some(FilterState::KfState(KfState {
-                //    //    x,
-                //    //    p,
-                //    //})))
-                //} else {
-                //    return Err(Error::UninitializedKalmanFilter);
-                //}
-            },
-        };
-
-        let dt = x[3] / SPEED_OF_LIGHT;
-        if dt.is_nan() {
-            return Err(Error::TimeIsNan);
-        }
-
-        Ok((
-            (Self {
-                sv,
-                pos: Vector3::new(x[0], x[1], x[2]),
-                vel: Vector3::<f64>::default(),
-                dt,
-                q,
-            }),
-            new_state,
-        ))
-    }
     /// Returns list of Space Vehicles (SV) that help form this solution.
     pub fn sv(&self) -> Vec<SV> {
         self.sv.keys().copied().collect()
-    }
-    /// Returns Geometric Dilution of Precision of Self
-    pub fn gdop(&self) -> f64 {
-        (self.q[(0, 0)] + self.q[(1, 1)] + self.q[(2, 2)] + self.q[(3, 3)]).sqrt()
-    }
-    /// Returns Position Diultion of Precision of Self
-    pub fn pdop(&self) -> f64 {
-        (self.q[(0, 0)] + self.q[(1, 1)] + self.q[(2, 2)]).sqrt()
     }
     fn q_enu(&self, lat: f64, lon: f64) -> Matrix3<f64> {
         let r = Matrix3::<f64>::new(
@@ -194,18 +89,11 @@ impl PVTSolution {
         );
         r.clone().transpose() * q_3 * r
     }
-    /// Returns Horizontal Dilution of Precision of Self
     pub fn hdop(&self, lat: f64, lon: f64) -> f64 {
-        let q_enu = self.q_enu(lat, lon);
-        (q_enu[(0, 0)] + q_enu[(1, 1)]).sqrt()
+        let q = self.q_enu(lat, lon);
+        (q[(0, 0)] + q[(1, 1)]).sqrt()
     }
-    /// Returns Vertical Dilution of Precision of Self
     pub fn vdop(&self, lat: f64, lon: f64) -> f64 {
-        let q_enu = self.q_enu(lat, lon);
-        q_enu[(2, 2)].sqrt()
-    }
-    /// Returns Time Dilution of Precision of Self
-    pub fn tdop(&self) -> f64 {
-        self.q[(3, 3)].sqrt()
+        self.q_enu(lat, lon)[(2, 2)].sqrt()
     }
 }

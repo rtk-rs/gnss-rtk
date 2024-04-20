@@ -1,8 +1,11 @@
 pub mod solutions;
 pub use solutions::{PVTSolution, PVTSolutionType};
-use std::collections::HashMap;
+
+#[cfg(feature = "serde")]
+use serde::Deserialize;
 
 use log::debug;
+use std::collections::HashMap;
 
 use crate::bias::{
     Bias, IonosphereBias, RuntimeParam as BiasRuntimeParams, TropoModel, TroposphereBias,
@@ -13,19 +16,72 @@ use crate::prelude::{Method, SV};
 use crate::Error;
 use nyx::cosmic::SPEED_OF_LIGHT;
 
-use nalgebra::{DVector, Matrix3, Matrix4, Matrix4x1, MatrixXx4, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4};
 
-#[derive(Debug, Clone, Default)]
+/// Navigation Filter.
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub enum Filter {
-    NoFilter,
     #[default]
+    /// LSQ Filter. Heavy computation, converges slower than Kalman filter.
     LSQ,
+    // /// Kalman Filter. Heavy+ computations, converges faster than LSQ.
+    // KF,
 }
 
 #[derive(Debug, Clone, Default)]
-struct FilterState {
+pub struct FilterState {
     pub p: Matrix4<f64>,
     pub x: Matrix4x1<f64>,
+}
+
+impl Filter {
+    fn resolve(&self, input: &Input, p_state: &Option<FilterState>) -> Result<Output, Error> {
+        match p_state {
+            Some(p_state) => {
+                let p_1 = p_state.p.try_inverse().ok_or(Error::MatrixInversionError)?;
+
+                let g_prime = input.g.clone().transpose();
+                let q = (g_prime.clone() * input.g.clone())
+                    .try_inverse()
+                    .ok_or(Error::MatrixInversionError)?;
+
+                let p = g_prime.clone() * input.w.clone() * input.g.clone();
+                let p = (p_1 + p).try_inverse().ok_or(Error::MatrixInversionError)?;
+
+                let x =
+                    p * (p_1 * p_state.x + (g_prime.clone() * input.w.clone() * input.y.clone()));
+
+                Ok(Output {
+                    gdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)] + q[(3, 3)]).sqrt(),
+                    pdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)]).sqrt(),
+                    tdop: q[(3, 3)].sqrt(),
+                    q,
+                    state: FilterState { p, x },
+                })
+            },
+            None => {
+                let g_prime = input.g.clone().transpose();
+                let q = (g_prime.clone() * input.g.clone())
+                    .try_inverse()
+                    .ok_or(Error::MatrixInversionError)?;
+
+                let p = (g_prime.clone() * input.w.clone() * input.g.clone())
+                    .try_inverse()
+                    .ok_or(Error::MatrixInversionError)?;
+
+                let x = p * (g_prime.clone() * input.w.clone() * input.y.clone());
+
+                Ok(Output {
+                    gdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)] + q[(3, 3)]).sqrt(),
+                    pdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)]).sqrt(),
+                    tdop: q[(3, 3)].sqrt(),
+                    q,
+                    state: FilterState { p, x },
+                })
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,7 +96,17 @@ pub struct SVInput {
 pub struct Input {
     pub y: DVector<f64>,
     pub g: MatrixXx4<f64>,
+    pub w: DMatrix<f64>,
     pub sv: HashMap<SV, SVInput>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Output {
+    pub tdop: f64,
+    pub gdop: f64,
+    pub pdop: f64,
+    pub q: Matrix4<f64>,
+    pub state: FilterState,
 }
 
 impl Input {
@@ -121,8 +187,8 @@ impl Input {
              * IONO + TROPO biases
              */
             let rtm = BiasRuntimeParams {
-                //t: cd.t,
-                t: cd.t_tx, //TODO
+                t: cd.t,
+                // t: cd.t_tx, //TODO
                 elevation,
                 azimuth,
                 frequency,
@@ -163,15 +229,40 @@ impl Input {
             y[idx] = pr - rho - models;
             sv.insert(cd.sv, sv_input);
         }
-        debug!("y: {} g: {}", y, g);
-        Ok(Self { y, g, sv })
+
+        let w = cfg.solver.weight_matrix(
+            4, //TODO
+            sv.values().map(|sv| sv.elevation).collect(),
+        );
+        debug!("y: {} g: {}, w: {}", y, g, w);
+        Ok(Self { y, g, w, sv })
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Navigation {
     filter: Filter,
-    filter_state: FilterState,
+    pending: FilterState,
+    filter_state: Option<FilterState>,
 }
 
-impl Navigation {}
+impl Navigation {
+    pub fn new(filter: Filter) -> Self {
+        Self {
+            filter,
+            filter_state: None,
+            pending: Default::default(),
+        }
+    }
+    pub fn resolve(&mut self, input: &Input) -> Result<Output, Error> {
+        let out = self.filter.resolve(input, &self.filter_state)?;
+        if out.state.x[3].is_nan() {
+            return Err(Error::TimeIsNan);
+        }
+        self.pending = out.state.clone();
+        Ok(out)
+    }
+    pub fn validate(&mut self) {
+        self.filter_state = Some(self.pending.clone());
+    }
+}

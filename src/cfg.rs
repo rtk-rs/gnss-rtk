@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::prelude::TimeScale;
 use nalgebra::DMatrix;
 
+use crate::navigation::Filter;
+
 /// Configuration Error
 #[derive(Debug, Error)]
 pub enum Error {
@@ -61,20 +63,6 @@ pub enum Positioning {
     Static,
     /// Receiver is moving
     Kinematic,
-}
-
-/// Filter to use in the solving process
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum Filter {
-    /// No filter. The "filter" part of the
-    /// [Config] struct is disregarded
-    None,
-    /// LSQ Filter. Heavy computation, converges much slower than a Kalman filter.
-    #[default]
-    LSQ,
-    /// Kalman Filter. Heavy+ computation, converges much faster than LSQ.
-    KF,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]

@@ -6,16 +6,9 @@ use itertools::Itertools;
 use log::debug;
 use std::cmp::Ordering;
 
-use nyx::cosmic::SPEED_OF_LIGHT;
-use nyx::linalg::{DVector, MatrixXx4};
-
 use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Vector3};
-use crate::{
-    bias,
-    bias::{IonosphereBias, TropoModel, TroposphereBias},
-    prelude::Method,
-    Error,
-};
+use crate::Error;
+use nyx::cosmic::SPEED_OF_LIGHT;
 
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, PartialEq, Clone)]
