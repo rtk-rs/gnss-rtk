@@ -34,8 +34,6 @@ pub struct Candidate {
     pub state: Option<InterpolationResult>,
     // SV group delay
     pub(crate) tgd: Option<Duration>,
-    // SV clock state (compared to GNSS timescale)
-    pub(crate) clock_state: Vector3<f64>,
     // SV clock correction
     pub(crate) clock_corr: Duration,
     // Code observations
@@ -50,7 +48,6 @@ impl Candidate {
     /// Creates a new candidate, to inject in the solver pool.
     /// SV : satellite vehicle (identity).
     /// t: Epoch at which the signals were sampled.
-    /// clock_state: SV clock state.
     /// clock_corr: current clock correction (mandatory).
     /// "tgd": possible group delay
     /// "code": provide as many observations as you can
@@ -59,7 +56,6 @@ impl Candidate {
     pub fn new(
         sv: SV,
         t: Epoch,
-        clock_state: Vector3<f64>,
         clock_corr: Duration,
         tgd: Option<Duration>,
         code: Vec<Observation>,
@@ -70,7 +66,6 @@ impl Candidate {
             sv,
             t,
             t_tx: t,
-            clock_state,
             clock_corr,
             tgd,
             code,
