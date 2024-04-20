@@ -263,31 +263,47 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     debug!("{:?} ({}) : signal propagation {}", t_tx, cd.sv, dt_tx);
                     let interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
 
-                    if let Some(min_elev) = self.cfg.min_sv_elev {
-                        if interpolated.elevation < min_elev {
-                            debug!(
-                                "{:?} ({}) - {:?} rejected : below elevation mask",
-                                cd.t, cd.sv, interpolated
-                            );
-                            None
-                        } else {
-                            let mut cd = cd.clone();
-                            let interpolated =
-                                Self::rotate_position(modeling.earth_rotation, interpolated, dt_tx);
-                            let interpolated = self.velocities(t_tx, cd.sv, interpolated);
-                            cd.t_tx = t_tx;
-                            debug!("{:?} ({}) : {:?}", cd.t, cd.sv, interpolated);
-                            cd.state = Some(interpolated);
-                            Some(cd)
-                        }
+                    let min_elev = match self.cfg.min_sv_elev {
+                        Some(el) => el,
+                        None => 0.0_f64,
+                    };
+
+                    let min_azim = match self.cfg.min_sv_azim {
+                        Some(az) => az,
+                        None => 0.0_f64,
+                    };
+
+                    let max_azim = match self.cfg.max_sv_azim {
+                        Some(az) => az,
+                        None => 360.0_f64,
+                    };
+
+                    if interpolated.elevation < min_elev {
+                        debug!(
+                            "{:?} ({}) - {:?} rejected : below elevation mask",
+                            cd.t, cd.sv, interpolated
+                        );
+                        None
+                    } else if interpolated.azimuth < min_azim {
+                        debug!(
+                            "{:?} ({}) - {:?} rejected : below azimuth mask",
+                            cd.t, cd.sv, interpolated
+                        );
+                        None
+                    } else if interpolated.azimuth > max_azim {
+                        debug!(
+                            "{:?} ({}) - {:?} rejected : above azimuth mask",
+                            cd.t, cd.sv, interpolated
+                        );
+                        None
                     } else {
                         let mut cd = cd.clone();
                         let interpolated =
                             Self::rotate_position(modeling.earth_rotation, interpolated, dt_tx);
                         let interpolated = self.velocities(t_tx, cd.sv, interpolated);
                         cd.t_tx = t_tx;
-                        cd.state = Some(interpolated);
                         debug!("{:?} ({}) : {:?}", cd.t, cd.sv, interpolated);
+                        cd.state = Some(interpolated);
                         Some(cd)
                     }
                 },

@@ -60,6 +60,7 @@ impl Candidate {
     /// t: Epoch at which the signals were sampled.
     /// clock_state: SV clock state.
     /// clock_corr: current clock correction (mandatory).
+    /// "tgd": possible group delay
     /// "code": provide as many observations as you can
     /// "phase": provide as many observations as you can
     /// "doppler": provide as many observations as you can
@@ -68,6 +69,7 @@ impl Candidate {
         t: Epoch,
         clock_state: Vector3<f64>,
         clock_corr: Duration,
+        tgd: Option<Duration>,
         code: Vec<Observation>,
         phase: Vec<Observation>,
         doppler: Vec<Observation>,
@@ -82,10 +84,10 @@ impl Candidate {
                 t_tx: t,
                 clock_state,
                 clock_corr,
+                tgd,
                 code,
                 phase,
                 doppler,
-                tgd: None,
                 state: None,
             })
         }

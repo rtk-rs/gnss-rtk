@@ -299,9 +299,20 @@ pub struct Config {
     /// A value closer to 1 is a stringent criteria: eclipse must be totally exited.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_sv_sunlight_rate: Option<f64>,
-    /// Minimal elevation angle. SV below that angle will not be considered.
+    /// Minimal SV elevation angle. SV below that angle will not be considered.
+    /// Use this as a simple quality criteria.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_sv_elev: Option<f64>,
+    /// Minimal SV angle to North magnetic for an SV to be considered.
+    /// SV below that angle will not be considered.
+    /// Use this is in special navigation scenarios.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub min_sv_azim: Option<f64>,
+    /// Maximal SV angle to North magnetic for an SV to be considered.
+    /// SV above that angle will not be considered.
+    /// Use this is in special navigation scenarios.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub max_sv_azim: Option<f64>,
     /// Minimal SNR for an SV to be considered.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_snr: Option<f64>,
@@ -322,6 +333,8 @@ impl Config {
                 code_smoothing: default_smoothing(),
                 min_snr: Some(30.0),
                 min_sv_elev: Some(15.0),
+                min_sv_azim: None,
+                max_sv_azim: None,
                 min_sv_sunlight_rate: None,
                 modeling: Modeling::default(),
                 int_delay: Default::default(),
@@ -342,6 +355,8 @@ impl Config {
                 code_smoothing: default_smoothing(),
                 min_snr: Some(30.0),
                 min_sv_elev: Some(15.0),
+                min_sv_azim: None,
+                max_sv_azim: None,
                 min_sv_sunlight_rate: None,
                 modeling: Modeling::default(),
                 int_delay: Default::default(),
