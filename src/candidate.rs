@@ -65,23 +65,18 @@ impl Candidate {
         code: Vec<Observation>,
         phase: Vec<Observation>,
         doppler: Vec<Observation>,
-    ) -> Result<Self, Error> {
-        if code.is_empty() {
-            // TODO check this outside, and base on current strategy
-            Err(Error::NeedsAtLeastOnePseudoRange)
-        } else {
-            Ok(Self {
-                sv,
-                t,
-                t_tx: t,
-                clock_state,
-                clock_corr,
-                tgd,
-                code,
-                phase,
-                doppler,
-                state: None,
-            })
+    ) -> Self {
+        Self {
+            sv,
+            t,
+            t_tx: t,
+            clock_state,
+            clock_corr,
+            tgd,
+            code,
+            phase,
+            doppler,
+            state: None,
         }
     }
     /*
@@ -137,13 +132,13 @@ impl Candidate {
     /*
      * Returns true if we're ppp compatible
      */
-    pub(crate) fn ppp_compatible(&self) -> bool {
-        self.dual_pseudorange() // && self.dual_phase() //TODO
+    pub(crate) fn code_ppp_compatible(&self) -> bool {
+        self.dual_pseudorange()
     }
     pub(crate) fn dual_pseudorange(&self) -> bool {
         self.code
             .iter()
-            .map(|c| (c.frequency / 1000.0) as u16)
+            .map(|c| (c.frequency / 1.0E6) as u16)
             .unique()
             .count()
             > 1
@@ -151,7 +146,7 @@ impl Candidate {
     pub(crate) fn dual_phase(&self) -> bool {
         self.phase
             .iter()
-            .map(|c| (c.frequency / 1000.0) as u16)
+            .map(|c| (c.frequency / 1.0E6) as u16)
             .unique()
             .count()
             > 1
@@ -308,11 +303,11 @@ mod test {
             Epoch::default(),
             Vector3::<f64>::default(),
             Duration::default(),
+            None,
             codes,
             vec![],
             vec![],
-        )
-        .unwrap();
+        );
         assert_eq!(
             cd.prefered_pseudorange(),
             Some(Observation {
@@ -360,11 +355,11 @@ mod test {
             Epoch::default(),
             Vector3::<f64>::default(),
             Duration::default(),
+            None,
             codes,
             vec![],
             vec![],
-        )
-        .unwrap();
+        );
         assert_eq!(cd.best_snr(), Some(11.0));
 
         let codes = vec![
@@ -389,11 +384,57 @@ mod test {
             Epoch::default(),
             Vector3::<f64>::default(),
             Duration::default(),
+            None,
             codes,
             vec![],
             vec![],
-        )
-        .unwrap();
+        );
         assert_eq!(cd.best_snr(), Some(1.2));
+    }
+    #[test]
+    fn ppp_compatibility() {
+        let l1_freq = 1575.42_f64 * 1.0E6_f64;
+        let l2_freq = 1176.45_f64 * 1.0E6_f64;
+        let l5_freq = 1176.45_f64 * 1.0E6_f64;
+
+        for (pr_observations, phase_observations, code_ppp_compatible) in [
+            (
+                vec![Observation {
+                    value: 1.0,
+                    snr: Some(1.0),
+                    frequency: l1_freq,
+                }],
+                vec![],
+                false,
+            ),
+            (
+                vec![
+                    Observation {
+                        value: 1.0,
+                        snr: Some(1.0),
+                        frequency: l1_freq,
+                    },
+                    Observation {
+                        value: 2.0,
+                        snr: Some(2.0),
+                        frequency: l2_freq,
+                    },
+                ],
+                vec![],
+                true,
+            ),
+        ] {
+            let cd = Candidate::new(
+                SV::default(),
+                Epoch::default(),
+                Vector3::<f64>::default(),
+                Duration::default(),
+                None,
+                pr_observations,
+                phase_observations,
+                vec![],
+            );
+            assert_eq!(cd.code_ppp_compatible(), code_ppp_compatible);
+        }
     }
 }

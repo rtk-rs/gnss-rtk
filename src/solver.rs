@@ -208,6 +208,34 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
+        /* apply signal quality and condition filters */
+        let pool: Vec<Candidate> = pool
+            .into_iter()
+            .filter_map(|cd| match method {
+                Method::SPP => {
+                    let pr = cd.prefered_pseudorange()?;
+                    if let Some(min_snr) = self.cfg.min_snr {
+                        let snr = pr.snr?;
+                        if snr < min_snr {
+                            None
+                        } else {
+                            Some(cd)
+                        }
+                    } else {
+                        Some(cd)
+                    }
+                },
+                Method::CodePPP => {
+                    if cd.code_ppp_compatible() {
+                        Some(cd)
+                    } else {
+                        debug!("{:?} ({}) missing either PR or PH observation", cd.t, cd.sv);
+                        None
+                    }
+                },
+            })
+            .collect();
+
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
@@ -292,58 +320,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 .insert(cd.sv, (cd.t_tx, cd.state.unwrap().position));
         }
 
-        /* remove observed signals above snr mask (if any) */
-        if let Some(min_snr) = self.cfg.min_snr {
-            let mut nb_removed: usize = 0;
-            for idx in 0..pool.len() {
-                let (init_code, init_phase) = (
-                    pool[idx - nb_removed].code.len(),
-                    pool[idx - nb_removed].phase.len(),
-                );
-                pool[idx - nb_removed].min_snr_mask(min_snr);
-                let delta_code = init_code - pool[idx - nb_removed].code.len();
-                let delta_phase = init_phase - pool[idx - nb_removed].phase.len();
-                if delta_code > 0 || delta_phase > 0 {
-                    debug!(
-                        "{:?} ({}) : {} code | {} phase below snr mask",
-                        pool[idx - nb_removed].t,
-                        pool[idx - nb_removed].sv,
-                        delta_code,
-                        delta_phase
-                    );
-                }
-                /* make sure we're still compliant */
-                match method {
-                    Method::SPP => {
-                        if pool[idx - nb_removed].code.is_empty() {
-                            debug!(
-                                "{:?} ({}) dropped on bad snr",
-                                pool[idx - nb_removed].t,
-                                pool[idx - nb_removed].sv
-                            );
-                            let _ = pool.swap_remove(idx - nb_removed);
-                            nb_removed += 1;
-                        }
-                    },
-                    Method::CodePPP => {
-                        let mut drop = false;
-                        if !pool[idx - nb_removed].dual_pseudorange() {
-                            error!(
-                                "{} ({}) PPP missing one code observation",
-                                pool[idx - nb_removed].t,
-                                pool[idx - nb_removed].sv
-                            );
-                            drop = true;
-                        }
-                        if drop {
-                            let _ = pool.swap_remove(idx - nb_removed);
-                            nb_removed += 1;
-                        }
-                    },
-                }
-            }
-        }
-
         /* apply eclipse filter (if need be) */
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             let mut nb_removed: usize = 0;
@@ -404,23 +380,23 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 error!("solution invalidated - {}", e);
                 return Err(Error::InvalidatedSolution);
             },
-        }
+        };
 
+        let x = output.state.estimate();
         let mut solution = PVTSolution {
             q: output.q.clone(),
-            dt: output.state.x[3] / SPEED_OF_LIGHT,
-            sv: input.sv.clone(),
-            vel: Vector3::<f64>::default(),
-            pos: Vector3::new(output.state.x[0], output.state.x[1], output.state.x[2]),
             gdop: output.gdop,
             tdop: output.tdop,
             pdop: output.pdop,
+            vel: Vector3::<f64>::default(),
+            pos: Vector3::new(x[0], x[1], x[2]),
+            sv: input.sv.clone(),
+            dt: x[3] / SPEED_OF_LIGHT,
         };
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
             solution.vel = (solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
         }
-
         self.prev_pvt = Some((t, solution.clone()));
 
         /*

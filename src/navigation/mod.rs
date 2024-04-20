@@ -16,29 +16,78 @@ use crate::prelude::{Method, SV};
 use crate::Error;
 use nyx::cosmic::SPEED_OF_LIGHT;
 
-use nalgebra::{DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4};
+use nalgebra::{DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4, Vector3, Vector4};
 
 /// Navigation Filter.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub enum Filter {
+    /// None: solver filter completely bypassed. Lighter calculations, no iterative behavior.
+    None,
     #[default]
     /// LSQ Filter. Heavy computation, converges slower than Kalman filter.
     LSQ,
-    // /// Kalman Filter. Heavy+ computations, converges faster than LSQ.
-    // KF,
+    /// Kalman Filter. Heavy+ computations, converges faster than LSQ.
+    Kalman,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct FilterState {
+pub struct LSQState {
     pub p: Matrix4<f64>,
     pub x: Matrix4x1<f64>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct KFState {
+    pub q: Matrix4<f64>,
+    pub p: Matrix4<f64>,
+    pub x: Matrix4x1<f64>,
+    pub phi: Matrix4<f64>,
+}
+
+#[derive(Debug, Clone)]
+pub enum FilterState {
+    LSQ(LSQState),
+    KF(KFState),
+}
+
+impl Default for FilterState {
+    fn default() -> Self {
+        Self::LSQ(Default::default())
+    }
+}
+
+impl FilterState {
+    pub fn lsq(state: LSQState) -> Self {
+        Self::LSQ(state)
+    }
+    pub fn as_lsq(&self) -> Option<&LSQState> {
+        match self {
+            Self::LSQ(state) => Some(state),
+            _ => None,
+        }
+    }
+    pub fn kf(state: KFState) -> Self {
+        Self::KF(state)
+    }
+    pub fn as_kf(&self) -> Option<&KFState> {
+        match self {
+            Self::KF(state) => Some(state),
+            _ => None,
+        }
+    }
+    pub fn estimate(&self) -> Matrix4x1<f64> {
+        match self {
+            Self::LSQ(state) => state.x,
+            Self::KF(state) => state.x,
+        }
+    }
+}
+
 impl Filter {
-    fn resolve(&self, input: &Input, p_state: &Option<FilterState>) -> Result<Output, Error> {
+    fn lsq_resolve(input: &Input, p_state: Option<FilterState>) -> Result<Output, Error> {
         match p_state {
-            Some(p_state) => {
+            Some(FilterState::LSQ(p_state)) => {
                 let p_1 = p_state.p.try_inverse().ok_or(Error::MatrixInversionError)?;
 
                 let g_prime = input.g.clone().transpose();
@@ -57,10 +106,10 @@ impl Filter {
                     pdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)]).sqrt(),
                     tdop: q[(3, 3)].sqrt(),
                     q,
-                    state: FilterState { p, x },
+                    state: FilterState::lsq(LSQState { p, x }),
                 })
             },
-            None => {
+            _ => {
                 let g_prime = input.g.clone().transpose();
                 let q = (g_prime.clone() * input.g.clone())
                     .try_inverse()
@@ -71,15 +120,85 @@ impl Filter {
                     .ok_or(Error::MatrixInversionError)?;
 
                 let x = p * (g_prime.clone() * input.w.clone() * input.y.clone());
+                if x[3].is_nan() {
+                    return Err(Error::TimeIsNan);
+                }
 
                 Ok(Output {
                     gdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)] + q[(3, 3)]).sqrt(),
                     pdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)]).sqrt(),
                     tdop: q[(3, 3)].sqrt(),
                     q,
-                    state: FilterState { p, x },
+                    state: FilterState::lsq(LSQState { p, x }),
                 })
             },
+        }
+    }
+    fn kf_resolve(input: &Input, p_state: Option<FilterState>) -> Result<Output, Error> {
+        match p_state {
+            Some(FilterState::KF(p_state)) => {
+                let p_phi = p_state.p.clone() * p_state.phi.clone().transpose();
+                let pb_xn = p_state.phi.clone() * p_phi + p_state.q.clone();
+                let xb_n = p_state.phi.clone() * p_state.x;
+
+                let pb_xn_inv = pb_xn.try_inverse().ok_or(Error::MatrixInversionError)?;
+
+                let q = input.g.clone().transpose() * input.w.clone() * input.g.clone();
+                let p = q + pb_xn_inv.clone();
+                let p = p.try_inverse().ok_or(Error::MatrixInversionError)?;
+
+                let y_n = input.g.clone().transpose() * input.w.clone() * input.y.clone();
+                let p_yn = pb_xn_inv.clone() * xb_n.clone();
+                let x = p * (y_n + p_yn);
+
+                Ok(Output {
+                    gdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)] + q[(3, 3)]).sqrt(),
+                    pdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)]).sqrt(),
+                    tdop: q[(3, 3)].sqrt(),
+                    q,
+                    state: FilterState::kf(KFState {
+                        p,
+                        x,
+                        q: Matrix4::from_diagonal(&Vector4::new(1.0, 1.0, 1.0, 0.0)),
+                        phi: Matrix4::from_diagonal(&Vector4::new(1.0, 1.0, 1.0, 0.0)),
+                    }),
+                })
+            },
+            _ => {
+                let g_prime = input.g.clone().transpose();
+                let q = (g_prime.clone() * input.g.clone())
+                    .try_inverse()
+                    .ok_or(Error::MatrixInversionError)?;
+
+                let p = (g_prime.clone() * input.w.clone() * input.g.clone())
+                    .try_inverse()
+                    .ok_or(Error::MatrixInversionError)?;
+
+                let x = p * (g_prime.clone() * input.w.clone() * input.y.clone());
+                if x[3].is_nan() {
+                    return Err(Error::TimeIsNan);
+                }
+
+                Ok(Output {
+                    gdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)] + q[(3, 3)]).sqrt(),
+                    pdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)]).sqrt(),
+                    tdop: q[(3, 3)].sqrt(),
+                    q,
+                    state: FilterState::kf(KFState {
+                        p,
+                        x,
+                        q: Matrix4::from_diagonal(&Vector4::new(1.0, 1.0, 1.0, 0.0)),
+                        phi: Matrix4::from_diagonal(&Vector4::new(1.0, 1.0, 1.0, 0.0)),
+                    }),
+                })
+            },
+        }
+    }
+    fn resolve(&self, input: &Input, p_state: Option<FilterState>) -> Result<Output, Error> {
+        match self {
+            Filter::None => Self::lsq_resolve(input, None),
+            Filter::LSQ => Self::lsq_resolve(input, p_state),
+            Filter::Kalman => Self::kf_resolve(input, p_state),
         }
     }
 }
@@ -100,7 +219,7 @@ pub struct Input {
     pub sv: HashMap<SV, SVInput>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Output {
     pub tdop: f64,
     pub gdop: f64,
@@ -188,7 +307,6 @@ impl Input {
              */
             let rtm = BiasRuntimeParams {
                 t: cd.t,
-                // t: cd.t_tx, //TODO
                 elevation,
                 azimuth,
                 frequency,
@@ -242,7 +360,7 @@ impl Input {
 #[derive(Debug, Clone)]
 pub struct Navigation {
     filter: Filter,
-    pending: FilterState,
+    pending: Output,
     filter_state: Option<FilterState>,
 }
 
@@ -255,14 +373,11 @@ impl Navigation {
         }
     }
     pub fn resolve(&mut self, input: &Input) -> Result<Output, Error> {
-        let out = self.filter.resolve(input, &self.filter_state)?;
-        if out.state.x[3].is_nan() {
-            return Err(Error::TimeIsNan);
-        }
-        self.pending = out.state.clone();
+        let out = self.filter.resolve(input, self.filter_state.clone())?;
+        self.pending = out.clone();
         Ok(out)
     }
     pub fn validate(&mut self) {
-        self.filter_state = Some(self.pending.clone());
+        self.filter_state = Some(self.pending.state.clone());
     }
 }

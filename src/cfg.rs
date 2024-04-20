@@ -13,8 +13,6 @@ use crate::navigation::Filter;
 pub enum Error {
     #[error("unknown tropo model \"{0}\"")]
     UnknownTropoModel(String),
-    // #[error("unknown strategy \"{0}\"")]
-    // UnknownMethod(String),
 }
 
 /// Solving method
