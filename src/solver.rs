@@ -383,6 +383,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         };
 
         let x = output.state.estimate();
+
         let mut solution = PVTSolution {
             q: output.q.clone(),
             gdop: output.gdop,
@@ -394,9 +395,18 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             dt: x[3] / SPEED_OF_LIGHT,
         };
 
+        let mut to_discard = false;
+
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
             solution.vel = (solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
         }
+
+        if self.prev_pvt.is_none() {
+            // always discard 1st solution
+            self.prev_pvt = Some((t, solution.clone()));
+            return Err(Error::InvalidatedSolution);
+        }
+
         self.prev_pvt = Some((t, solution.clone()));
 
         /*
