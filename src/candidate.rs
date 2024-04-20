@@ -327,7 +327,6 @@ mod test {
             let cd = Candidate::new(
                 SV::default(),
                 Epoch::default(),
-                Vector3::<f64>::default(),
                 Duration::default(),
                 None,
                 observations,
@@ -373,7 +372,6 @@ mod test {
         let cd = Candidate::new(
             SV::default(),
             Epoch::default(),
-            Vector3::<f64>::default(),
             Duration::default(),
             None,
             codes,
@@ -402,7 +400,6 @@ mod test {
         let cd = Candidate::new(
             SV::default(),
             Epoch::default(),
-            Vector3::<f64>::default(),
             Duration::default(),
             None,
             codes,
@@ -447,7 +444,6 @@ mod test {
             let cd = Candidate::new(
                 SV::default(),
                 Epoch::default(),
-                Vector3::<f64>::default(),
                 Duration::default(),
                 None,
                 pr_observations,
