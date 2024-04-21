@@ -16,7 +16,7 @@ use crate::prelude::{Method, SV};
 use crate::Error;
 use nyx::cosmic::SPEED_OF_LIGHT;
 
-use nalgebra::{DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4, Vector3, Vector4};
+use nalgebra::{DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4, Vector4};
 
 /// Navigation Filter.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -240,11 +240,6 @@ impl Input {
         let mut y = DVector::<f64>::zeros(cd.len());
         let mut g = MatrixXx4::<f64>::zeros(cd.len());
         let mut sv = HashMap::<SV, SVInput>::with_capacity(cd.len());
-
-        if cd.len() < 4 {
-            return Err(Error::NotEnoughFittingCandidates);
-        }
-
         /*
          * Compensate for ARP (if possible)
          */
@@ -301,7 +296,6 @@ impl Input {
                     models += delay.delay * SPEED_OF_LIGHT;
                 }
             }
-
             /*
              * IONO + TROPO biases
              */
@@ -312,7 +306,6 @@ impl Input {
                 frequency,
                 apriori_geo,
             };
-
             /*
              * TROPO
              */
@@ -348,10 +341,10 @@ impl Input {
             sv.insert(cd.sv, sv_input);
         }
 
-        let w = cfg.solver.weight_matrix(
-            4, //TODO
-            sv.values().map(|sv| sv.elevation).collect(),
-        );
+        let w = cfg
+            .solver
+            .weight_matrix(sv.values().map(|sv| sv.elevation).collect());
+
         debug!("y: {} g: {}, w: {}", y, g, w);
         Ok(Self { y, g, w, sv })
     }

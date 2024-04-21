@@ -6,7 +6,7 @@ use itertools::Itertools;
 use log::debug;
 use std::cmp::Ordering;
 
-use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Vector3};
+use crate::prelude::{Config, Duration, Epoch, InterpolationResult};
 use crate::Error;
 use nyx::cosmic::SPEED_OF_LIGHT;
 
