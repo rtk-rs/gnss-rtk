@@ -137,18 +137,18 @@ impl Filter {
     fn kf_resolve(input: &Input, p_state: Option<FilterState>) -> Result<Output, Error> {
         match p_state {
             Some(FilterState::KF(p_state)) => {
-                let p_phi = p_state.p.clone() * p_state.phi.clone().transpose();
-                let pb_xn = p_state.phi.clone() * p_phi + p_state.q.clone();
-                let xb_n = p_state.phi.clone() * p_state.x;
+                let p_phi = p_state.p * p_state.phi.clone().transpose();
+                let pb_xn = p_state.phi * p_phi + p_state.q;
+                let xb_n = p_state.phi * p_state.x;
 
                 let pb_xn_inv = pb_xn.try_inverse().ok_or(Error::MatrixInversionError)?;
 
                 let q = input.g.clone().transpose() * input.w.clone() * input.g.clone();
-                let p = q + pb_xn_inv.clone();
+                let p = q + pb_xn_inv;
                 let p = p.try_inverse().ok_or(Error::MatrixInversionError)?;
 
                 let y_n = input.g.clone().transpose() * input.w.clone() * input.y.clone();
-                let p_yn = pb_xn_inv.clone() * xb_n.clone();
+                let p_yn = pb_xn_inv * xb_n;
                 let x = p * (y_n + p_yn);
 
                 Ok(Output {
@@ -324,16 +324,14 @@ impl Input {
             /*
              * IONO
              */
-            if cfg.method == Method::SPP {
-                if cfg.modeling.iono_delay {
-                    if let Some(bias) = iono_bias.bias(&rtm) {
-                        debug!(
-                            "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
-                            cd.t, rtm.frequency, bias
-                        );
-                        models += bias;
-                        sv_input.iono_bias = Bias::modeled(bias);
-                    }
+            if cfg.method == Method::SPP && cfg.modeling.iono_delay {
+                if let Some(bias) = iono_bias.bias(&rtm) {
+                    debug!(
+                        "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
+                        cd.t, rtm.frequency, bias
+                    );
+                    models += bias;
+                    sv_input.iono_bias = Bias::modeled(bias);
                 }
             }
 

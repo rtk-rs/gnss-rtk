@@ -95,8 +95,8 @@ impl InterpolationResult {
         Self {
             azimuth: elev_azim.1,
             elevation: elev_azim.0,
-            position: self.position.clone(),
-            velocity: self.velocity.clone(),
+            position: self.position,
+            velocity: self.velocity,
         }
     }
     pub(crate) fn velocity(&self) -> Option<Vector3<f64>> {
@@ -212,7 +212,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let solver_opts = &self.cfg.solver;
-        let filter = solver_opts.filter;
+        let _filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
         /* apply signal quality and condition filters */
@@ -236,7 +236,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     if cd.code_ppp_compatible() {
                         Some(cd)
                     } else {
-                        debug!("{:?} ({}) missing either PR or PH observation", cd.t, cd.sv);
+                        debug!("{:?} ({}) missing secondary frequency", cd.t, cd.sv);
                         None
                     }
                 },
@@ -251,18 +251,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     debug!("{:?} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
                     let interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
 
-                    let min_elev = match self.cfg.min_sv_elev {
-                        Some(el) => el,
-                        None => 0.0_f64,
-                    };
-                    let min_azim = match self.cfg.min_sv_azim {
-                        Some(az) => az,
-                        None => 0.0_f64,
-                    };
-                    let max_azim = match self.cfg.max_sv_azim {
-                        Some(az) => az,
-                        None => 360.0_f64,
-                    };
+                    let min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
+                    let min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
+                    let max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
 
                     if interpolated.elevation < min_elev {
                         debug!(
@@ -416,7 +407,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let x = output.state.estimate();
 
         let mut solution = PVTSolution {
-            q: output.q.clone(),
+            q: output.q,
             gdop: output.gdop,
             tdop: output.tdop,
             pdop: output.pdop,
@@ -426,7 +417,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             dt: x[3] / SPEED_OF_LIGHT,
         };
 
-        let mut to_discard = false;
+        let _to_discard = false;
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
             solution.vel = (solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
@@ -466,7 +457,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         interpolated: InterpolationResult,
         dt_tx: Duration,
     ) -> InterpolationResult {
-        let mut reworked = interpolated.clone();
+        let mut reworked = interpolated;
         let rot = if rotate {
             const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
             let dt_tx = dt_tx.to_seconds();
@@ -492,7 +483,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         sv: SV,
         interpolated: InterpolationResult,
     ) -> InterpolationResult {
-        let mut reworked = interpolated.clone();
+        let mut reworked = interpolated;
         if let Some((p_ttx, p_pos)) = self.prev_sv_state.get(&sv) {
             let dt = (t_tx - *p_ttx).to_seconds();
             reworked.velocity = Some((interpolated.position - p_pos) / dt);
