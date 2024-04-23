@@ -16,7 +16,7 @@ use crate::prelude::{Method, SV};
 use crate::Error;
 use nyx::cosmic::SPEED_OF_LIGHT;
 
-use nalgebra::{DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4, Vector3, Vector4};
+use nalgebra::{DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4, Vector4};
 
 /// Navigation Filter.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -137,18 +137,18 @@ impl Filter {
     fn kf_resolve(input: &Input, p_state: Option<FilterState>) -> Result<Output, Error> {
         match p_state {
             Some(FilterState::KF(p_state)) => {
-                let p_phi = p_state.p.clone() * p_state.phi.clone().transpose();
-                let pb_xn = p_state.phi.clone() * p_phi + p_state.q.clone();
-                let xb_n = p_state.phi.clone() * p_state.x;
+                let p_phi = p_state.p * p_state.phi.clone().transpose();
+                let pb_xn = p_state.phi * p_phi + p_state.q;
+                let xb_n = p_state.phi * p_state.x;
 
                 let pb_xn_inv = pb_xn.try_inverse().ok_or(Error::MatrixInversionError)?;
 
                 let q = input.g.clone().transpose() * input.w.clone() * input.g.clone();
-                let p = q + pb_xn_inv.clone();
+                let p = q + pb_xn_inv;
                 let p = p.try_inverse().ok_or(Error::MatrixInversionError)?;
 
                 let y_n = input.g.clone().transpose() * input.w.clone() * input.y.clone();
-                let p_yn = pb_xn_inv.clone() * xb_n.clone();
+                let p_yn = pb_xn_inv * xb_n;
                 let x = p * (y_n + p_yn);
 
                 Ok(Output {
@@ -240,11 +240,6 @@ impl Input {
         let mut y = DVector::<f64>::zeros(cd.len());
         let mut g = MatrixXx4::<f64>::zeros(cd.len());
         let mut sv = HashMap::<SV, SVInput>::with_capacity(cd.len());
-
-        if cd.len() < 4 {
-            return Err(Error::NotEnoughFittingCandidates);
-        }
-
         /*
          * Compensate for ARP (if possible)
          */
@@ -301,7 +296,6 @@ impl Input {
                     models += delay.delay * SPEED_OF_LIGHT;
                 }
             }
-
             /*
              * IONO + TROPO biases
              */
@@ -312,7 +306,6 @@ impl Input {
                 frequency,
                 apriori_geo,
             };
-
             /*
              * TROPO
              */
@@ -331,16 +324,14 @@ impl Input {
             /*
              * IONO
              */
-            if cfg.method == Method::SPP {
-                if cfg.modeling.iono_delay {
-                    if let Some(bias) = iono_bias.bias(&rtm) {
-                        debug!(
-                            "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
-                            cd.t, rtm.frequency, bias
-                        );
-                        models += bias;
-                        sv_input.iono_bias = Bias::modeled(bias);
-                    }
+            if cfg.method == Method::SPP && cfg.modeling.iono_delay {
+                if let Some(bias) = iono_bias.bias(&rtm) {
+                    debug!(
+                        "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
+                        cd.t, rtm.frequency, bias
+                    );
+                    models += bias;
+                    sv_input.iono_bias = Bias::modeled(bias);
                 }
             }
 
@@ -348,10 +339,10 @@ impl Input {
             sv.insert(cd.sv, sv_input);
         }
 
-        let w = cfg.solver.weight_matrix(
-            4, //TODO
-            sv.values().map(|sv| sv.elevation).collect(),
-        );
+        let w = cfg
+            .solver
+            .weight_matrix(sv.values().map(|sv| sv.elevation).collect());
+
         debug!("y: {} g: {}, w: {}", y, g, w);
         Ok(Self { y, g, w, sv })
     }

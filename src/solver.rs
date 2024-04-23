@@ -5,7 +5,7 @@ use gnss::prelude::SV;
 use hifitime::Unit;
 use log::{debug, error, warn};
 use map_3d::deg2rad;
-use nalgebra::{Matrix3, Matrix4, Matrix4x1, Vector3};
+use nalgebra::{Matrix3, Vector3};
 use thiserror::Error;
 
 use nyx::{
@@ -34,7 +34,9 @@ pub enum Error {
     NotEnoughInputCandidates(PVTSolutionType),
     #[error("not enough candidates fit criteria")]
     NotEnoughFittingCandidates,
-    #[error("failed to invert navigation matrix")]
+    #[error("failed to form matrix")]
+    MatrixError,
+    #[error("failed to invert matrix")]
     MatrixInversionError,
     #[error("reolved NaN: invalid input matrix")]
     TimeIsNan,
@@ -80,17 +82,22 @@ pub struct InterpolationResult {
 impl InterpolationResult {
     /// Builds InterpolationResults from an Antenna Phase Center (APC) position
     /// as ECEF [m] coordinates
-    pub fn from_apc_position(pos: (f64, f64, f64)) -> Self {
-        let mut s = Self::default();
-        s.position = Vector3::<f64>::new(pos.0, pos.1, pos.2);
-        s
+    pub fn from_apc_position(position: (f64, f64, f64)) -> Self {
+        Self {
+            velocity: None,
+            azimuth: 0.0_f64,
+            elevation: 0.0_f64,
+            position: Vector3::<f64>::new(position.0, position.1, position.2),
+        }
     }
     /// Builds Self with given SV (elevation, azimuth) attitude
     pub fn with_elevation_azimuth(&self, elev_azim: (f64, f64)) -> Self {
-        let mut s = *self;
-        s.elevation = elev_azim.0;
-        s.azimuth = elev_azim.1;
-        s
+        Self {
+            azimuth: elev_azim.1,
+            elevation: elev_azim.0,
+            position: self.position,
+            velocity: self.velocity,
+        }
     }
     pub(crate) fn velocity(&self) -> Option<Vector3<f64>> {
         self.velocity
@@ -205,7 +212,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let solver_opts = &self.cfg.solver;
-        let filter = solver_opts.filter;
+        let _filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
         /* apply signal quality and condition filters */
@@ -229,7 +236,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     if cd.code_ppp_compatible() {
                         Some(cd)
                     } else {
-                        debug!("{:?} ({}) missing either PR or PH observation", cd.t, cd.sv);
+                        debug!("{:?} ({}) missing secondary frequency", cd.t, cd.sv);
                         None
                     }
                 },
@@ -241,21 +248,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
-                    debug!("{:?} ({}) : signal propagation {}", t_tx, cd.sv, dt_tx);
+                    debug!("{:?} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
                     let interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
 
-                    let min_elev = match self.cfg.min_sv_elev {
-                        Some(el) => el,
-                        None => 0.0_f64,
-                    };
-                    let min_azim = match self.cfg.min_sv_azim {
-                        Some(az) => az,
-                        None => 0.0_f64,
-                    };
-                    let max_azim = match self.cfg.max_sv_azim {
-                        Some(az) => az,
-                        None => 360.0_f64,
-                    };
+                    let min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
+                    let min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
+                    let max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
 
                     if interpolated.elevation < min_elev {
                         debug!(
@@ -292,6 +290,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 },
             })
             .collect();
+
         /*
          * Update internal state
          */
@@ -351,27 +350,50 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             state_b.elevation.partial_cmp(&state_a.elevation).unwrap()
         });
 
-        let mut index = 0;
-        pool.retain(|_| {
-            index += 1;
-            index < min_required + 1
-        });
+        match pvt_type {
+            PVTSolutionType::TimeOnly => {
+                let mut index = 0;
+                pool.retain(|_| {
+                    index += 1;
+                    index == 1
+                });
+            },
+            _ => {
+                let mut index = 0;
+                pool.retain(|_| {
+                    index += 1;
+                    index < min_required + 1
+                });
+            },
+        }
 
         if pool.len() != min_required {
             return Err(Error::NotEnoughFittingCandidates);
         }
 
-        let input = NavigationInput::new(
+        let input = match NavigationInput::new(
             (x0, y0, z0),
             (lat_ddeg, lon_ddeg, altitude_above_sea_m),
             &self.cfg,
             &pool,
             iono_bias,
             tropo_bias,
-        )
-        .map_err(|_| Error::NotEnoughFittingCandidates)?;
+        ) {
+            Ok(input) => input,
+            Err(e) => {
+                error!("Failed to form navigation matrix: {}", e);
+                return Err(Error::MatrixError);
+            },
+        };
 
-        let output = self.nav.resolve(&input)?;
+        let output = match self.nav.resolve(&input) {
+            Ok(output) => output,
+            Err(e) => {
+                error!("Failed to resolve: {}", e);
+                return Err(Error::MatrixError);
+            },
+        };
+
         let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &input, &output);
 
         match validator.validate(solver_opts) {
@@ -385,7 +407,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let x = output.state.estimate();
 
         let mut solution = PVTSolution {
-            q: output.q.clone(),
+            q: output.q,
             gdop: output.gdop,
             tdop: output.tdop,
             pdop: output.pdop,
@@ -395,7 +417,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             dt: x[3] / SPEED_OF_LIGHT,
         };
 
-        let mut to_discard = false;
+        let _to_discard = false;
 
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
             solution.vel = (solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
@@ -409,23 +431,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         self.prev_pvt = Some((t, solution.clone()));
 
-        /*
-         * slightly rework the solution so it ""looks"" like
-         * what we expect based on the defined setup.
-         */
-        if let Some(alt) = self.cfg.fixed_altitude {
-            solution.pos.z = self.apriori.ecef.z - alt;
-            solution.vel.z = 0.0_f64;
-        }
-
-        match pvt_type {
-            PVTSolutionType::TimeOnly => {
-                solution.pos = Vector3::<f64>::default();
-                solution.vel = Vector3::<f64>::default();
-            },
-            _ => {},
-        }
-
+        Self::rework_solution(&mut solution, pvt_type, &self.apriori, &self.cfg);
         Ok((t, solution))
     }
     /*
@@ -451,7 +457,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         interpolated: InterpolationResult,
         dt_tx: Duration,
     ) -> InterpolationResult {
-        let mut reworked = interpolated.clone();
+        let mut reworked = interpolated;
         let rot = if rotate {
             const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
             let dt_tx = dt_tx.to_seconds();
@@ -477,11 +483,32 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         sv: SV,
         interpolated: InterpolationResult,
     ) -> InterpolationResult {
-        let mut reworked = interpolated.clone();
+        let mut reworked = interpolated;
         if let Some((p_ttx, p_pos)) = self.prev_sv_state.get(&sv) {
             let dt = (t_tx - *p_ttx).to_seconds();
             reworked.velocity = Some((interpolated.position - p_pos) / dt);
         }
         reworked
+    }
+    /*
+     * Reworks solution a little bit
+     */
+    fn rework_solution(
+        pvt: &mut PVTSolution,
+        pvt_type: PVTSolutionType,
+        apriori: &AprioriPosition,
+        cfg: &Config,
+    ) {
+        if let Some(alt) = cfg.fixed_altitude {
+            pvt.pos.z = apriori.ecef.z - alt;
+            pvt.vel.z = 0.0_f64;
+        }
+        match pvt_type {
+            PVTSolutionType::TimeOnly => {
+                pvt.pos = Default::default();
+                pvt.vel = Default::default();
+            },
+            _ => {},
+        }
     }
 }

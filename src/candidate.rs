@@ -6,7 +6,7 @@ use itertools::Itertools;
 use log::debug;
 use std::cmp::Ordering;
 
-use crate::prelude::{Config, Duration, Epoch, InterpolationResult, Vector3};
+use crate::prelude::{Config, Duration, Epoch, InterpolationResult};
 use crate::Error;
 use nyx::cosmic::SPEED_OF_LIGHT;
 
@@ -267,7 +267,7 @@ impl Candidate {
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::{Candidate, Duration, Epoch, Observation, Vector3, SV};
+    use crate::prelude::{Candidate, Duration, Epoch, Observation, SV};
     #[test]
     fn prefered_pseudorange() {
         let l1_freq = 1575.42_f64 * 1.0E6_f64;
@@ -412,7 +412,7 @@ mod test {
     fn ppp_compatibility() {
         let l1_freq = 1575.42_f64 * 1.0E6_f64;
         let l2_freq = 1176.45_f64 * 1.0E6_f64;
-        let l5_freq = 1176.45_f64 * 1.0E6_f64;
+        let _l5_freq = 1176.45_f64 * 1.0E6_f64;
 
         for (pr_observations, phase_observations, code_ppp_compatible) in [
             (
