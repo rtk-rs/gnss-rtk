@@ -5,7 +5,7 @@ use gnss::prelude::SV;
 use hifitime::Unit;
 use log::{debug, error, warn};
 use map_3d::deg2rad;
-use nalgebra::{Matrix3, Matrix4, OMatrix, OVector, Point, Vector3, U3, U4};
+use nalgebra::{Matrix3, OMatrix, OVector, Vector3, U3};
 use thiserror::Error;
 
 use nyx::{

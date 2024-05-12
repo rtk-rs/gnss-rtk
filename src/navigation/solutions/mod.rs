@@ -1,16 +1,18 @@
 //! PVT Solutions
 use std::collections::HashMap;
 
-use crate::prelude::{Carrier, Duration, TimeScale, Vector3, SV};
+use crate::prelude::{Duration, TimeScale, Vector3, SV};
 
-// use nyx::cosmic::SPEED_OF_LIGHT;
 use super::SVInput;
-use nalgebra::base::Matrix3;
-use nalgebra::base::Matrix4;
+use nalgebra::base::{Matrix3, Matrix4};
 
 pub(crate) mod validator;
 
+#[cfg(feature = "serde")]
+use serde::Deserialize;
+
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub enum PVTSolutionType {
     /// Default, complete solution with Position,
     /// Velocity and Time components. Requires either

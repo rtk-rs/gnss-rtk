@@ -5,9 +5,6 @@ mod filter;
 pub(crate) use filter::State3D;
 pub use filter::{Filter, FilterState};
 
-#[cfg(feature = "serde")]
-use serde::Deserialize;
-
 use log::debug;
 use std::collections::HashMap;
 
@@ -15,12 +12,12 @@ use crate::{
     bias::{Bias, IonosphereBias, RuntimeParam as BiasRuntimeParams, TropoModel, TroposphereBias},
     candidate::Candidate,
     cfg::Config,
-    prelude::{Constellation, Error, Method, SV},
+    prelude::{Error, Method, SV},
 };
 
 use nalgebra::{
-    base::dimension::{U4, U8, U9},
-    DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4, OMatrix, OVector, Vector4,
+    base::dimension::{U4, U8},
+    OMatrix, OVector,
 };
 use nyx::cosmic::SPEED_OF_LIGHT;
 
@@ -188,11 +185,11 @@ impl Input {
             if cfg.modeling.tropo_delay {
                 if tropo_bias.needs_modeling() {
                     let bias = TroposphereBias::model(TropoModel::Niel, &rtm);
-                    debug!("{:?} : modeled tropo delay {:.3E}[m]", cd[i].t, bias);
+                    debug!("{:?} : modeled tropo delay {:.3E}[m]", cd[index].t, bias);
                     models += bias;
                     sv_input.tropo_bias = Bias::modeled(bias);
                 } else if let Some(bias) = tropo_bias.bias(&rtm) {
-                    debug!("{:?} : measured tropo delay {:.3E}[m]", cd[i].t, bias);
+                    debug!("{:?} : measured tropo delay {:.3E}[m]", cd[index].t, bias);
                     models += bias;
                     sv_input.tropo_bias = Bias::measured(bias);
                 }
@@ -205,7 +202,7 @@ impl Input {
                 if let Some(bias) = iono_bias.bias(&rtm) {
                     debug!(
                         "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
-                        cd[i].t, rtm.frequency, bias
+                        cd[index].t, rtm.frequency, bias
                     );
                     models += bias;
                     sv_input.iono_bias = Bias::modeled(bias);

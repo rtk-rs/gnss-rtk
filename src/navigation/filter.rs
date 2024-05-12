@@ -1,7 +1,4 @@
-use nalgebra::{
-    base::dimension::U8, DMatrix, DVector, Matrix4, Matrix4x1, MatrixXx4, OMatrix, OVector, Vector,
-    Vector3, Vector4, U1, U3,
-};
+use nalgebra::{base::dimension::U8, OMatrix, OVector, Vector3, U3};
 
 use nyx::cosmic::State as NyxState;
 use nyx::NyxError;

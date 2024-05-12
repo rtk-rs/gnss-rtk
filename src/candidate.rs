@@ -226,42 +226,48 @@ impl Candidate {
      * Forms combination
      */
     pub(crate) fn pseudorange_combination(&self) -> Option<Observation> {
-        let mut pr = (
-            Option::<&Observation>::None,
-            Option::<&Observation>::None,
-            Option::<&Observation>::None,
-        );
+        let mut l1_pr = Option::<(Observation, Carrier)>::None;
         for code in &self.pseudo_range {
-            let freq = (code.carrier.frequency() / 1.0E6) as u16;
-            if freq == 1575 {
-                pr.0 = Some(code);
-            } else if freq == 1227 {
-                pr.1 = Some(code);
-            } else if freq == 1176 {
-                pr.2 = Some(code);
+            match code.carrier {
+                Carrier::L1 => {
+                    l1_pr = Some((code.clone(), Carrier::L1));
+                    break;
+                },
+                Carrier::E1 => {
+                    l1_pr = Some((code.clone(), Carrier::E1));
+                    break;
+                },
+                _ => {},
             }
         }
 
-        let c_l1 = pr.0?;
-        let f_l1 = 1575.42_f64 * 1.0E6_f64;
-
-        let (c_lx, f_lx) = match pr.1 {
-            Some(pr) => (pr, 1227.6_f64 * 1.0E6_f64),
-            None => match pr.2 {
-                Some(pr) => (pr, 1176.45_f64 * 1.0E6_f64),
-                None => {
-                    return None;
-                },
-            },
+        let (c_l1, l1_signal) = l1_pr?;
+        let freq_l1 = l1_signal.frequency();
+        let to_match = match l1_signal {
+            Carrier::L1 => vec![Carrier::L2, Carrier::L5],
+            Carrier::E1 => vec![Carrier::E5, Carrier::E6],
+            _ => unreachable!(),
         };
 
-        let alpha = 1.0 / (f_l1.powi(2) - f_lx.powi(2));
-        let beta = f_l1.powi(2);
-        let gamma = f_lx.powi(2);
+        let mut lx_pr = Option::<(Observation, Carrier)>::None;
+
+        for code in &self.pseudo_range {
+            if to_match.contains(&code.carrier) {
+                lx_pr = Some((code.clone(), code.carrier));
+                break;
+            }
+        }
+
+        let (c_lx, lx_signal) = lx_pr?;
+        let freq_lx = lx_signal.frequency();
+
+        let alpha = 1.0 / (freq_l1.powi(2) - freq_lx.powi(2));
+        let beta = freq_l1.powi(2);
+        let gamma = freq_lx.powi(2);
         Some({
             Observation {
                 snr: None,
-                carrier: c_l1.carrier,
+                carrier: l1_signal,
                 value: alpha * (beta * c_l1.value - gamma * c_lx.value),
             }
         })

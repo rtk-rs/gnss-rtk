@@ -11,7 +11,7 @@ use crate::{
 
 #[derive(Clone, Debug, Error)]
 pub enum SolutionInvalidation {
-    #[error("gdop limit exceeded")]
+    #[error("gdop {0}: limit exceeded")]
     GDOPOutlier(f64),
     #[error("tdop limit exceeded {0}")]
     TDOPOutlier(f64),
