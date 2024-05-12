@@ -1,23 +1,93 @@
 //! Position solving candidate
 
-use gnss::prelude::SV;
 use hifitime::Unit;
 use itertools::Itertools;
+
 use log::debug;
 use std::cmp::Ordering;
 
-use crate::prelude::{Config, Duration, Epoch, InterpolationResult};
-use crate::Error;
+use crate::prelude::{Config, Duration, Epoch, Error, InterpolationResult, SV};
+
 use nyx::cosmic::SPEED_OF_LIGHT;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum Carrier {
+    // L1 (GPS/QZSS/SBAS)
+    #[default]
+    L1,
+    // L2 (GPS/QZSS)
+    L2,
+    // L5 (GPS/QZSS/SBAS)
+    L5,
+    // L6 (GPS/QZSS)
+    L6,
+    // E1 (Galileo)
+    E1,
+    // E5 (Galileo)
+    E5,
+    // E6 (Galileo)
+    E6,
+}
+
+impl std::fmt::Display for Carrier {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::L1 => write!(f, "L1"),
+            Self::L2 => write!(f, "L2"),
+            Self::L5 => write!(f, "L5"),
+            Self::L6 => write!(f, "L6"),
+            Self::E1 => write!(f, "E1"),
+            Self::E5 => write!(f, "E5"),
+            Self::E6 => write!(f, "E6"),
+        }
+    }
+}
+
+impl Carrier {
+    pub(crate) fn frequency(&self) -> f64 {
+        match self {
+            Self::L1 | Self::E1 => 1575.42E6_f64,
+            Self::L2 => 1227.60E6_f64,
+            Self::L5 => 1176.45E6_f64,
+            Self::E5 => 1191.795E6_f64,
+            Self::L6 | Self::E6 => 1278.750E6_f64,
+        }
+    }
+}
+
+/// Signal used in [PVTSolution] resolution
+#[derive(Debug, Clone)]
+pub enum Signal {
+    Single(Carrier),
+    Dual((Carrier, Carrier)),
+}
+
+impl Signal {
+    pub(crate) fn single(carrier: Carrier) -> Self {
+        Self::Single(carrier)
+    }
+    pub(crate) fn dual(lhs: Carrier, rhs: Carrier) -> Self {
+        Self::Dual((lhs, rhs))
+    }
+}
+
+impl std::fmt::Display for Signal {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::Single(carrier) => write!(f, "{}", carrier),
+            Self::Dual((lhs, rhs)) => write!(f, "{}/{}", rhs, lhs),
+        }
+    }
+}
 
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Observation {
-    /// carrier frequency [Hz]
-    pub frequency: f64,
-    /// actual observation
+    /// Carrier signal
+    pub carrier: Carrier,
+    /// Measured value
     pub value: f64,
-    /// optional (but recommended) SNR in [dB]
+    /// Optional (but recommended) SNR in [dB]
     pub snr: Option<f64>,
 }
 
@@ -30,36 +100,38 @@ pub struct Candidate {
     pub t: Epoch,
     /// Tx Epoch
     pub t_tx: Epoch,
-    /// state that needs to be resolved
+    /// State that needs to be resolved
     pub state: Option<InterpolationResult>,
     // SV group delay
     pub(crate) tgd: Option<Duration>,
     // SV clock correction
     pub(crate) clock_corr: Duration,
-    // Code observations
-    pub(crate) code: Vec<Observation>,
-    // Phase observations
-    pub(crate) phase: Vec<Observation>,
+    // Pseudo Range Code observations
+    pub(crate) pseudo_range: Vec<Observation>,
+    // Phase range observations
+    pub(crate) phase_range: Vec<Observation>,
     // Doppler observations
     pub(crate) doppler: Vec<Observation>,
 }
 
 impl Candidate {
     /// Creates a new candidate, to inject in the solver pool.
-    /// SV : satellite vehicle (identity).
-    /// t: Epoch at which the signals were sampled.
-    /// clock_corr: current clock correction (mandatory).
-    /// "tgd": possible group delay
-    /// "code": provide as many observations as you can
-    /// "phase": provide as many observations as you can
-    /// "doppler": provide as many observations as you can
+    /// ## Inputs
+    /// - sv: [SV] Identity
+    /// - t: sampling [Epoch]
+    /// - clock_corr: SV onboard clock correction (mandatory)
+    /// - tgd: possible onboard group delay
+    /// - pseudo_range: provide as many Pseudo Range observations as you can
+    /// - phase_range: provide as many Phase Range observations as you can.
+    ///   NB: we do not accept raw "radians" here, but phase range [m] once again.
+    /// - doppler: provide as many Doppler observations as you can
     pub fn new(
         sv: SV,
         t: Epoch,
         clock_corr: Duration,
         tgd: Option<Duration>,
-        code: Vec<Observation>,
-        phase: Vec<Observation>,
+        pseudo_range: Vec<Observation>,
+        phase_range: Vec<Observation>,
         doppler: Vec<Observation>,
     ) -> Self {
         Self {
@@ -68,8 +140,8 @@ impl Candidate {
             t_tx: t,
             clock_corr,
             tgd,
-            code,
-            phase,
+            pseudo_range,
+            phase_range,
             doppler,
             state: None,
         }
@@ -78,9 +150,9 @@ impl Candidate {
      * Returns best observed SNR, whatever the signal
      */
     pub(crate) fn best_snr(&self) -> Option<f64> {
-        self.code
+        self.pseudo_range
             .iter()
-            .chain(self.phase.iter())
+            .chain(self.phase_range.iter())
             .chain(self.doppler.iter())
             .max_by(|a, b| {
                 if let Some(snr_a) = a.snr {
@@ -101,10 +173,10 @@ impl Candidate {
      */
     pub(crate) fn prefered_pseudorange(&self) -> Option<Observation> {
         let mut snr = Option::<f64>::None;
-        let mut code = Option::<Observation>::None;
-        for c in &self.code {
-            if code.is_none() {
-                code = Some(c.clone());
+        let mut pr = Option::<Observation>::None;
+        for c in &self.pseudo_range {
+            if pr.is_none() {
+                pr = Some(c.clone());
                 snr = c.snr;
             } else {
                 // prefer best SNR if possible
@@ -113,32 +185,39 @@ impl Candidate {
                         let s2 = snr.unwrap();
                         if s1 > s2 {
                             snr = Some(s1);
-                            code = Some(c.clone());
+                            pr = Some(c.clone());
                         }
                     } else {
                         snr = Some(s1);
-                        code = Some(c.clone());
+                        pr = Some(c.clone());
                     }
                 }
             }
         }
-        code
+        pr
     }
+    // True if Self is Method::CodePPP compatible
     pub(crate) fn code_ppp_compatible(&self) -> bool {
         self.dual_pseudorange()
     }
+    // True if Self is Method::PPP compatible
+    pub(crate) fn ppp_compatible(&self) -> bool {
+        self.dual_pseudorange() && self.dual_phase()
+    }
+    // True if dual PR is present
     pub(crate) fn dual_pseudorange(&self) -> bool {
-        self.code
+        self.pseudo_range
             .iter()
-            .map(|c| (c.frequency / 1.0E6) as u16)
+            .map(|c| (c.carrier.frequency() / 1.0E6) as u16)
             .unique()
             .count()
             > 1
     }
+    // True if dual phase is present
     pub(crate) fn dual_phase(&self) -> bool {
-        self.phase
+        self.phase_range
             .iter()
-            .map(|c| (c.frequency / 1.0E6) as u16)
+            .map(|c| (c.carrier.frequency() / 1.0E6) as u16)
             .unique()
             .count()
             > 1
@@ -147,28 +226,28 @@ impl Candidate {
      * Forms combination
      */
     pub(crate) fn pseudorange_combination(&self) -> Option<Observation> {
-        let mut codes = (
+        let mut pr = (
             Option::<&Observation>::None,
             Option::<&Observation>::None,
             Option::<&Observation>::None,
         );
-        for code in &self.code {
-            let freq = (code.frequency / 1.0E6) as u16;
+        for code in &self.pseudo_range {
+            let freq = (code.carrier.frequency() / 1.0E6) as u16;
             if freq == 1575 {
-                codes.0 = Some(code);
+                pr.0 = Some(code);
             } else if freq == 1227 {
-                codes.1 = Some(code);
+                pr.1 = Some(code);
             } else if freq == 1176 {
-                codes.2 = Some(code);
+                pr.2 = Some(code);
             }
         }
 
-        let c_l1 = codes.0?;
+        let c_l1 = pr.0?;
         let f_l1 = 1575.42_f64 * 1.0E6_f64;
 
-        let (c_lx, f_lx) = match codes.1 {
+        let (c_lx, f_lx) = match pr.1 {
             Some(pr) => (pr, 1227.6_f64 * 1.0E6_f64),
-            None => match codes.2 {
+            None => match pr.2 {
                 Some(pr) => (pr, 1176.45_f64 * 1.0E6_f64),
                 None => {
                     return None;
@@ -182,7 +261,50 @@ impl Candidate {
         Some({
             Observation {
                 snr: None,
-                frequency: c_l1.frequency,
+                carrier: c_l1.carrier,
+                value: alpha * (beta * c_l1.value - gamma * c_lx.value),
+            }
+        })
+    } /*
+       * Forms combination
+       */
+    pub(crate) fn phase_combination(&self) -> Option<Observation> {
+        let mut phases = (
+            Option::<&Observation>::None,
+            Option::<&Observation>::None,
+            Option::<&Observation>::None,
+        );
+        for ph in &self.phase_range {
+            let freq = (ph.carrier.frequency() / 1.0E6) as u16;
+            if freq == 1575 {
+                phases.0 = Some(ph);
+            } else if freq == 1227 {
+                phases.1 = Some(ph);
+            } else if freq == 1176 {
+                phases.2 = Some(ph);
+            }
+        }
+
+        let c_l1 = phases.0?;
+        let f_l1 = 1575.42_f64 * 1.0E6_f64;
+
+        let (c_lx, f_lx) = match phases.1 {
+            Some(ph) => (ph, 1227.6_f64 * 1.0E6_f64),
+            None => match phases.2 {
+                Some(ph) => (ph, 1176.45_f64 * 1.0E6_f64),
+                None => {
+                    return None;
+                },
+            },
+        };
+
+        let alpha = 1.0 / (f_l1.powi(2) - f_lx.powi(2));
+        let beta = f_l1.powi(2);
+        let gamma = f_lx.powi(2);
+        Some({
+            Observation {
+                snr: None,
+                carrier: c_l1.carrier,
                 value: alpha * (beta * c_l1.value - gamma * c_lx.value),
             }
         })
@@ -191,7 +313,7 @@ impl Candidate {
      * apply min SNR mask
      */
     pub(crate) fn min_snr_mask(&mut self, min_snr: f64) {
-        self.code.retain(|c| {
+        self.pseudo_range.retain(|c| {
             if let Some(snr) = c.snr {
                 snr >= min_snr
             } else {
@@ -205,7 +327,7 @@ impl Candidate {
                 false
             }
         });
-        self.phase.retain(|p| {
+        self.phase_range.retain(|p| {
             if let Some(snr) = p.snr {
                 snr >= min_snr
             } else {
@@ -214,11 +336,10 @@ impl Candidate {
         });
     }
     /*
-     * Computes signal transmission Epoch
+     * Computes signal transmission time, expressed as [Epoch]
      * returns (t_tx, dt_ttx)
      * "t_tx": Epoch in given timescale
      * "dt_ttx": elapsed duration in seconds in given timescale
-     * "frame": Solid body reference Frame
      */
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, Duration), Error> {
         let (t, ts) = (self.t, self.t.time_scale);
@@ -251,7 +372,7 @@ impl Candidate {
         let dt_secs = (t - e_tx).to_seconds();
         let dt = Duration::from_seconds(dt_secs);
         assert!(
-            dt_secs > 0.0,
+            dt_secs >= 0.0,
             "physical non sense - RX {:?} prior TX {:?}",
             t,
             e_tx
@@ -267,7 +388,7 @@ impl Candidate {
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::{Candidate, Duration, Epoch, Observation, SV};
+    use crate::prelude::{Candidate, Carrier, Duration, Epoch, Observation, SV};
     #[test]
     fn prefered_pseudorange() {
         let l1_freq = 1575.42_f64 * 1.0E6_f64;
@@ -280,23 +401,23 @@ mod test {
                     Observation {
                         value: 1.0,
                         snr: None,
-                        frequency: l1_freq,
+                        carrier: Carrier::L1,
                     },
                     Observation {
                         value: 2.0,
                         snr: None,
-                        frequency: l2_freq,
+                        carrier: Carrier::L2,
                     },
                     Observation {
                         value: 3.0,
                         snr: None,
-                        frequency: l5_freq,
+                        carrier: Carrier::L5,
                     },
                 ],
                 Observation {
                     value: 1.0,
                     snr: None,
-                    frequency: l1_freq,
+                    carrier: Carrier::L1,
                 },
             ),
             (
@@ -304,23 +425,23 @@ mod test {
                     Observation {
                         value: 1.0,
                         snr: None,
-                        frequency: l1_freq,
+                        carrier: Carrier::L1,
                     },
                     Observation {
                         value: 2.0,
                         snr: Some(2.0),
-                        frequency: l2_freq,
+                        carrier: Carrier::L2,
                     },
                     Observation {
                         value: 3.0,
                         snr: None,
-                        frequency: l5_freq,
+                        carrier: Carrier::L5,
                     },
                 ],
                 Observation {
                     value: 2.0,
                     snr: Some(2.0),
-                    frequency: l2_freq,
+                    carrier: Carrier::L2,
                 },
             ),
         ] {
@@ -346,27 +467,27 @@ mod test {
             Observation {
                 value: 1.0,
                 snr: None,
-                frequency: l1_freq,
+                carrier: Carrier::L1,
             },
             Observation {
                 value: 2.0,
                 snr: None,
-                frequency: l2_freq,
+                carrier: Carrier::L2,
             },
             Observation {
                 value: 3.0,
                 snr: Some(10.0),
-                frequency: l5_freq,
+                carrier: Carrier::L5,
             },
             Observation {
                 value: 4.0,
                 snr: Some(11.0),
-                frequency: l2_freq,
+                carrier: Carrier::L2,
             },
             Observation {
                 value: 5.0,
                 snr: Some(9.0),
-                frequency: l2_freq,
+                carrier: Carrier::L2,
             },
         ];
         let cd = Candidate::new(
@@ -384,17 +505,17 @@ mod test {
             Observation {
                 value: 1.0,
                 snr: Some(1.0),
-                frequency: l1_freq,
+                carrier: Carrier::L1,
             },
             Observation {
                 value: 2.0,
                 snr: Some(1.1),
-                frequency: l2_freq,
+                carrier: Carrier::L2,
             },
             Observation {
                 value: 3.0,
                 snr: Some(1.2),
-                frequency: l5_freq,
+                carrier: Carrier::L5,
             },
         ];
         let cd = Candidate::new(
@@ -410,16 +531,12 @@ mod test {
     }
     #[test]
     fn ppp_compatibility() {
-        let l1_freq = 1575.42_f64 * 1.0E6_f64;
-        let l2_freq = 1176.45_f64 * 1.0E6_f64;
-        let _l5_freq = 1176.45_f64 * 1.0E6_f64;
-
         for (pr_observations, phase_observations, code_ppp_compatible) in [
             (
                 vec![Observation {
                     value: 1.0,
                     snr: Some(1.0),
-                    frequency: l1_freq,
+                    carrier: Carrier::L1,
                 }],
                 vec![],
                 false,
@@ -429,12 +546,12 @@ mod test {
                     Observation {
                         value: 1.0,
                         snr: Some(1.0),
-                        frequency: l1_freq,
+                        carrier: Carrier::L1,
                     },
                     Observation {
                         value: 2.0,
                         snr: Some(2.0),
-                        frequency: l2_freq,
+                        carrier: Carrier::L2,
                     },
                 ],
                 vec![],

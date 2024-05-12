@@ -12,17 +12,17 @@ mod cfg;
 mod navigation;
 mod solver;
 
-// pub export
-pub use solver::Error;
+#[cfg(test)]
+mod tests;
 
 // prelude
 pub mod prelude {
     pub use crate::apriori::AprioriPosition;
     pub use crate::bias::{BdModel, IonosphereBias, KbModel, NgModel, TroposphereBias};
-    pub use crate::candidate::{Candidate, Observation};
+    pub use crate::candidate::{Candidate, Carrier, Observation};
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, PVTSolution, PVTSolutionType};
-    pub use crate::solver::{InterpolationResult, Solver};
+    pub use crate::solver::{Error, InterpolationResult, Solver};
     // re-export
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};

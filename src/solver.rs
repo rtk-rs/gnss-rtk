@@ -5,7 +5,7 @@ use gnss::prelude::SV;
 use hifitime::Unit;
 use log::{debug, error, warn};
 use map_3d::deg2rad;
-use nalgebra::{Matrix3, Vector3};
+use nalgebra::{Matrix3, Matrix4, OMatrix, OVector, Point, Vector3, U3, U4};
 use thiserror::Error;
 
 use nyx::{
@@ -14,6 +14,7 @@ use nyx::{
         Orbit, SPEED_OF_LIGHT,
     },
     md::prelude::{Arc, Cosm, Frame},
+    od::{filter::kalman::KF, process::KfEstimate},
 };
 
 use crate::{
@@ -23,46 +24,41 @@ use crate::{
     cfg::{Config, Method},
     navigation::{
         solutions::validator::Validator as SolutionValidator, Input as NavigationInput, Navigation,
-        PVTSolution, PVTSolutionType,
+        PVTSolution, PVTSolutionType, State3D,
     },
     prelude::{Duration, Epoch},
 };
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, PartialEq, Error)]
 pub enum Error {
-    #[error("need more candidates to resolve a {0} a solution")]
-    NotEnoughInputCandidates(PVTSolutionType),
-    #[error("not enough candidates fit criteria")]
-    NotEnoughFittingCandidates,
-    #[error("failed to form matrix")]
+    #[error("not enough candidates provided")]
+    NotEnoughCandidates,
+    #[error("not enough candidates match pre-fit criteria")]
+    NotEnoughMatchingCandidates,
+    #[error("failed to form matrix (invalid input?)")]
     MatrixError,
     #[error("failed to invert matrix")]
     MatrixInversionError,
-    #[error("reolved NaN: invalid input matrix")]
+    #[error("resolved time is `nan` (invalid value(s))")]
     TimeIsNan,
     #[error("undefined apriori position")]
     UndefinedAprioriPosition,
+    #[error("internal navigation error")]
+    NavigationError,
     #[error("missing pseudo range observation")]
     MissingPseudoRange,
-    #[error("cannot form signal combination: missing dual freq signals")]
+    #[error("failed to form pseudo range combination")]
     PseudoRangeCombination,
-    #[error("at least one pseudo range observation is mandatory")]
-    NeedsAtLeastOnePseudoRange,
-    #[error("failed to model or measure ionospheric delay")]
-    MissingIonosphericDelayValue,
-    #[error("unresolved state: interpolation should have passed")]
+    #[error("failed to form phase range combination")]
+    PhaseCombination,
+    #[error("unresolved candidate state: should not have been proposed")]
     UnresolvedState,
-    #[error("unable to form signal combination")]
-    SignalRecombination,
     #[error("physical non sense: rx prior tx")]
     PhysicalNonSenseRxPriorTx,
     #[error("physical non sense: t_rx is too late")]
     PhysicalNonSenseRxTooLate,
     #[error("invalidated solution")]
     InvalidatedSolution,
-    // Kalman filter bad op: should never happen
-    #[error("uninitialized kalman filter!")]
-    UninitializedKalmanFilter,
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -135,16 +131,14 @@ where
     pub interpolator: I,
     /* Cosmic model */
     cosmic: Arc<Cosm>,
-    /*
-     * Solid / Earth body frame.
-     */
+    // Solid / Earth body frame.
     earth_frame: Frame,
-    /*
-     * Sun / Star body frame
-     */
+    // Sun / Star body frame
     sun_frame: Frame,
-    // navigator
+    // Navigator
     nav: Navigation,
+    // Post fit KF
+    postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
     /* prev. state vector for internal velocity determination */
@@ -152,6 +146,12 @@ where
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
+    /// Create a new Position [Solver].
+    /// ## Inputs
+    /// - cfg: Solver [Config]
+    /// - apriori: Reference position (coordinates) that we currently use
+    /// to verify how well the solver performs.
+    /// - interpolator: function pointer to external method to provide 3D interpolation results.
     pub fn new(cfg: &Config, apriori: AprioriPosition, interpolator: I) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
@@ -172,29 +172,29 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             apriori,
             interpolator,
             cfg: cfg.clone(),
+            postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
             prev_pvt: Option::<(Epoch, PVTSolution)>::None,
         })
     }
-    /// Try to resolve a PVTSolution at desired "t".
-    /// "t": sampling instant.
-    /// "solution": desired PVTSolutionType.
-    /// "pool": List of candidates.
-    /// iono_bias: possible IonosphereBias if you can provide such info.
-    /// tropo_bias: possible TroposphereBias if you can provide such info.
+    /// [PVTSolution] resolution attempt.
+    /// ## Inputs
+    /// - t: desired [Epoch]
+    /// - pool: list of [Candidate]
+    /// - iono_bias: TODO/Rework
+    /// - tropo_bias: TODO/Rework
     pub fn resolve(
         &mut self,
         t: Epoch,
-        pvt_type: PVTSolutionType,
-        pool: Vec<Candidate>,
+        pool: &Vec<Candidate>,
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
-        let min_required = Self::min_required(pvt_type, &self.cfg);
+        let min_required = Self::min_required(&self.cfg);
 
         if pool.len() < min_required {
-            return Err(Error::NotEnoughInputCandidates(pvt_type));
+            return Err(Error::NotEnoughCandidates);
         }
 
         let (x0, y0, z0) = (
@@ -217,7 +217,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         /* apply signal quality and condition filters */
         let pool: Vec<Candidate> = pool
-            .into_iter()
+            .iter()
             .filter_map(|cd| match method {
                 Method::SPP => {
                     let pr = cd.prefered_pseudorange()?;
@@ -226,17 +226,27 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         if snr < min_snr {
                             None
                         } else {
-                            Some(cd)
+                            Some(cd.clone())
                         }
                     } else {
-                        Some(cd)
+                        Some(cd.clone())
                     }
                 },
                 Method::CodePPP => {
                     if cd.code_ppp_compatible() {
-                        Some(cd)
+                        // TODO: apply MIN SNR too, (when desired)
+                        Some(cd.clone())
                     } else {
                         debug!("{:?} ({}) missing secondary frequency", cd.t, cd.sv);
+                        None
+                    }
+                },
+                Method::PPP => {
+                    if cd.ppp_compatible() {
+                        // TODO: apply MIN SNR too, (when desired)
+                        Some(cd.clone())
+                    } else {
+                        debug!("{:?} ({}) missing secondary phase", cd.t, cd.sv);
                         None
                     }
                 },
@@ -350,7 +360,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             state_b.elevation.partial_cmp(&state_a.elevation).unwrap()
         });
 
-        match pvt_type {
+        match self.cfg.sol_type {
             PVTSolutionType::TimeOnly => {
                 let mut index = 0;
                 pool.retain(|_| {
@@ -368,7 +378,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         if pool.len() != min_required {
-            return Err(Error::NotEnoughFittingCandidates);
+            return Err(Error::NotEnoughMatchingCandidates);
         }
 
         let input = match NavigationInput::new(
@@ -390,7 +400,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             Ok(output) => output,
             Err(e) => {
                 error!("Failed to resolve: {}", e);
-                return Err(Error::MatrixError);
+                return Err(Error::NavigationError);
             },
         };
 
@@ -406,21 +416,40 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         let x = output.state.estimate();
 
+        /*
+         * Post-fit KF
+         */
+        if self.cfg.solver.postfit_kf {
+            if let Some(kf) = &mut self.postfit_kf {
+            } else {
+                let kf_estim = KfEstimate::from_diag(
+                    State3D {
+                        t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT),
+                        inner: Vector3::new(x[0], x[1], x[2]),
+                    },
+                    OVector::<f64, U3>::new(1.0, 1.0, 1.0),
+                );
+                let noise =
+                    OMatrix::<f64, U3, U3>::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+                self.postfit_kf = Some(KF::no_snc(kf_estim, noise));
+            }
+        }
+
         let mut solution = PVTSolution {
-            q: output.q,
+            q: output.q_covar4x4(),
             gdop: output.gdop,
             tdop: output.tdop,
             pdop: output.pdop,
-            vel: Vector3::<f64>::default(),
-            pos: Vector3::new(x[0], x[1], x[2]),
+            velocity: Vector3::<f64>::default(),
+            position: Vector3::new(x[0], x[1], x[2]),
             sv: input.sv.clone(),
-            dt: x[3] / SPEED_OF_LIGHT,
+            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT),
+            timescale: self.cfg.timescale,
         };
 
-        let _to_discard = false;
-
         if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
-            solution.vel = (solution.pos - prev_pvt.pos) / (t - *prev_t).to_seconds();
+            solution.velocity =
+                (solution.position - prev_pvt.position) / (t - *prev_t).to_seconds();
         }
 
         if self.prev_pvt.is_none() {
@@ -431,14 +460,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         self.prev_pvt = Some((t, solution.clone()));
 
-        Self::rework_solution(&mut solution, pvt_type, &self.apriori, &self.cfg);
+        Self::rework_solution(&mut solution, &self.apriori, &self.cfg);
         Ok((t, solution))
     }
     /*
      * Returns nb of vehicles we need to gather
      */
-    fn min_required(solution: PVTSolutionType, cfg: &Config) -> usize {
-        match solution {
+    fn min_required(cfg: &Config) -> usize {
+        match cfg.sol_type {
             PVTSolutionType::TimeOnly => 1,
             _ => {
                 let mut n = 4;
@@ -491,24 +520,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         reworked
     }
     /*
-     * Reworks solution a little bit
+     * Reworks solution to adapt to configuration setup and desired format.
      */
-    fn rework_solution(
-        pvt: &mut PVTSolution,
-        pvt_type: PVTSolutionType,
-        apriori: &AprioriPosition,
-        cfg: &Config,
-    ) {
+    fn rework_solution(pvt: &mut PVTSolution, apriori: &AprioriPosition, cfg: &Config) {
         if let Some(alt) = cfg.fixed_altitude {
-            pvt.pos.z = apriori.ecef.z - alt;
-            pvt.vel.z = 0.0_f64;
+            pvt.position.z = apriori.ecef.z - alt;
+            pvt.velocity.z = 0.0_f64;
         }
-        match pvt_type {
-            PVTSolutionType::TimeOnly => {
-                pvt.pos = Default::default();
-                pvt.vel = Default::default();
-            },
-            _ => {},
+        if cfg.sol_type == PVTSolutionType::TimeOnly {
+            pvt.position = Default::default();
+            pvt.velocity = Default::default();
         }
     }
 }
