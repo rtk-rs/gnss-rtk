@@ -3,10 +3,12 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::prelude::TimeScale;
-use nalgebra::DMatrix;
+use crate::{
+    navigation::Filter,
+    prelude::{PVTSolutionType, TimeScale},
+};
 
-use crate::navigation::Filter;
+use nalgebra::{base::dimension::U8, OMatrix};
 
 /// Configuration Error
 #[derive(Debug, Error)]
@@ -30,12 +32,18 @@ pub enum Method {
     /// Exhibits metric accuracy on high quality data.
     #[default]
     CodePPP,
+    /// Precise Point Positioning (PPP).
+    /// Code and Carrier based navigation, requires Pseudo range and
+    /// Carrier phase observations on two frequencies.
+    /// Exhibits centimetric accuracy on high quality data.
+    PPP,
 }
 
 impl std::fmt::Display for Method {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::SPP => write!(fmt, "SPP"),
+            Self::PPP => write!(fmt, "PPP"),
             Self::CodePPP => write!(fmt, "Code-PPP"),
         }
     }
@@ -52,14 +60,14 @@ impl std::fmt::Display for Method {
 //     }
 // }
 
+/// [Positioning] indicates
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-/// Positioning method
 pub enum Positioning {
-    /// Receiver is static
+    /// Receiver is static (laboratories or geodetic survey use case)
     #[default]
     Static,
-    /// Receiver is moving
+    /// Receiver is moving (roaming)
     Kinematic,
 }
 
@@ -129,6 +137,14 @@ fn default_relativistic_path_range() -> bool {
     false
 }
 
+fn default_phase_windup() -> bool {
+    false
+}
+
+fn default_postfit_kf() -> bool {
+    false
+}
+
 fn default_weight_matrix() -> Option<WeightMatrix> {
     None
     //Some(WeightMatrix::MappingFunction(
@@ -185,6 +201,10 @@ pub struct SolverOpts {
     /// Filter options
     #[cfg_attr(feature = "serde", serde(default = "default_filter_opts"))]
     pub filter_opts: Option<FilterOpts>,
+    /// Deploy a post-fit denoising Kalman Filter to denoise and further improve PVT solutions,
+    /// at the expense of more calculations.
+    #[cfg_attr(feature = "serde", serde(default = "default_postfit_kf"))]
+    pub postfit_kf: bool,
 }
 
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -199,17 +219,18 @@ impl SolverOpts {
     /*
      * form the weight matrix to be used in the solving process
      */
-    pub(crate) fn weight_matrix(&self, sv_elev: Vec<f64>) -> DMatrix<f64> {
-        let mut mat = DMatrix::identity(sv_elev.len(), sv_elev.len());
+    pub(crate) fn weight_matrix(&self, _sv_elev: Vec<f64>) -> OMatrix<f64, U8, U8> {
+        let mat = OMatrix::<f64, U8, U8>::identity();
         if let Some(opts) = &self.filter_opts {
             match &opts.weight_matrix {
                 Some(WeightMatrix::Covar) => panic!("not implemented yet"),
-                Some(WeightMatrix::MappingFunction(mapf)) => {
-                    for i in 0..sv_elev.len() - 1 {
-                        let sigma = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
-                        mat[(i, i)] = 1.0 / sigma.powi(2);
-                    }
-                },
+                Some(WeightMatrix::MappingFunction(_)) => panic!("mapf: not implemented yet"),
+                //                Some(WeightMatrix::MappingFunction(mapf)) => {
+                //                    for i in 0..8 {
+                //                        let sigma = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
+                //                        mat[(i, i)] = 1.0 / sigma.powi(2);
+                //                    }
+                //                },
                 None => {},
             }
         }
@@ -221,20 +242,34 @@ impl SolverOpts {
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Modeling {
+    /// Compensate for onboard clock offset to system time (+/- 100km)
     #[cfg_attr(feature = "serde", serde(default))]
     pub sv_clock_bias: bool,
+    /// Compensate for onboard circuitry delay (+/- 1m)
     #[cfg_attr(feature = "serde", serde(default))]
     pub sv_total_group_delay: bool,
+    /// Compensate for relativistic effect on onboard clock (+/- 1m)
     #[cfg_attr(feature = "serde", serde(default))]
     pub relativistic_clock_bias: bool,
+    /// Compensate for relativistic effect on signal propagation (+/- 0.1 m)
     #[cfg_attr(feature = "serde", serde(default))]
     pub relativistic_path_range: bool,
+    /// Compensate for troposphere negative impact (+/- 10m)
     #[cfg_attr(feature = "serde", serde(default))]
     pub tropo_delay: bool,
+    /// Compensate for ionosphere negative impact (+/- 10m).
+    /// If Method is not [Method::SPP], this is
+    /// natively taken care of and option is actually disregarded.
     #[cfg_attr(feature = "serde", serde(default))]
     pub iono_delay: bool,
+    /// Compensate for Earth rotation during signal propagation
+    /// (static +5/+10m eastern error).
     #[cfg_attr(feature = "serde", serde(default))]
     pub earth_rotation: bool,
+    /// Compensate for signal phase windup. This only impacts
+    /// strategies that use raw phase like [Method::PPP].
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub phase_windup: bool,
 }
 
 impl Default for Modeling {
@@ -245,88 +280,94 @@ impl Default for Modeling {
             tropo_delay: default_tropo(),
             sv_total_group_delay: default_sv_tgd(),
             earth_rotation: default_earth_rot(),
+            phase_windup: default_phase_windup(),
             relativistic_clock_bias: default_relativistic_clock_bias(),
             relativistic_path_range: default_relativistic_path_range(),
         }
     }
 }
 
-impl Modeling {
-    pub fn preset(_method: Method, _filter: Filter) -> Self {
-        Self::default()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Config {
-    /// Time scale
+    /// Type of solutions to form.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sol_type: PVTSolutionType,
+    /// Time scale in which we express the PVT solutions,
+    /// [TimeScale::GPST] is the default value.
     #[cfg_attr(feature = "serde", serde(default = "default_timescale"))]
     pub timescale: TimeScale,
-    /// Method to use
+    /// Solver method (strategy) used.
     #[cfg_attr(feature = "serde", serde(default))]
     pub method: Method,
-    /// (Position) interpolation filter order.
-    /// A minimal order must be respected for correct results.
-    /// -  7 is the minimal value for metric resolution
-    /// - 11 is the standard when pushing for submetric resolution
+    /// [Positioning] allows selecting the type of application,
+    /// tied to the GNSS receiver use case.
+    /// [Positioning::Static] is the default value,
+    /// use [Positioning::Kinematic] for roaming applications.
+    #[cfg_attr(feature = "serde", serde(default))]
+    positioning: Positioning,
+    /// Interpolation order
     #[cfg_attr(feature = "serde", serde(default = "default_interp"))]
     pub interp_order: usize,
-    /// Fixed altitude : reduces the need of 4 to 3 SV to resolve a solution
+    /// Fixed altitude: reduces the need of 4 to 3 SV to obtain 3D solutions.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fixed_altitude: Option<f64>,
-    /// PR code smoothing filter before moving forward
+    /// Pseudo Range smoothing. Use this to improve solutions accuracy.
+    /// This applies to all positioning strategies.
     #[cfg_attr(feature = "serde", serde(default = "default_smoothing"))]
     pub code_smoothing: bool,
-    /// Internal delays
+    /// Internal delays to compensate for (total summation, in [s]).
     #[cfg_attr(feature = "serde", serde(default))]
     pub int_delay: Vec<InternalDelay>,
-    /// Antenna Reference Point (ARP) as ENU offset [m]
+    /// Antenna Reference Point (ARP) expressed as ENU offset [m]
     #[cfg_attr(feature = "serde", serde(default))]
     pub arp_enu: Option<(f64, f64, f64)>,
     /// Solver customization
     #[cfg_attr(feature = "serde", serde(default))]
     pub solver: SolverOpts,
-    /// Time Reference Delay, as defined by BIPM in
-    /// "GPS Receivers Accurate Time Comparison" : the time delay
-    /// between the GNSS receiver external reference clock and the sampling clock
-    /// (once again can be persued as a cable delay). This one is typically
-    /// only required in ultra high precision timing applications
+    /// Time Reference Delay. According to BIPM ""GPS Receivers Accurate Time Comparison""
+    /// this is the time delay between the receiver external reference clock
+    /// and the internal sampling clock. This is typically needed in
+    /// ultra high precision timing applications or geodetic surveys.
     #[cfg_attr(feature = "serde", serde(default))]
     pub externalref_delay: Option<f64>,
-    /// Minimal percentage ]0; 1[ of Sun light to be received by an SV
-    /// for not to be considered in Eclipse.
-    /// A value closer to 0 means we tolerate fast Eclipse exit.
-    /// A value closer to 1 is a stringent criteria: eclipse must be totally exited.
+    /// Minimal rate of Sun light rate one SV must receive for not to be considered Eclipsed from the Sun by Earth.
+    /// Closer to 0 means we exit Eclipsed state faster.
+    /// Closer to 1 means stringent condition and only completely illuminated SV are considered.
+    /// This criteria is not meaningful unless you're using centimetric positioning strategies like [Method::PPP].
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_sv_sunlight_rate: Option<f64>,
-    /// Minimal SV elevation angle. SV below that angle will not be considered.
+    /// Minimal SV elevation angle for an SV to contribute to the solution.
     /// Use this as a simple quality criteria.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_sv_elev: Option<f64>,
-    /// Minimal SV angle to North magnetic for an SV to be considered.
+    /// Minimal SV Azimuth angle for an SV to contribute to the solution.
     /// SV below that angle will not be considered.
     /// Use this is in special navigation scenarios.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_sv_azim: Option<f64>,
-    /// Maximal SV angle to North magnetic for an SV to be considered.
-    /// SV above that angle will not be considered.
+    /// Maximal SV Azimuth angle for an SV to contribute to the solution.
+    /// SV below that angle will not be considered.
     /// Use this is in special navigation scenarios.
     #[cfg_attr(feature = "serde", serde(default))]
     pub max_sv_azim: Option<f64>,
-    /// Minimal SNR for an SV to be considered.
+    /// Minimal SNR for an SV to contribute to the solution.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_snr: Option<f64>,
-    /// modeling
+    /// Atmospherical and Physical [Modeling] used to improve the accuracy of solution.
     #[cfg_attr(feature = "serde", serde(default))]
     pub modeling: Modeling,
 }
 
 impl Config {
-    pub fn preset(method: Method) -> Self {
+    /// Returns a basic [Config] that is consistent with given Positioning [Method]
+    /// and a static GNSS receiver.
+    pub fn static_preset(method: Method) -> Self {
         match method {
             Method::SPP => Self {
                 method,
+                positioning: Positioning::Static,
+                sol_type: PVTSolutionType::default(),
                 arp_enu: None,
                 fixed_altitude: None,
                 timescale: default_timescale(),
@@ -345,10 +386,13 @@ impl Config {
                     gdop_threshold: default_gdop_threshold(),
                     tdop_threshold: default_tdop_threshold(),
                     filter_opts: default_filter_opts(),
+                    postfit_kf: default_postfit_kf(),
                 },
             },
             Method::CodePPP => Self {
                 method,
+                positioning: Positioning::Static,
+                sol_type: PVTSolutionType::default(),
                 arp_enu: None,
                 fixed_altitude: None,
                 timescale: default_timescale(),
@@ -367,6 +411,113 @@ impl Config {
                     gdop_threshold: default_gdop_threshold(),
                     tdop_threshold: default_tdop_threshold(),
                     filter_opts: default_filter_opts(),
+                    postfit_kf: default_postfit_kf(),
+                },
+            },
+            Method::PPP => Self {
+                method,
+                positioning: Positioning::Static,
+                sol_type: PVTSolutionType::default(),
+                arp_enu: None,
+                fixed_altitude: None,
+                timescale: default_timescale(),
+                interp_order: default_interp(),
+                code_smoothing: default_smoothing(),
+                min_snr: Some(30.0),
+                min_sv_elev: Some(15.0),
+                min_sv_azim: None,
+                max_sv_azim: None,
+                min_sv_sunlight_rate: None,
+                modeling: Modeling::default(),
+                int_delay: Default::default(),
+                externalref_delay: Default::default(),
+                solver: SolverOpts {
+                    filter: Filter::LSQ,
+                    gdop_threshold: default_gdop_threshold(),
+                    tdop_threshold: default_tdop_threshold(),
+                    filter_opts: default_filter_opts(),
+                    postfit_kf: default_postfit_kf(),
+                },
+            },
+        }
+    }
+    /// Returns a basic [Config] that is consistent with given Positioning [Method]
+    /// and a roaming applications.
+    pub fn roaming_preset(method: Method) -> Self {
+        match method {
+            Method::SPP => Self {
+                method,
+                positioning: Positioning::Kinematic,
+                sol_type: PVTSolutionType::default(),
+                arp_enu: None,
+                fixed_altitude: None,
+                timescale: default_timescale(),
+                interp_order: default_interp(),
+                code_smoothing: default_smoothing(),
+                min_snr: Some(30.0),
+                min_sv_elev: Some(15.0),
+                min_sv_azim: None,
+                max_sv_azim: None,
+                min_sv_sunlight_rate: None,
+                modeling: Modeling::default(),
+                int_delay: Default::default(),
+                externalref_delay: Default::default(),
+                solver: SolverOpts {
+                    filter: Filter::LSQ,
+                    gdop_threshold: default_gdop_threshold(),
+                    tdop_threshold: default_tdop_threshold(),
+                    filter_opts: default_filter_opts(),
+                    postfit_kf: default_postfit_kf(),
+                },
+            },
+            Method::CodePPP => Self {
+                method,
+                positioning: Positioning::Kinematic,
+                sol_type: PVTSolutionType::default(),
+                arp_enu: None,
+                fixed_altitude: None,
+                timescale: default_timescale(),
+                interp_order: default_interp(),
+                code_smoothing: default_smoothing(),
+                min_snr: Some(30.0),
+                min_sv_elev: Some(15.0),
+                min_sv_azim: None,
+                max_sv_azim: None,
+                min_sv_sunlight_rate: None,
+                modeling: Modeling::default(),
+                int_delay: Default::default(),
+                externalref_delay: Default::default(),
+                solver: SolverOpts {
+                    filter: Filter::LSQ,
+                    gdop_threshold: default_gdop_threshold(),
+                    tdop_threshold: default_tdop_threshold(),
+                    filter_opts: default_filter_opts(),
+                    postfit_kf: default_postfit_kf(),
+                },
+            },
+            Method::PPP => Self {
+                method,
+                positioning: Positioning::Kinematic,
+                sol_type: PVTSolutionType::default(),
+                arp_enu: None,
+                fixed_altitude: None,
+                timescale: default_timescale(),
+                interp_order: default_interp(),
+                code_smoothing: default_smoothing(),
+                min_snr: Some(30.0),
+                min_sv_elev: Some(15.0),
+                min_sv_azim: None,
+                max_sv_azim: None,
+                min_sv_sunlight_rate: None,
+                modeling: Modeling::default(),
+                int_delay: Default::default(),
+                externalref_delay: Default::default(),
+                solver: SolverOpts {
+                    filter: Filter::LSQ,
+                    gdop_threshold: default_gdop_threshold(),
+                    tdop_threshold: default_tdop_threshold(),
+                    filter_opts: default_filter_opts(),
+                    postfit_kf: default_postfit_kf(),
                 },
             },
         }
