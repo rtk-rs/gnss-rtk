@@ -11,71 +11,62 @@ Precise position solver :crab:
 Notes on this ecosystem
 =======================
 
-We use `nalgebra` in the solving process (Matrix, Vectors..).  
-We use `nyx` for ephemerides, orbital calculations, navigation filters, etc..  
-`Hifitime` is at the very basis of this work and allows pretty much everything here.  
+- `Nalgebra` is used for anything related to linear algebra
+- `Nyx-space` provides required features in orbital calculations
+- `Hifitime` provides timing and timescale definitions
+- `Gnss-rs` provides basic GNSS definitions
+
 [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework.  
-[RINEX-Cli](https://github.com/georust/rinex) uses this framework extensively.
 
 PVT Solutions
 =============
 
-The objective is to resolve a PVT solution, implemented in the form of a `prelude::PVTSolution`,
+The objective is to resolve PVT solutions, implemented in the form of a `prelude::PVTSolution`,
 ideally the most precise as possible, at a given _Epoch_.
 
-Resolving a PVT requires a minimum number of SV (actual measurements)
-in sight and within the predefined criterias:
+Resolving a PVT requires a minimum number of SV (actual measurements) in sight and within the preset criteria:
 
-- 4 SV in default mode
+- 4 SV are required, per Epoch, in default mode
 - 3 SV in fixed altitude mode
 - 1 SV in time only mode
 
-The predefined criterias are manually set in the configuration file, 
-refer to its [own documentation](./doc/config.md). This means the criterias can be
-loosened or tightened, depending on what you want to achieve.
+The preset criteria are manually set in the configuration file (or config script).
+At the moment, refer to the RINEX Wiki pages for meaningful examples.
 
-Some constraints on the measurements may apply too, as a rule of thumb:
+Depending on the preset configuration, other requirements will apply to the previous list, most importantly:
 
-- `SPP` strategies will only require Pseudo Range and will resolve without Phase observations.
-This makes these strategies capapble to deploy on constrained and degraged environment.
-For example: old receivers, single constellation in sight.. etc..
+- `CPP` strategy will required pseudo range observation on a secondary frequency
+- `PPP` strategy will required pseudo range and phase observations on a two frequencies
+- SNR, Elevation and Azimuth mask will require to gather the required amount of SV within those conditions
 
-- `PPP` strategies require not only Pseudo Range but also Phase observations
-and the sampling of two different radio frequencies. No solutions will be formed
-if this predicate (on top of all the others explained here) do not stand.
+Each PVT solution contains the Dilution of Precision (DOP) and other meaningful information, like which SV
+contributed. We have the capability to express the clock offset to any desired Timescale.
 
-We support several methods (also sometimes refered to as _strategies_) which
-will have the solver behave differently, due to their very different nature.   
-The method is set by the `solver::Mode`.
+Strategy and other settings
+===========================
 
-Dilution of precisions along other meaningful information are attached to each PVT solution.
+The solver's behavior and output results are highly dependent on the [selected strategy](https://docs.rs/gnss-rtk/latest/gnss_rtk/prelude/enum.Method.html).
 
-This solver will eventually be able to resolve along any known GNSS constellation,
-including a mixed pool of spacecrafts (for example a combination of GAL + GPS), 
-and also express the PVT solution against any supported GNSS Time system (for example GST).
+Advanced strategies require deeper knowledge and most likely more tuning of the solver configuration. 
+The Rust/JSON infrastructure is powerful enough though, to allow to only define the [config parts](https://docs.rs/gnss-rtk/latest/gnss_rtk/prelude/struct.Config.html)
+you are interested in: others will simply default.
 
-Strategies and behavior
-=======================
+[PVTSolutionType](https://docs.rs/gnss-rtk/latest/gnss_rtk/prelude/enum.PVTSolutionType.html) defines the type of solutions we want to form and therefore,
+the minimum amount of SV we need to gather. As previously stated, other criteria like `min_sv_elev` or `max_sv_azim` will restrict the condition on those vehicles that they must fit in
+to be considered. 
 
-We support a couple of strategies, only advanced strategies will give the best results
-(most precise solutions):
+When `fixed_altitude` is set to a certain value, the quantity of required SV is reduced by 1.  
+This has no impact when `PVTSolutionType` is set to `TimeOnly`.
 
-- [spp](./doc/spp.md)
-- [lsqspp](./doc/lsqspp.md)
-- [ppp](./doc/ppp.md)
+The `SolverOpts` configuration gives more advanced options on how to tweak the solver. Briefly, this allows to
 
-As a rule of thumb: 
+- select one of our Navigation Filters, like Kalman filter or LSQ
+- define the PVT solutions confirmation criteria
 
-- Non recursive strategies (like [spp](./doc/spp.md)) will generate
-a solution as along as enough signal measurements were provided.
-- Any physical phenomena can be accounted for in this framework,
-on any strategy, even though some will not be meaningful depending on the
-configuration setup.  
-- The GDOP criteria can still be used to reject PVT solutions of non recursive strategies
-- Only recursive strategies will take truly use other solver options of the configuration file.
-
-The current API allows changing the strategy from one Epoch to another and this framework will most likely behave fine.   
-But note that this has not been tested and is not the typical use of such tool.
+`Modeling` defines what physical and environmental phenomena we compensate for.   
+Modeling are closely tied to the selected solver strategy. For example, 
+models that impact at the centimetric level like the sunlight rate, are not meaningful in strategies other than advanced PPP.
+On the other hand, you will not reach metric solutions, whatever the strategy might be, if a minimum of physical phenomena are not accounted for.
 
 ## Atmospherical and Environmental biases
 
@@ -108,15 +99,3 @@ Ionosphere Delay
 ================
 
 TODO
-
-Solver Configuration
-====================
-
-Refer to the online documentation (API) for detailed information on all existing fields.
-The RTKConfiguration structure, describes all configuration and customization
-the solver supports. 
-
-It is important to understand how, when and what to customize depending on your goals.
-
-When working with the "cli" application, you can provide an RTKConfiguration
-in the form of JSON, with `--rtk-cfg`.
