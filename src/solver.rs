@@ -138,7 +138,7 @@ where
     // Navigator
     nav: Navigation,
     // Post fit KF
-    postfit_kf: Option<KF<State3D, U3, U3>>,
+    // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
     prev_pvt: Option<(Epoch, PVTSolution)>,
     /* prev. state vector for internal velocity determination */
@@ -172,7 +172,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             apriori,
             interpolator,
             cfg: cfg.clone(),
-            postfit_kf: None,
+            // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
             prev_pvt: Option::<(Epoch, PVTSolution)>::None,
@@ -407,7 +407,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &input, &output);
 
         match validator.validate(solver_opts) {
-            Ok(_) => self.nav.validate(),
+            Ok(_) => {
+                debug!("validated solution: {:?}", output.state);
+                self.nav.validate();
+            },
             Err(e) => {
                 error!("solution invalidated - {}", e);
                 return Err(Error::InvalidatedSolution);
@@ -420,19 +423,19 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
          * Post-fit KF
          */
         if self.cfg.solver.postfit_kf {
-            if let Some(kf) = &mut self.postfit_kf {
-            } else {
-                let kf_estim = KfEstimate::from_diag(
-                    State3D {
-                        t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT),
-                        inner: Vector3::new(x[0], x[1], x[2]),
-                    },
-                    OVector::<f64, U3>::new(1.0, 1.0, 1.0),
-                );
-                let noise =
-                    OMatrix::<f64, U3, U3>::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-                self.postfit_kf = Some(KF::no_snc(kf_estim, noise));
-            }
+            //if let Some(kf) = &mut self.postfit_kf {
+            //} else {
+            //    let kf_estim = KfEstimate::from_diag(
+            //        State3D {
+            //            t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT),
+            //            inner: Vector3::new(x[0], x[1], x[2]),
+            //        },
+            //        OVector::<f64, U3>::new(1.0, 1.0, 1.0),
+            //    );
+            //    let noise =
+            //        OMatrix::<f64, U3, U3>::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+            //    self.postfit_kf = Some(KF::no_snc(kf_estim, noise));
+            //}
         }
 
         let mut solution = PVTSolution {

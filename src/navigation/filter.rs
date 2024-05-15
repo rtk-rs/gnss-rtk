@@ -221,22 +221,21 @@ impl std::fmt::Display for State3D {
     }
 }
 
-impl NyxState for State3D {
-    type Size = U3;
-    type VecLength = U3;
-    fn as_vector(&self) -> Result<OVector<f64, U3>, NyxError> {
-        Ok(self.inner.into())
-    }
-    fn unset_stm(&mut self) {}
-    fn set(&mut self, t: Epoch, vector: &OVector<f64, U3>) -> Result<(), NyxError> {
-        self.t = t;
-        self.inner = vector.clone();
-        Ok(())
-    }
-    fn epoch(&self) -> Epoch {
-        self.t
-    }
-    fn set_epoch(&mut self, t: Epoch) {
-        self.t = t;
-    }
-}
+// impl NyxState for State3D {
+//     type Size = U3;
+//     type VecLength = U3;
+//     fn as_vector(&self) -> OVector<f64, U3>, NyxError {
+//         self.inner.into()
+//     }
+//     fn unset_stm(&mut self) {}
+//     fn set(&mut self, t: Epoch, vector: &OVector<f64, U3>) -> () {
+//         self.t = t;
+//         self.inner = vector.clone();
+//     }
+//     fn epoch(&self) -> Epoch {
+//         self.t
+//     }
+//     fn set_epoch(&mut self, t: Epoch) {
+//         self.t = t;
+//     }
+// }

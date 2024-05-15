@@ -349,7 +349,7 @@ impl Candidate {
      */
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, Duration), Error> {
         let (t, ts) = (self.t, self.t.time_scale);
-        let seconds_ts = t.to_duration().to_seconds();
+        let seconds_ts = t.to_duration_in_time_scale(t.time_scale).to_seconds();
 
         let dt_tx = seconds_ts
             - self
