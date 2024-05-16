@@ -116,16 +116,16 @@ pub(crate) fn unb3_model(rtm: &RuntimeParam) -> (f64, f64) {
     let zwd = (value).powf((lambda + 1.0_f64) * G / R_D / beta - 1.0_f64) * z0_zwd;
 
     debug!(
-        "{:?}: unb3 - [beta: {:.3}, p: {:.3}, temp: {:.3}, e: {:.3}, lambda: {:.3}",
+        "{}: unb3 - [beta: {:.3}, p: {:.3}, temp: {:.3}, e: {:.3}, lambda: {:.3}",
         rtm.t, beta, p, temp, e, lambda
     );
 
     debug!(
-        "{:?}: unb3 - zdd(h=0) {:.3} zwd(h=0) {:.3}",
+        "{}: unb3 - zdd(h=0) {:.3} zwd(h=0) {:.3}",
         rtm.t, z0_zdd, z0_zwd,
     );
     debug!(
-        "{:?}: unb3 - zdd(h={:.3}) {} zwd(h={:.3}) {:.3}",
+        "{}: unb3 - zdd(h={:.3}) {} zwd(h={:.3}) {:.3}",
         rtm.t, h, zdd, h, zwd
     );
 

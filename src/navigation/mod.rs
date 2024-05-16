@@ -185,11 +185,11 @@ impl Input {
             if cfg.modeling.tropo_delay {
                 if tropo_bias.needs_modeling() {
                     let bias = TroposphereBias::model(TropoModel::Niel, &rtm);
-                    debug!("{:?} : modeled tropo delay {:.3E}[m]", cd[index].t, bias);
+                    debug!("{} : modeled tropo delay {:.3E}[m]", cd[index].t, bias);
                     models += bias;
                     sv_input.tropo_bias = Bias::modeled(bias);
                 } else if let Some(bias) = tropo_bias.bias(&rtm) {
-                    debug!("{:?} : measured tropo delay {:.3E}[m]", cd[index].t, bias);
+                    debug!("{} : measured tropo delay {:.3E}[m]", cd[index].t, bias);
                     models += bias;
                     sv_input.tropo_bias = Bias::measured(bias);
                 }
@@ -201,7 +201,7 @@ impl Input {
             if cfg.method == Method::SPP && cfg.modeling.iono_delay {
                 if let Some(bias) = iono_bias.bias(&rtm) {
                     debug!(
-                        "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
+                        "{} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
                         cd[index].t, rtm.frequency, bias
                     );
                     models += bias;

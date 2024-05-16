@@ -237,7 +237,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         // TODO: apply MIN SNR too, (when desired)
                         Some(cd.clone())
                     } else {
-                        debug!("{:?} ({}) missing secondary frequency", cd.t, cd.sv);
+                        debug!("{} ({}) missing secondary frequency", cd.t, cd.sv);
                         None
                     }
                 },
@@ -246,7 +246,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         // TODO: apply MIN SNR too, (when desired)
                         Some(cd.clone())
                     } else {
-                        debug!("{:?} ({}) missing secondary phase", cd.t, cd.sv);
+                        debug!("{} ({}) missing secondary phase", cd.t, cd.sv);
                         None
                     }
                 },
@@ -258,7 +258,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
-                    debug!("{:?} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
+                    debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
                     let interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
 
                     let min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
@@ -267,19 +267,19 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
                     if interpolated.elevation < min_elev {
                         debug!(
-                            "{:?} ({}) - {:?} rejected : below elevation mask",
+                            "{} ({}) - {:?} rejected : below elevation mask",
                             cd.t, cd.sv, interpolated
                         );
                         None
                     } else if interpolated.azimuth < min_azim {
                         debug!(
-                            "{:?} ({}) - {:?} rejected : below azimuth mask",
+                            "{} ({}) - {:?} rejected : below azimuth mask",
                             cd.t, cd.sv, interpolated
                         );
                         None
                     } else if interpolated.azimuth > max_azim {
                         debug!(
-                            "{:?} ({}) - {:?} rejected : above azimuth mask",
+                            "{} ({}) - {:?} rejected : above azimuth mask",
                             cd.t, cd.sv, interpolated
                         );
                         None
@@ -289,13 +289,13 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             Self::rotate_position(modeling.earth_rotation, interpolated, dt_tx);
                         let interpolated = self.velocities(t_tx, cd.sv, interpolated);
                         cd.t_tx = t_tx;
-                        debug!("{:?} ({}) : {:?}", cd.t, cd.sv, interpolated);
+                        debug!("{} ({}) : {:?}", cd.t, cd.sv, interpolated);
                         cd.state = Some(interpolated);
                         Some(cd)
                     }
                 },
                 Err(e) => {
-                    error!("{} - transmision time error: {:?}", cd.sv, e);
+                    error!("{} - transmision time error: {}", cd.sv, e);
                     None
                 },
             })
@@ -320,7 +320,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         / SPEED_OF_LIGHT
                         / SPEED_OF_LIGHT
                         * Unit::Second;
-                    debug!("{:?} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                    debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
                     cd.clock_corr += bias;
                 }
             }
@@ -343,7 +343,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 };
                 if eclipsed {
                     debug!(
-                        "{:?} ({}): dropped - eclipsed by Earth",
+                        "{} ({}): dropped - eclipsed by Earth",
                         pool[idx - nb_removed].t,
                         pool[idx - nb_removed].sv
                     );

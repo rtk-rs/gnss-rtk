@@ -361,16 +361,13 @@ impl Candidate {
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
 
         if cfg.modeling.sv_clock_bias {
-            debug!(
-                "{:?} ({}) clock correction: {}",
-                t, self.sv, self.clock_corr
-            );
+            debug!("{} ({}) clock correction: {}", t, self.sv, self.clock_corr);
             e_tx -= self.clock_corr;
         }
 
         if cfg.modeling.sv_total_group_delay {
             if let Some(tgd) = self.tgd {
-                debug!("{:?} ({}) tgd   : {}", t, self.sv, tgd);
+                debug!("{} ({}) tgd   : {}", t, self.sv, tgd);
                 e_tx -= tgd;
             }
         }
