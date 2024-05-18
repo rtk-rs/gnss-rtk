@@ -94,7 +94,7 @@ fn test_3d_kf() {
 fn test_3d_lsq_postfit() {
     let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
-    let mut cfg = Config::static_preset(Method::CodePPP);
+    let mut cfg = Config::static_preset(Method::SPP);
 
     cfg.min_snr = None;
     cfg.min_sv_elev = None;

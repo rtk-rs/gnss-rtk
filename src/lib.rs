@@ -8,6 +8,7 @@ extern crate nyx_space as nyx;
 mod apriori;
 mod bias;
 mod candidate;
+mod carrier;
 mod cfg;
 mod navigation;
 mod solver;
@@ -19,7 +20,8 @@ mod tests;
 pub mod prelude {
     pub use crate::apriori::AprioriPosition;
     pub use crate::bias::{BdModel, IonosphereBias, KbModel, NgModel, TroposphereBias};
-    pub use crate::candidate::{Candidate, Carrier, Observation};
+    pub use crate::candidate::{Candidate, Observation};
+    pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, PVTSolution, PVTSolutionType};
     pub use crate::solver::{Error, InterpolationResult, Solver};

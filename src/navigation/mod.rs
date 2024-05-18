@@ -154,7 +154,7 @@ impl Input {
                 Method::SPP => cd[index]
                     .prefered_pseudorange()
                     .ok_or(Error::MissingPseudoRange)?,
-                Method::CodePPP | Method::PPP => cd[index]
+                Method::CPP | Method::PPP => cd[index]
                     .pseudorange_combination()
                     .ok_or(Error::PseudoRangeCombination)?,
             };

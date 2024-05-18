@@ -26,12 +26,12 @@ pub enum Method {
     /// Phase observations are not required, and Ionosphere model must be provided
     /// for best results. Exhibits metric accuracy on high quality data.
     SPP,
-    /// Code based Precise Point Positioning (PPP).
+    /// Code based Precise Point Positioning (CPP).
     /// Code based navigation on dual carrier frequencies.
     /// Both phase observations and Ionosphere modeling are not required.
     /// Exhibits metric accuracy on high quality data.
     #[default]
-    CodePPP,
+    CPP,
     /// Precise Point Positioning (PPP).
     /// Code and Carrier based navigation, requires Pseudo range and
     /// Carrier phase observations on two frequencies.
@@ -43,8 +43,8 @@ impl std::fmt::Display for Method {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::SPP => write!(fmt, "SPP"),
+            Self::CPP => write!(fmt, "CPP"),
             Self::PPP => write!(fmt, "PPP"),
-            Self::CodePPP => write!(fmt, "Code-PPP"),
         }
     }
 }
@@ -389,7 +389,7 @@ impl Config {
                     postfit_kf: default_postfit_kf(),
                 },
             },
-            Method::CodePPP => Self {
+            Method::CPP => Self {
                 method,
                 positioning: Positioning::Static,
                 sol_type: PVTSolutionType::default(),
@@ -470,7 +470,7 @@ impl Config {
                     postfit_kf: default_postfit_kf(),
                 },
             },
-            Method::CodePPP => Self {
+            Method::CPP => Self {
                 method,
                 positioning: Positioning::Kinematic,
                 sol_type: PVTSolutionType::default(),

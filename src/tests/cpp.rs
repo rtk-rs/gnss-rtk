@@ -8,7 +8,7 @@ use crate::{
 fn test_3d_lsq() {
     let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
-    let mut cfg = Config::static_preset(Method::CodePPP);
+    let mut cfg = Config::static_preset(Method::CPP);
 
     cfg.min_snr = None;
     cfg.min_sv_elev = None;
@@ -51,7 +51,7 @@ fn test_3d_lsq() {
 fn test_3d_kf() {
     let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
-    let mut cfg = Config::static_preset(Method::CodePPP);
+    let mut cfg = Config::static_preset(Method::CPP);
 
     cfg.min_snr = None;
     cfg.min_sv_elev = None;
@@ -94,7 +94,7 @@ fn test_3d_kf() {
 fn test_3d_kf_postfit() {
     let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
-    let mut cfg = Config::static_preset(Method::CodePPP);
+    let mut cfg = Config::static_preset(Method::CPP);
 
     cfg.min_snr = None;
     cfg.min_sv_elev = None;

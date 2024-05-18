@@ -76,9 +76,9 @@ pub struct InterpolationResult {
 }
 
 impl InterpolationResult {
-    /// Builds InterpolationResults from an Antenna Phase Center (APC) position
-    /// as ECEF [m] coordinates
-    pub fn from_apc_position(position: (f64, f64, f64)) -> Self {
+    /// Builds InterpolationResults from Antenna Phase Center (APC) position coordinates,
+    /// expressed in ECEF [m].
+    pub fn from_position(position: (f64, f64, f64)) -> Self {
         Self {
             velocity: None,
             azimuth: 0.0_f64,
@@ -102,12 +102,12 @@ impl InterpolationResult {
         let p = self.position;
         let v = self.velocity().unwrap_or_default();
         Orbit::cartesian(
-            p[0] / 1000.0,
-            p[1] / 1000.0,
-            p[2] / 1000.0,
-            v[0] / 1000.0,
-            v[1] / 1000.0,
-            v[2] / 1000.0,
+            p[0] / 1.0E3,
+            p[1] / 1.0E3,
+            p[2] / 1.0E3,
+            v[0] / 1.0E3,
+            v[1] / 1.0E3,
+            v[2] / 1.0E3,
             dt,
             frame,
         )
@@ -232,8 +232,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         Some(cd.clone())
                     }
                 },
-                Method::CodePPP => {
-                    if cd.code_ppp_compatible() {
+                Method::CPP => {
+                    if cd.cpp_compatible() {
                         // TODO: apply MIN SNR too, (when desired)
                         Some(cd.clone())
                     } else {
