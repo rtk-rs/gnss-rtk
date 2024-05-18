@@ -408,7 +408,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         match validator.validate(solver_opts) {
             Ok(_) => {
-                debug!("validated solution: {:?}", output.state);
+                if method == Method::PPP {
+                    debug!("ambiguities: {:?}", output.state.ambiguities());
+                }
                 self.nav.validate();
             },
             Err(e) => {

@@ -59,6 +59,17 @@ impl FilterState {
             _ => None,
         }
     }
+    pub fn ambiguities(&self) -> Vec<f64> {
+        let x = match self {
+            Self::LSQ(state) => state.x,
+            Self::KF(state) => state.x,
+        };
+        let mut r = Vec::<f64>::new();
+        for i in 4..x.len() {
+            r.push(x[i]);
+        }
+        r
+    }
     fn kf(state: KFState) -> Self {
         Self::KF(state)
     }
