@@ -1,12 +1,12 @@
 use crate::{
-    prelude::{AprioriPosition, Config, Error, Filter, Method, PVTSolutionType, Solver, Vector3},
+    prelude::{Config, Error, Filter, Method, PVTSolutionType, Position, Solver, Vector3},
     tests::data::gps::test_data as gps_test_data,
     tests::fake_interpolator,
 };
 
 #[test]
 fn test_3d_lsq() {
-    let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
+    let initial = Position::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
     let mut cfg = Config::static_preset(Method::CPP);
 
@@ -14,10 +14,10 @@ fn test_3d_lsq() {
     cfg.min_sv_elev = None;
     cfg.solver.filter = Filter::LSQ;
     cfg.sol_type = PVTSolutionType::PositionVelocityTime;
-
     println!("Testing {:#?}", cfg);
 
-    let mut solver = Solver::new(&cfg, apriori, fake_interpolator).expect("failed to build solver");
+    let mut solver =
+        Solver::new(&cfg, Some(initial), fake_interpolator).expect("failed to build solver");
 
     for (index, test_data) in gps_test_data().iter().enumerate() {
         let solutions = solver.resolve(
@@ -36,7 +36,7 @@ fn test_3d_lsq() {
         } else {
             assert!(
                 solutions.is_ok(),
-                "failed to resolve @{:?} - {}",
+                "failed to resolve @{} - {}",
                 test_data.t_rx,
                 solutions.err().unwrap(),
             );
@@ -49,7 +49,7 @@ fn test_3d_lsq() {
 
 #[test]
 fn test_3d_kf() {
-    let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
+    let initial = Position::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
     let mut cfg = Config::static_preset(Method::CPP);
 
@@ -57,10 +57,10 @@ fn test_3d_kf() {
     cfg.min_sv_elev = None;
     cfg.solver.filter = Filter::Kalman;
     cfg.sol_type = PVTSolutionType::PositionVelocityTime;
-
     println!("Testing {:#?}", cfg);
 
-    let mut solver = Solver::new(&cfg, apriori, fake_interpolator).expect("failed to build solver");
+    let mut solver =
+        Solver::new(&cfg, Some(initial), fake_interpolator).expect("failed to build solver");
 
     for (index, test_data) in gps_test_data().iter().enumerate() {
         let solutions = solver.resolve(
@@ -79,7 +79,7 @@ fn test_3d_kf() {
         } else {
             assert!(
                 solutions.is_ok(),
-                "failed to resolve @{:?} - {}",
+                "failed to resolve @{} - {}",
                 test_data.t_rx,
                 solutions.err().unwrap(),
             );
@@ -92,7 +92,7 @@ fn test_3d_kf() {
 
 #[test]
 fn test_3d_kf_postfit() {
-    let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
+    let initial = Position::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
     let mut cfg = Config::static_preset(Method::CPP);
 
@@ -101,10 +101,10 @@ fn test_3d_kf_postfit() {
     cfg.solver.postfit_kf = true;
     cfg.solver.filter = Filter::Kalman;
     cfg.sol_type = PVTSolutionType::PositionVelocityTime;
-
     println!("Testing {:#?}", cfg);
 
-    let mut solver = Solver::new(&cfg, apriori, fake_interpolator).expect("failed to build solver");
+    let mut solver =
+        Solver::new(&cfg, Some(initial), fake_interpolator).expect("failed to build solver");
 
     for (index, test_data) in gps_test_data().iter().enumerate() {
         let solutions = solver.resolve(
@@ -123,7 +123,7 @@ fn test_3d_kf_postfit() {
         } else {
             assert!(
                 solutions.is_ok(),
-                "failed to resolve @{:?} - {}",
+                "failed to resolve @{} - {}",
                 test_data.t_rx,
                 solutions.err().unwrap(),
             );
@@ -136,7 +136,7 @@ fn test_3d_kf_postfit() {
 
 #[test]
 fn test_1d_lsq() {
-    let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
+    let initial = Position::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
     let mut cfg = Config::static_preset(Method::SPP);
 
@@ -144,10 +144,10 @@ fn test_1d_lsq() {
     cfg.min_sv_elev = None;
     cfg.solver.filter = Filter::LSQ;
     cfg.sol_type = PVTSolutionType::TimeOnly;
-
     println!("Testing {:#?}", cfg);
 
-    let mut solver = Solver::new(&cfg, apriori, fake_interpolator).expect("failed to build solver");
+    let mut solver =
+        Solver::new(&cfg, Some(initial), fake_interpolator).expect("failed to build solver");
 
     for (t_index, test_data) in gps_test_data().iter().enumerate() {
         for (cd_index, cd) in test_data.pool.iter().enumerate() {
@@ -167,7 +167,7 @@ fn test_1d_lsq() {
             } else {
                 assert!(
                     solutions.is_ok(),
-                    "failed to resolve {}@{:?} - {}",
+                    "failed to resolve {}@{} - {}",
                     cd.sv,
                     test_data.t_rx,
                     solutions.err().unwrap(),
@@ -179,7 +179,7 @@ fn test_1d_lsq() {
 
 #[test]
 fn test_1d_kf() {
-    let apriori = AprioriPosition::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
+    let initial = Position::from_geo(Vector3::new(55.493253, 8.458771, 0.0));
 
     let mut cfg = Config::static_preset(Method::SPP);
 
@@ -187,10 +187,10 @@ fn test_1d_kf() {
     cfg.min_sv_elev = None;
     cfg.solver.filter = Filter::Kalman;
     cfg.sol_type = PVTSolutionType::TimeOnly;
-
     println!("Testing {:#?}", cfg);
 
-    let mut solver = Solver::new(&cfg, apriori, fake_interpolator).expect("failed to build solver");
+    let mut solver =
+        Solver::new(&cfg, Some(initial), fake_interpolator).expect("failed to build solver");
 
     for (t_index, test_data) in gps_test_data().iter().enumerate() {
         for (cd_index, cd) in test_data.pool.iter().enumerate() {
@@ -210,7 +210,7 @@ fn test_1d_kf() {
             } else {
                 assert!(
                     solutions.is_ok(),
-                    "failed to resolve {}@{:?} - {}",
+                    "failed to resolve {}@{} - {}",
                     cd.sv,
                     test_data.t_rx,
                     solutions.err().unwrap(),

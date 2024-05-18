@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use gnss::prelude::SV;
 use hifitime::Unit;
 use log::{debug, error, warn};
-use map_3d::deg2rad;
+use map_3d::{deg2rad, ecef2geodetic, Ellipsoid};
 use nalgebra::{Matrix3, OMatrix, OVector, Vector3, U3};
 use thiserror::Error;
 
@@ -18,7 +18,7 @@ use nyx::{
 };
 
 use crate::{
-    apriori::AprioriPosition,
+    bancroft::Bancroft,
     bias::{IonosphereBias, TroposphereBias},
     candidate::Candidate,
     cfg::{Config, Method},
@@ -26,6 +26,7 @@ use crate::{
         solutions::validator::Validator as SolutionValidator, Input as NavigationInput, Navigation,
         PVTSolution, PVTSolutionType, State3D,
     },
+    position::Position,
     prelude::{Duration, Epoch},
     tracker::Tracker,
 };
@@ -38,12 +39,12 @@ pub enum Error {
     NotEnoughMatchingCandidates,
     #[error("failed to form matrix (invalid input?)")]
     MatrixError,
+    #[error("first guess failure")]
+    FirstGuess,
     #[error("failed to invert matrix")]
     MatrixInversionError,
     #[error("resolved time is `nan` (invalid value(s))")]
     TimeIsNan,
-    #[error("undefined apriori position")]
-    UndefinedAprioriPosition,
     #[error("internal navigation error")]
     NavigationError,
     #[error("missing pseudo range observation")]
@@ -126,10 +127,10 @@ where
 {
     /// Solver parametrization
     pub cfg: Config,
-    /// apriori position
-    pub apriori: AprioriPosition,
     /// Interpolated SV state.
-    pub interpolator: I,
+    interpolator: I,
+    /// Initial [Position]
+    initial: Option<Position>,
     /* Cosmic model */
     cosmic: Arc<Cosm>,
     // Solid / Earth body frame.
@@ -143,24 +144,24 @@ where
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
-    prev_pvt: Option<(Epoch, PVTSolution)>,
-    /* prev. state vector for internal velocity determination */
+    /// Previous solution
+    prev_solution: Option<(Epoch, PVTSolution)>,
+    /// Stored previous SV state
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
     /// Create a new Position [Solver].
-    /// ## Inputs
     /// - cfg: Solver [Config]
-    /// - apriori: Reference position (coordinates) that we currently use
-    /// to verify how well the solver performs.
+    /// - initial: Possible initial [Position], used to initialize the Solver
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
-    pub fn new(cfg: &Config, apriori: AprioriPosition, interpolator: I) -> Result<Self, Error> {
+    pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
         let earth_frame = cosmic.frame("EME2000");
+
         /*
-         * print some infos on latched config
+         * print more infos
          */
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("Eclipse filter is not meaningful in SPP mode");
@@ -172,14 +173,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             cosmic,
             sun_frame,
             earth_frame,
-            apriori,
+            initial,
             interpolator,
             cfg: cfg.clone(),
             tracker: Tracker::new(),
             // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
-            prev_pvt: Option::<(Epoch, PVTSolution)>::None,
+            prev_solution: Option::<(Epoch, PVTSolution)>::None,
         })
     }
     /// [PVTSolution] resolution attempt.
@@ -201,17 +202,20 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             return Err(Error::NotEnoughCandidates);
         }
 
-        let (x0, y0, z0) = (
-            self.apriori.ecef.x,
-            self.apriori.ecef.y,
-            self.apriori.ecef.z,
-        );
-
-        let (lat_ddeg, lon_ddeg, altitude_above_sea_m) = (
-            self.apriori.geodetic.x,
-            self.apriori.geodetic.y,
-            self.apriori.geodetic.z,
-        );
+        let (x0, y0, z0) = if let Some((_, pvt)) = &self.prev_solution {
+            //(pvt.position[0], pvt.position[1], pvt.position[2])
+            let ecef = match &self.initial {
+                Some(initial) => initial.ecef(),
+                None => Vector3::<f64>::default(),
+            };
+            (ecef[0], ecef[1], ecef[2])
+        } else {
+            let ecef = match &self.initial {
+                Some(initial) => initial.ecef(),
+                None => Vector3::<f64>::default(),
+            };
+            (ecef[0], ecef[1], ecef[2])
+        };
 
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
@@ -357,36 +361,57 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             }
         }
 
-        // adapt to navigation
+        // sort by quality
         pool.sort_by(|cd_a, cd_b| {
             let state_a = cd_a.state.unwrap();
             let state_b = cd_b.state.unwrap();
             state_b.elevation.partial_cmp(&state_a.elevation).unwrap()
         });
 
-        match self.cfg.sol_type {
-            PVTSolutionType::TimeOnly => {
-                let mut index = 0;
-                pool.retain(|_| {
-                    index += 1;
-                    index == 1
-                });
-            },
-            _ => {
-                let mut index = 0;
-                pool.retain(|_| {
-                    index += 1;
-                    index < min_required + 1
-                });
-            },
+        // Retain required nb of SV
+        if self.prev_solution.is_none() && self.initial.is_none() {
+            // Bancroft needs 4 SV
+            let mut index = 0;
+            pool.retain(|_| {
+                index += 1;
+                index < 5
+            });
+        } else {
+            // Regular iteration
+            let mut index = 0;
+            let min_required = match self.cfg.sol_type {
+                PVTSolutionType::TimeOnly => 2,
+                _ => min_required + 1,
+            };
+            pool.retain(|_| {
+                index += 1;
+                index < min_required
+            });
         }
 
         if pool.len() != min_required {
             return Err(Error::NotEnoughMatchingCandidates);
         }
 
-        // sort by PRN to form consistent matrix
+        // sort by PRN to form consistant matrix
         pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
+
+        let (lat_ddeg, lon_ddeg, altitude_above_sea_m) = if let Some((_, pvt)) = &self.prev_solution
+        {
+            let geo = ecef2geodetic(
+                pvt.position[0],
+                pvt.position[1],
+                pvt.position[2],
+                Ellipsoid::WGS84,
+            );
+            (deg2rad(geo.0), deg2rad(geo.1), geo.2)
+        } else {
+            let geo = match &self.initial {
+                Some(initial) => initial.geodetic(),
+                None => Vector3::<f64>::default(),
+            };
+            (deg2rad(geo[0]), deg2rad(geo[1]), geo[2])
+        };
 
         let input = match NavigationInput::new(
             (x0, y0, z0),
@@ -403,6 +428,18 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             },
         };
 
+        // First guess
+        if self.prev_solution.is_none() && self.initial.is_none() {
+            match Bancroft::resolve(&input) {
+                Ok(solution) => panic!("not supported yet"),
+                Err(e) => {
+                    warn!("First initial guess failure: {}", e);
+                    return Err(Error::FirstGuess);
+                },
+            }
+        }
+
+        // Regular Iteration
         let output = match self.nav.resolve(&input) {
             Ok(output) => output,
             Err(e) => {
@@ -411,7 +448,29 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             },
         };
 
-        let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &input, &output);
+        let x = output.state.estimate();
+
+        let mut solution = PVTSolution {
+            gdop: output.gdop,
+            tdop: output.tdop,
+            pdop: output.pdop,
+            sv: input.sv.clone(),
+            q: output.q_covar4x4(),
+            timescale: self.cfg.timescale,
+            velocity: Vector3::<f64>::default(),
+            position: Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
+            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT),
+        };
+
+        // First solution
+        if self.prev_solution.is_none() {
+            // always discard 1st solution
+            self.prev_solution = Some((t, solution.clone()));
+            return Err(Error::InvalidatedSolution);
+        }
+
+        let validator =
+            SolutionValidator::new(Vector3::<f64>::new(x0, y0, z0), &pool, &input, &output);
 
         match validator.validate(solver_opts) {
             Ok(_) => {
@@ -429,8 +488,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 return Err(Error::InvalidatedSolution);
             },
         };
-
-        let x = output.state.estimate();
 
         /*
          * Post-fit KF
@@ -451,32 +508,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             //}
         }
 
-        let mut solution = PVTSolution {
-            q: output.q_covar4x4(),
-            gdop: output.gdop,
-            tdop: output.tdop,
-            pdop: output.pdop,
-            velocity: Vector3::<f64>::default(),
-            position: Vector3::new(x[0], x[1], x[2]),
-            sv: input.sv.clone(),
-            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT),
-            timescale: self.cfg.timescale,
-        };
-
-        if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
+        if let Some((prev_t, prev_solution)) = &self.prev_solution {
             solution.velocity =
-                (solution.position - prev_pvt.position) / (t - *prev_t).to_seconds();
+                (solution.position - prev_solution.position) / (t - *prev_t).to_seconds();
         }
 
-        if self.prev_pvt.is_none() {
-            // always discard 1st solution
-            self.prev_pvt = Some((t, solution.clone()));
-            return Err(Error::InvalidatedSolution);
-        }
+        self.prev_solution = Some((t, solution.clone()));
 
-        self.prev_pvt = Some((t, solution.clone()));
-
-        Self::rework_solution(&mut solution, &self.apriori, &self.cfg);
+        Self::rework_solution(&mut solution, &self.cfg);
         Ok((t, solution))
     }
     /*
@@ -538,9 +577,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     /*
      * Reworks solution to adapt to configuration setup and desired format.
      */
-    fn rework_solution(pvt: &mut PVTSolution, apriori: &AprioriPosition, cfg: &Config) {
+    fn rework_solution(pvt: &mut PVTSolution, cfg: &Config) {
         if let Some(alt) = cfg.fixed_altitude {
-            pvt.position.z = apriori.ecef.z - alt;
+            pvt.position.z = alt;
             pvt.velocity.z = 0.0_f64;
         }
         if cfg.sol_type == PVTSolutionType::TimeOnly {

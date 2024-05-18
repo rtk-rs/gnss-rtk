@@ -50,7 +50,7 @@ pub struct Input {
 /// Navigation Output
 #[derive(Debug, Clone, Default)]
 pub struct Output {
-    /// Time Dilultion of Precision
+    /// Time Dilution of Precision
     pub tdop: f64,
     /// Geometric Dilution of Precision
     pub gdop: f64,

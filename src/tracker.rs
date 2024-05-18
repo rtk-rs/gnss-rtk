@@ -23,7 +23,7 @@ impl Tracker {
 
 /// Phase Ambiguity fixing methods.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum AmbiguityFixing {
+pub enum FixingMethod {
     /// [WideLane]
     #[default]
     Kalman,
