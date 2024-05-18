@@ -12,6 +12,7 @@ mod carrier;
 mod cfg;
 mod navigation;
 mod solver;
+mod tracker;
 
 #[cfg(test)]
 mod tests;

@@ -1,17 +1,30 @@
-use crate::prelude::Duration;
+use crate::prelude::{Duration, SV};
 use std::collections::HashMap;
 
 /// Signal tracker
+#[derive(Debug, Clone)]
 pub struct Tracker {
-    gap_tolerance: Duration,
-    buffer: HashMap<SV, Vec<f64>>,    
+    inner: HashMap<SV, f64>,
 }
 
-/// SignaL phase Ambiguity fixing methods,
-/// only apply to strategies that involve Phase observations.
+impl Tracker {
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::with_capacity(16),
+        }
+    }
+    pub fn update(&mut self, sv: SV, value: f64) {
+        self.inner.insert(sv, value);
+    }
+    pub fn ambiguity(&self, sv: &SV) -> Option<&f64> {
+        self.inner.get(sv)
+    }
+}
+
+/// Phase Ambiguity fixing methods.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AmbiguityFixing {
     /// [WideLane]
     #[default]
-    WideLane,
+    Kalman,
 }
