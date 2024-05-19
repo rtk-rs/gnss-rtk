@@ -1,14 +1,11 @@
 //! Position solving candidate
-
 use hifitime::Unit;
 use itertools::Itertools;
-
-use log::debug;
-use std::cmp::Ordering;
+use nyx::cosmic::SPEED_OF_LIGHT;
 
 use crate::prelude::{Carrier, Config, Duration, Epoch, Error, InterpolationResult, SV};
-
-use nyx::cosmic::SPEED_OF_LIGHT;
+use log::debug;
+use std::cmp::Ordering;
 
 /// Signal observation to attach to each candidate
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -397,8 +394,10 @@ impl Candidate {
             e_tx
         );
         assert!(
-            dt_secs <= 0.1,
-            "something's wrong - {} propagation delay is suspicious",
+            dt_secs <= 0.2,
+            "{}({}): {} propagation delay (to Earth) is unrealistic: invalid input",
+            t,
+            self.sv,
             dt
         );
         Ok((e_tx, dt))
