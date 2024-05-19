@@ -2,7 +2,7 @@ pub mod solutions;
 pub use solutions::{PVTSolution, PVTSolutionType};
 
 mod filter;
-pub(crate) use filter::State3D;
+
 pub use filter::{Filter, FilterState};
 
 use log::debug;
@@ -50,7 +50,7 @@ pub struct Input {
 /// Navigation Output
 #[derive(Debug, Clone, Default)]
 pub struct Output {
-    /// Time Dilultion of Precision
+    /// Time Dilution of Precision
     pub tdop: f64,
     /// Geometric Dilution of Precision
     pub gdop: f64,
@@ -91,7 +91,7 @@ impl Input {
         apriori: (f64, f64, f64),
         apriori_geo: (f64, f64, f64),
         cfg: &Config,
-        cd: &Vec<Candidate>,
+        cd: &[Candidate],
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<Self, Error> {
@@ -154,7 +154,7 @@ impl Input {
                 Method::SPP => cd[index]
                     .prefered_pseudorange()
                     .ok_or(Error::MissingPseudoRange)?,
-                Method::CodePPP | Method::PPP => cd[index]
+                Method::CPP | Method::PPP => cd[index]
                     .pseudorange_combination()
                     .ok_or(Error::PseudoRangeCombination)?,
             };
@@ -185,11 +185,11 @@ impl Input {
             if cfg.modeling.tropo_delay {
                 if tropo_bias.needs_modeling() {
                     let bias = TroposphereBias::model(TropoModel::Niel, &rtm);
-                    debug!("{:?} : modeled tropo delay {:.3E}[m]", cd[index].t, bias);
+                    debug!("{} : modeled tropo delay {:.3E}[m]", cd[index].t, bias);
                     models += bias;
                     sv_input.tropo_bias = Bias::modeled(bias);
                 } else if let Some(bias) = tropo_bias.bias(&rtm) {
-                    debug!("{:?} : measured tropo delay {:.3E}[m]", cd[index].t, bias);
+                    debug!("{} : measured tropo delay {:.3E}[m]", cd[index].t, bias);
                     models += bias;
                     sv_input.tropo_bias = Bias::measured(bias);
                 }
@@ -201,7 +201,7 @@ impl Input {
             if cfg.method == Method::SPP && cfg.modeling.iono_delay {
                 if let Some(bias) = iono_bias.bias(&rtm) {
                     debug!(
-                        "{:?} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
+                        "{} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
                         cd[index].t, rtm.frequency, bias
                     );
                     models += bias;

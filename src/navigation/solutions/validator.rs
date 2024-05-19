@@ -29,8 +29,8 @@ pub(crate) struct Validator {
 
 impl Validator {
     pub fn new(
-        apriori_ecef: &Vector3<f64>,
-        pool: &Vec<Candidate>,
+        apriori_ecef: Vector3<f64>,
+        pool: &[Candidate],
         input: &Input,
         output: &Output,
     ) -> Self {

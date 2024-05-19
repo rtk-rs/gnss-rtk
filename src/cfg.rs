@@ -26,12 +26,12 @@ pub enum Method {
     /// Phase observations are not required, and Ionosphere model must be provided
     /// for best results. Exhibits metric accuracy on high quality data.
     SPP,
-    /// Code based Precise Point Positioning (PPP).
+    /// Code based Precise Point Positioning (CPP).
     /// Code based navigation on dual carrier frequencies.
     /// Both phase observations and Ionosphere modeling are not required.
     /// Exhibits metric accuracy on high quality data.
     #[default]
-    CodePPP,
+    CPP,
     /// Precise Point Positioning (PPP).
     /// Code and Carrier based navigation, requires Pseudo range and
     /// Carrier phase observations on two frequencies.
@@ -43,8 +43,8 @@ impl std::fmt::Display for Method {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::SPP => write!(fmt, "SPP"),
+            Self::CPP => write!(fmt, "CPP"),
             Self::PPP => write!(fmt, "PPP"),
-            Self::CodePPP => write!(fmt, "Code-PPP"),
         }
     }
 }
@@ -60,15 +60,19 @@ impl std::fmt::Display for Method {
 //     }
 // }
 
-/// [Positioning] indicates
+/// Rover or receiver use case Profile, to the [Solver]
+/// selects appropriate settings. Failing to select
+/// the apropriate [Profile] will degrade the solutions.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum Positioning {
-    /// Receiver is static (laboratories or geodetic survey use case)
+pub enum Profile {
+    /// Receiver held in static.
+    /// Typically used in Geodetic surveys (GNSS stations Referencing)
+    /// and laboratories applications.
     #[default]
     Static,
-    /// Receiver is moving (roaming)
-    Kinematic,
+    /// Roaming: Pedestrian (<5 to 10 km/h)
+    Pedestrian,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -300,12 +304,9 @@ pub struct Config {
     /// Solver method (strategy) used.
     #[cfg_attr(feature = "serde", serde(default))]
     pub method: Method,
-    /// [Positioning] allows selecting the type of application,
-    /// tied to the GNSS receiver use case.
-    /// [Positioning::Static] is the default value,
-    /// use [Positioning::Kinematic] for roaming applications.
+    /// [Profile] selects the type of application.
     #[cfg_attr(feature = "serde", serde(default))]
-    positioning: Positioning,
+    pub profile: Profile,
     /// Interpolation order
     #[cfg_attr(feature = "serde", serde(default = "default_interp"))]
     pub interp_order: usize,
@@ -366,7 +367,7 @@ impl Config {
         match method {
             Method::SPP => Self {
                 method,
-                positioning: Positioning::Static,
+                profile: Profile::Static,
                 sol_type: PVTSolutionType::default(),
                 arp_enu: None,
                 fixed_altitude: None,
@@ -389,90 +390,9 @@ impl Config {
                     postfit_kf: default_postfit_kf(),
                 },
             },
-            Method::CodePPP => Self {
+            Method::CPP => Self {
                 method,
-                positioning: Positioning::Static,
-                sol_type: PVTSolutionType::default(),
-                arp_enu: None,
-                fixed_altitude: None,
-                timescale: default_timescale(),
-                interp_order: default_interp(),
-                code_smoothing: default_smoothing(),
-                min_snr: Some(30.0),
-                min_sv_elev: Some(15.0),
-                min_sv_azim: None,
-                max_sv_azim: None,
-                min_sv_sunlight_rate: None,
-                modeling: Modeling::default(),
-                int_delay: Default::default(),
-                externalref_delay: Default::default(),
-                solver: SolverOpts {
-                    filter: Filter::LSQ,
-                    gdop_threshold: default_gdop_threshold(),
-                    tdop_threshold: default_tdop_threshold(),
-                    filter_opts: default_filter_opts(),
-                    postfit_kf: default_postfit_kf(),
-                },
-            },
-            Method::PPP => Self {
-                method,
-                positioning: Positioning::Static,
-                sol_type: PVTSolutionType::default(),
-                arp_enu: None,
-                fixed_altitude: None,
-                timescale: default_timescale(),
-                interp_order: default_interp(),
-                code_smoothing: default_smoothing(),
-                min_snr: Some(30.0),
-                min_sv_elev: Some(15.0),
-                min_sv_azim: None,
-                max_sv_azim: None,
-                min_sv_sunlight_rate: None,
-                modeling: Modeling::default(),
-                int_delay: Default::default(),
-                externalref_delay: Default::default(),
-                solver: SolverOpts {
-                    filter: Filter::LSQ,
-                    gdop_threshold: default_gdop_threshold(),
-                    tdop_threshold: default_tdop_threshold(),
-                    filter_opts: default_filter_opts(),
-                    postfit_kf: default_postfit_kf(),
-                },
-            },
-        }
-    }
-    /// Returns a basic [Config] that is consistent with given Positioning [Method]
-    /// and a roaming applications.
-    pub fn roaming_preset(method: Method) -> Self {
-        match method {
-            Method::SPP => Self {
-                method,
-                positioning: Positioning::Kinematic,
-                sol_type: PVTSolutionType::default(),
-                arp_enu: None,
-                fixed_altitude: None,
-                timescale: default_timescale(),
-                interp_order: default_interp(),
-                code_smoothing: default_smoothing(),
-                min_snr: Some(30.0),
-                min_sv_elev: Some(15.0),
-                min_sv_azim: None,
-                max_sv_azim: None,
-                min_sv_sunlight_rate: None,
-                modeling: Modeling::default(),
-                int_delay: Default::default(),
-                externalref_delay: Default::default(),
-                solver: SolverOpts {
-                    filter: Filter::LSQ,
-                    gdop_threshold: default_gdop_threshold(),
-                    tdop_threshold: default_tdop_threshold(),
-                    filter_opts: default_filter_opts(),
-                    postfit_kf: default_postfit_kf(),
-                },
-            },
-            Method::CodePPP => Self {
-                method,
-                positioning: Positioning::Kinematic,
+                profile: Profile::Static,
                 sol_type: PVTSolutionType::default(),
                 arp_enu: None,
                 fixed_altitude: None,
@@ -497,7 +417,7 @@ impl Config {
             },
             Method::PPP => Self {
                 method,
-                positioning: Positioning::Kinematic,
+                profile: Profile::Static,
                 sol_type: PVTSolutionType::default(),
                 arp_enu: None,
                 fixed_altitude: None,

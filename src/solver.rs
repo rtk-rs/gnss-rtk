@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use gnss::prelude::SV;
 use hifitime::Unit;
 use log::{debug, error, warn};
-use map_3d::deg2rad;
-use nalgebra::{Matrix3, OMatrix, OVector, Vector3, U3};
+use map_3d::{deg2rad, ecef2geodetic, rad2deg};
+use nalgebra::{Matrix3, Vector3};
+use std::f64::consts::PI;
 use thiserror::Error;
 
 use nyx::{
@@ -14,19 +15,20 @@ use nyx::{
         Orbit, SPEED_OF_LIGHT,
     },
     md::prelude::{Arc, Cosm, Frame},
-    od::{filter::kalman::KF, process::KfEstimate},
 };
 
 use crate::{
-    apriori::AprioriPosition,
+    bancroft::Bancroft,
     bias::{IonosphereBias, TroposphereBias},
     candidate::Candidate,
     cfg::{Config, Method},
     navigation::{
         solutions::validator::Validator as SolutionValidator, Input as NavigationInput, Navigation,
-        PVTSolution, PVTSolutionType, State3D,
+        PVTSolution, PVTSolutionType,
     },
+    position::Position,
     prelude::{Duration, Epoch},
+    tracker::Tracker,
 };
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -37,12 +39,12 @@ pub enum Error {
     NotEnoughMatchingCandidates,
     #[error("failed to form matrix (invalid input?)")]
     MatrixError,
+    #[error("first guess failure")]
+    FirstGuess,
     #[error("failed to invert matrix")]
     MatrixInversionError,
     #[error("resolved time is `nan` (invalid value(s))")]
     TimeIsNan,
-    #[error("undefined apriori position")]
-    UndefinedAprioriPosition,
     #[error("internal navigation error")]
     NavigationError,
     #[error("missing pseudo range observation")]
@@ -51,7 +53,7 @@ pub enum Error {
     PseudoRangeCombination,
     #[error("failed to form phase range combination")]
     PhaseCombination,
-    #[error("unresolved candidate state: should not have been proposed")]
+    #[error("unresolved candidate state")]
     UnresolvedState,
     #[error("physical non sense: rx prior tx")]
     PhysicalNonSenseRxPriorTx,
@@ -59,6 +61,10 @@ pub enum Error {
     PhysicalNonSenseRxTooLate,
     #[error("invalidated solution")]
     InvalidatedSolution,
+    #[error("bancroft solver error: invalid input ?")]
+    BancroftError,
+    #[error("bancroft solver error: invalid input (imaginary solution)")]
+    BancroftImaginarySolution,
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -76,9 +82,9 @@ pub struct InterpolationResult {
 }
 
 impl InterpolationResult {
-    /// Builds InterpolationResults from an Antenna Phase Center (APC) position
-    /// as ECEF [m] coordinates
-    pub fn from_apc_position(position: (f64, f64, f64)) -> Self {
+    /// Builds InterpolationResults from Antenna Phase Center (APC) position coordinates,
+    /// expressed in ECEF [m].
+    pub fn from_position(position: (f64, f64, f64)) -> Self {
         Self {
             velocity: None,
             azimuth: 0.0_f64,
@@ -86,11 +92,43 @@ impl InterpolationResult {
             position: Vector3::<f64>::new(position.0, position.1, position.2),
         }
     }
-    /// Builds Self with given SV (elevation, azimuth) attitude
-    pub fn with_elevation_azimuth(&self, elev_azim: (f64, f64)) -> Self {
+    /// Augment self to fully defined with both Elevation and Azimuth angles
+    pub(crate) fn with_elevation_azimuth(&self, position: (f64, f64, f64)) -> Self {
+        let (x, y, z) = position;
+        let (lat_rad, lon_rad, _) = ecef2geodetic(x, y, z, map_3d::Ellipsoid::WGS84);
+
+        let (sv_x, sv_y, sv_z) = (self.position[0], self.position[1], self.position[2]);
+        let a_i = (sv_x - x, sv_y - y, sv_z - z);
+        let norm = (a_i.0.powf(2.0) + a_i.1.powf(2.0) + a_i.2.powf(2.0)).sqrt();
+        let a_i = (a_i.0 / norm, a_i.1 / norm, a_i.2 / norm);
+
+        let ecef_to_ven = (
+            (
+                lat_rad.cos() * lon_rad.cos(),
+                lat_rad.cos() * lon_rad.sin(),
+                lat_rad.sin(),
+            ),
+            (-lon_rad.sin(), lon_rad.cos(), 0.0_f64),
+            (
+                -lat_rad.sin() * lon_rad.cos(),
+                -lat_rad.sin() * lon_rad.sin(),
+                lat_rad.cos(),
+            ),
+        );
+        // ECEF to VEN transform
+        let ven = (
+            (ecef_to_ven.0 .0 * a_i.0 + ecef_to_ven.0 .1 * a_i.1 + ecef_to_ven.0 .2 * a_i.2),
+            (ecef_to_ven.1 .0 * a_i.0 + ecef_to_ven.1 .1 * a_i.1 + ecef_to_ven.1 .2 * a_i.2),
+            (ecef_to_ven.2 .0 * a_i.0 + ecef_to_ven.2 .1 * a_i.1 + ecef_to_ven.2 .2 * a_i.2),
+        );
+        let elevation = rad2deg(PI / 2.0 - ven.0.acos());
+        let mut azimuth = rad2deg(ven.1.atan2(ven.2));
+        if azimuth < 0.0 {
+            azimuth += 360.0;
+        }
         Self {
-            azimuth: elev_azim.1,
-            elevation: elev_azim.0,
+            azimuth,
+            elevation,
             position: self.position,
             velocity: self.velocity,
         }
@@ -102,12 +140,12 @@ impl InterpolationResult {
         let p = self.position;
         let v = self.velocity().unwrap_or_default();
         Orbit::cartesian(
-            p[0] / 1000.0,
-            p[1] / 1000.0,
-            p[2] / 1000.0,
-            v[0] / 1000.0,
-            v[1] / 1000.0,
-            v[2] / 1000.0,
+            p[0] / 1.0E3,
+            p[1] / 1.0E3,
+            p[2] / 1.0E3,
+            v[0] / 1.0E3,
+            v[1] / 1.0E3,
+            v[2] / 1.0E3,
             dt,
             frame,
         )
@@ -125,10 +163,10 @@ where
 {
     /// Solver parametrization
     pub cfg: Config,
-    /// apriori position
-    pub apriori: AprioriPosition,
     /// Interpolated SV state.
-    pub interpolator: I,
+    interpolator: I,
+    /// Initial [Position]
+    initial: Option<Position>,
     /* Cosmic model */
     cosmic: Arc<Cosm>,
     // Solid / Earth body frame.
@@ -137,27 +175,29 @@ where
     sun_frame: Frame,
     // Navigator
     nav: Navigation,
+    // Tracker
+    tracker: Tracker,
     // Post fit KF
-    postfit_kf: Option<KF<State3D, U3, U3>>,
+    // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
-    prev_pvt: Option<(Epoch, PVTSolution)>,
-    /* prev. state vector for internal velocity determination */
+    /// Previous solution
+    prev_solution: Option<(Epoch, PVTSolution)>,
+    /// Stored previous SV state
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
 
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
     /// Create a new Position [Solver].
-    /// ## Inputs
     /// - cfg: Solver [Config]
-    /// - apriori: Reference position (coordinates) that we currently use
-    /// to verify how well the solver performs.
+    /// - initial: Possible initial [Position], used to initialize the Solver
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
-    pub fn new(cfg: &Config, apriori: AprioriPosition, interpolator: I) -> Result<Self, Error> {
+    pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
         let sun_frame = cosmic.frame("Sun J2000");
         let earth_frame = cosmic.frame("EME2000");
+
         /*
-         * print some infos on latched config
+         * print more infos
          */
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("Eclipse filter is not meaningful in SPP mode");
@@ -169,13 +209,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             cosmic,
             sun_frame,
             earth_frame,
-            apriori,
+            initial,
             interpolator,
             cfg: cfg.clone(),
-            postfit_kf: None,
+            tracker: Tracker::new(),
+            // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
-            prev_pvt: Option::<(Epoch, PVTSolution)>::None,
+            prev_solution: Option::<(Epoch, PVTSolution)>::None,
         })
     }
     /// [PVTSolution] resolution attempt.
@@ -187,7 +228,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     pub fn resolve(
         &mut self,
         t: Epoch,
-        pool: &Vec<Candidate>,
+        pool: &[Candidate],
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
@@ -197,22 +238,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             return Err(Error::NotEnoughCandidates);
         }
 
-        let (x0, y0, z0) = (
-            self.apriori.ecef.x,
-            self.apriori.ecef.y,
-            self.apriori.ecef.z,
-        );
-
-        let (lat_ddeg, lon_ddeg, altitude_above_sea_m) = (
-            self.apriori.geodetic.x,
-            self.apriori.geodetic.y,
-            self.apriori.geodetic.z,
-        );
-
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let solver_opts = &self.cfg.solver;
-        let _filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
         /* apply signal quality and condition filters */
@@ -232,12 +260,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         Some(cd.clone())
                     }
                 },
-                Method::CodePPP => {
-                    if cd.code_ppp_compatible() {
+                Method::CPP => {
+                    if cd.cpp_compatible() {
                         // TODO: apply MIN SNR too, (when desired)
                         Some(cd.clone())
                     } else {
-                        debug!("{:?} ({}) missing secondary frequency", cd.t, cd.sv);
+                        debug!("{} ({}) missing secondary frequency", cd.t, cd.sv);
                         None
                     }
                 },
@@ -246,7 +274,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         // TODO: apply MIN SNR too, (when desired)
                         Some(cd.clone())
                     } else {
-                        debug!("{:?} ({}) missing secondary phase", cd.t, cd.sv);
+                        debug!("{} ({}) missing secondary phase", cd.t, cd.sv);
                         None
                     }
                 },
@@ -258,28 +286,37 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
-                    debug!("{:?} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    let interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
+                    debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
+                    let mut interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
+                    let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
+                    let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
+                    let mut max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
 
-                    let min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
-                    let min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
-                    let max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
+                    // provide more information after first iteration
+                    if let Some(initial) = &self.initial {
+                        let (x0, y0, z0) = (initial.ecef[0], initial.ecef[1], initial.ecef[2]);
+                        interpolated = interpolated.with_elevation_azimuth((x0, y0, z0));
+                    } else {
+                        min_elev = 0.0_f64; // cannot apply yet
+                        min_azim = 0.0_f64; // cannot apply yet
+                        max_azim = 360.0_f64; // cannot apply yet
+                    }
 
                     if interpolated.elevation < min_elev {
                         debug!(
-                            "{:?} ({}) - {:?} rejected : below elevation mask",
+                            "{} ({}) - {:?} rejected : below elevation mask",
                             cd.t, cd.sv, interpolated
                         );
                         None
                     } else if interpolated.azimuth < min_azim {
                         debug!(
-                            "{:?} ({}) - {:?} rejected : below azimuth mask",
+                            "{} ({}) - {:?} rejected : below azimuth mask",
                             cd.t, cd.sv, interpolated
                         );
                         None
                     } else if interpolated.azimuth > max_azim {
                         debug!(
-                            "{:?} ({}) - {:?} rejected : above azimuth mask",
+                            "{} ({}) - {:?} rejected : above azimuth mask",
                             cd.t, cd.sv, interpolated
                         );
                         None
@@ -289,13 +326,13 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                             Self::rotate_position(modeling.earth_rotation, interpolated, dt_tx);
                         let interpolated = self.velocities(t_tx, cd.sv, interpolated);
                         cd.t_tx = t_tx;
-                        debug!("{:?} ({}) : {:?}", cd.t, cd.sv, interpolated);
+                        debug!("{} ({}) : {:?}", cd.t, cd.sv, interpolated);
                         cd.state = Some(interpolated);
                         Some(cd)
                     }
                 },
                 Err(e) => {
-                    error!("{} - transmision time error: {:?}", cd.sv, e);
+                    error!("{} - transmision time error: {}", cd.sv, e);
                     None
                 },
             })
@@ -320,7 +357,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                         / SPEED_OF_LIGHT
                         / SPEED_OF_LIGHT
                         * Unit::Second;
-                    debug!("{:?} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                    debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
                     cd.clock_corr += bias;
                 }
             }
@@ -343,7 +380,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 };
                 if eclipsed {
                     debug!(
-                        "{:?} ({}): dropped - eclipsed by Earth",
+                        "{} ({}): dropped - eclipsed by Earth",
                         pool[idx - nb_removed].t,
                         pool[idx - nb_removed].sv
                     );
@@ -353,33 +390,58 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             }
         }
 
-        // adapt to navigation
+        // sort by quality
         pool.sort_by(|cd_a, cd_b| {
             let state_a = cd_a.state.unwrap();
             let state_b = cd_b.state.unwrap();
             state_b.elevation.partial_cmp(&state_a.elevation).unwrap()
         });
 
-        match self.cfg.sol_type {
-            PVTSolutionType::TimeOnly => {
-                let mut index = 0;
-                pool.retain(|_| {
-                    index += 1;
-                    index == 1
-                });
-            },
-            _ => {
-                let mut index = 0;
-                pool.retain(|_| {
-                    index += 1;
-                    index < min_required + 1
-                });
-            },
+        // Retain required nb of SV
+        if self.prev_solution.is_none() && self.initial.is_none() {
+            // Bancroft needs 4 SV
+            let mut index = 0;
+            pool.retain(|_| {
+                index += 1;
+                index < 5
+            });
+        } else {
+            // Regular iteration
+            let mut index = 0;
+            let min_required = match self.cfg.sol_type {
+                PVTSolutionType::TimeOnly => 2,
+                _ => min_required + 1,
+            };
+            pool.retain(|_| {
+                index += 1;
+                index < min_required
+            });
         }
 
         if pool.len() != min_required {
             return Err(Error::NotEnoughMatchingCandidates);
         }
+
+        // sort by PRN to form consistant matrix
+        pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
+
+        // Initialize solver if need be
+        if self.initial.is_none() {
+            let solver = Bancroft::new(&pool)?;
+            let output = solver.resolve()?;
+            self.initial = Some(Position::from_ecef(Vector3::new(
+                output[0], output[1], output[2],
+            )));
+        }
+
+        let initial = self.initial.as_ref().unwrap();
+        let (x0, y0, z0) = (initial.ecef()[0], initial.ecef()[1], initial.ecef()[2]);
+        let (lat_rad, lon_rad, altitude_above_sea_m) = (
+            initial.geodetic()[0],
+            initial.geodetic()[1],
+            initial.geodetic()[2],
+        );
+        let (lat_ddeg, lon_ddeg) = (deg2rad(lat_rad), deg2rad(lon_rad));
 
         let input = match NavigationInput::new(
             (x0, y0, z0),
@@ -396,6 +458,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             },
         };
 
+        // Regular Iteration
         let output = match self.nav.resolve(&input) {
             Ok(output) => output,
             Err(e) => {
@@ -404,63 +467,74 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             },
         };
 
-        let validator = SolutionValidator::new(&self.apriori.ecef, &pool, &input, &output);
+        let x = output.state.estimate();
+
+        let mut solution = PVTSolution {
+            gdop: output.gdop,
+            tdop: output.tdop,
+            pdop: output.pdop,
+            sv: input.sv.clone(),
+            q: output.q_covar4x4(),
+            timescale: self.cfg.timescale,
+            velocity: Vector3::<f64>::default(),
+            position: Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
+            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT),
+        };
+
+        // First solution
+        if self.prev_solution.is_none() {
+            // always discard 1st solution
+            self.prev_solution = Some((t, solution.clone()));
+            return Err(Error::InvalidatedSolution);
+        }
+
+        let validator =
+            SolutionValidator::new(Vector3::<f64>::new(x0, y0, z0), &pool, &input, &output);
 
         match validator.validate(solver_opts) {
-            Ok(_) => self.nav.validate(),
+            Ok(_) => {
+                if method == Method::PPP {
+                    let ambiguities = output.state.ambiguities();
+                    for (i, sv) in input.sv.keys().enumerate() {
+                        debug!("{} - {} amb: {}", t, sv, ambiguities[i]);
+                        self.tracker.update(*sv, ambiguities[i]);
+                    }
+                }
+                self.nav.validate();
+            },
             Err(e) => {
                 error!("solution invalidated - {}", e);
                 return Err(Error::InvalidatedSolution);
             },
         };
 
-        let x = output.state.estimate();
-
         /*
          * Post-fit KF
          */
         if self.cfg.solver.postfit_kf {
-            if let Some(kf) = &mut self.postfit_kf {
-            } else {
-                let kf_estim = KfEstimate::from_diag(
-                    State3D {
-                        t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT),
-                        inner: Vector3::new(x[0], x[1], x[2]),
-                    },
-                    OVector::<f64, U3>::new(1.0, 1.0, 1.0),
-                );
-                let noise =
-                    OMatrix::<f64, U3, U3>::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-                self.postfit_kf = Some(KF::no_snc(kf_estim, noise));
-            }
+            //if let Some(kf) = &mut self.postfit_kf {
+            //} else {
+            //    let kf_estim = KfEstimate::from_diag(
+            //        State3D {
+            //            t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT),
+            //            inner: Vector3::new(x[0], x[1], x[2]),
+            //        },
+            //        OVector::<f64, U3>::new(1.0, 1.0, 1.0),
+            //    );
+            //    let noise =
+            //        OMatrix::<f64, U3, U3>::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+            //    self.postfit_kf = Some(KF::no_snc(kf_estim, noise));
+            //}
         }
 
-        let mut solution = PVTSolution {
-            q: output.q_covar4x4(),
-            gdop: output.gdop,
-            tdop: output.tdop,
-            pdop: output.pdop,
-            velocity: Vector3::<f64>::default(),
-            position: Vector3::new(x[0], x[1], x[2]),
-            sv: input.sv.clone(),
-            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT),
-            timescale: self.cfg.timescale,
-        };
-
-        if let Some((prev_t, prev_pvt)) = &self.prev_pvt {
+        if let Some((prev_t, prev_solution)) = &self.prev_solution {
             solution.velocity =
-                (solution.position - prev_pvt.position) / (t - *prev_t).to_seconds();
+                (solution.position - prev_solution.position) / (t - *prev_t).to_seconds();
         }
 
-        if self.prev_pvt.is_none() {
-            // always discard 1st solution
-            self.prev_pvt = Some((t, solution.clone()));
-            return Err(Error::InvalidatedSolution);
-        }
+        self.prev_solution = Some((t, solution.clone()));
 
-        self.prev_pvt = Some((t, solution.clone()));
-
-        Self::rework_solution(&mut solution, &self.apriori, &self.cfg);
+        Self::rework_solution(&mut solution, &self.cfg);
         Ok((t, solution))
     }
     /*
@@ -522,9 +596,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     /*
      * Reworks solution to adapt to configuration setup and desired format.
      */
-    fn rework_solution(pvt: &mut PVTSolution, apriori: &AprioriPosition, cfg: &Config) {
+    fn rework_solution(pvt: &mut PVTSolution, cfg: &Config) {
         if let Some(alt) = cfg.fixed_altitude {
-            pvt.position.z = apriori.ecef.z - alt;
+            pvt.position.z = alt;
             pvt.velocity.z = 0.0_f64;
         }
         if cfg.sol_type == PVTSolutionType::TimeOnly {

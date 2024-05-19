@@ -1,7 +1,4 @@
-use nalgebra::{base::dimension::U8, OMatrix, OVector, Vector3, U3};
-
-use nyx::cosmic::State as NyxState;
-use nyx::NyxError;
+use nalgebra::{base::dimension::U8, OMatrix, OVector, Vector3};
 
 #[cfg(feature = "serde")]
 use serde::Deserialize;
@@ -39,39 +36,50 @@ struct KFState {
 
 #[derive(Debug, Clone)]
 pub enum FilterState {
-    LSQ(LSQState),
-    KF(KFState),
+    Lsq(LSQState),
+    Kf(KFState),
 }
 
 impl Default for FilterState {
     fn default() -> Self {
-        Self::LSQ(Default::default())
+        Self::Lsq(Default::default())
     }
 }
 
 impl FilterState {
     fn lsq(state: LSQState) -> Self {
-        Self::LSQ(state)
+        Self::Lsq(state)
     }
-    fn as_lsq(&self) -> Option<&LSQState> {
-        match self {
-            Self::LSQ(state) => Some(state),
-            _ => None,
+    //fn as_lsq(&self) -> Option<&LSQState> {
+    //    match self {
+    //        Self::LSQ(state) => Some(state),
+    //        _ => None,
+    //    }
+    //}
+    pub fn ambiguities(&self) -> Vec<f64> {
+        let x = match self {
+            Self::Lsq(state) => state.x,
+            Self::Kf(state) => state.x,
+        };
+        let mut r = Vec::<f64>::new();
+        for i in 4..x.len() {
+            r.push(x[i]);
         }
+        r
     }
     fn kf(state: KFState) -> Self {
-        Self::KF(state)
+        Self::Kf(state)
     }
-    fn as_kf(&self) -> Option<&KFState> {
-        match self {
-            Self::KF(state) => Some(state),
-            _ => None,
-        }
-    }
+    //fn as_kf(&self) -> Option<&KFState> {
+    //    match self {
+    //        Self::KF(state) => Some(state),
+    //        _ => None,
+    //    }
+    //}
     pub(crate) fn estimate(&self) -> OVector<f64, U8> {
         match self {
-            Self::LSQ(state) => state.x,
-            Self::KF(state) => state.x,
+            Self::Lsq(state) => state.x,
+            Self::Kf(state) => state.x,
         }
     }
 }
@@ -79,19 +87,18 @@ impl FilterState {
 impl Filter {
     fn lsq_resolve(input: &Input, p_state: Option<FilterState>) -> Result<Output, Error> {
         match p_state {
-            Some(FilterState::LSQ(p_state)) => {
+            Some(FilterState::Lsq(p_state)) => {
                 let p_1 = p_state.p.try_inverse().ok_or(Error::MatrixInversionError)?;
 
                 let g_prime = input.g.clone().transpose();
-                let q = (g_prime.clone() * input.g.clone())
+                let q = (g_prime * input.g)
                     .try_inverse()
                     .ok_or(Error::MatrixInversionError)?;
 
-                let p = g_prime.clone() * input.w.clone() * input.g.clone();
+                let p = g_prime * input.w * input.g;
                 let p = (p_1 + p).try_inverse().ok_or(Error::MatrixInversionError)?;
 
-                let x =
-                    p * (p_1 * p_state.x + (g_prime.clone() * input.w.clone() * input.y.clone()));
+                let x = p * (p_1 * p_state.x + (g_prime * input.w * input.y));
 
                 Ok(Output {
                     gdop: (q[(0, 0)] + q[(1, 1)] + q[(2, 2)] + q[(3, 3)]).sqrt(),
@@ -104,15 +111,15 @@ impl Filter {
             _ => {
                 let g_prime = input.g.clone().transpose();
 
-                let q = (g_prime.clone() * input.g.clone())
+                let q = (g_prime * input.g)
                     .try_inverse()
                     .ok_or(Error::MatrixInversionError)?;
 
-                let p = (g_prime.clone() * input.w.clone() * input.g.clone())
+                let p = (g_prime * input.w * input.g)
                     .try_inverse()
                     .ok_or(Error::MatrixInversionError)?;
 
-                let x = p * (g_prime.clone() * input.w.clone() * input.y.clone());
+                let x = p * (g_prime * input.w * input.y);
                 if x[3].is_nan() {
                     return Err(Error::TimeIsNan);
                 }
@@ -129,7 +136,7 @@ impl Filter {
     }
     fn kf_resolve(input: &Input, p_state: Option<FilterState>) -> Result<Output, Error> {
         match p_state {
-            Some(FilterState::KF(p_state)) => {
+            Some(FilterState::Kf(p_state)) => {
                 let x_bn = p_state.phi * p_state.x;
                 let p_bn = p_state.phi * p_state.p * p_state.phi.transpose() + p_state.q;
 
@@ -161,15 +168,15 @@ impl Filter {
             },
             _ => {
                 let g_prime = input.g.clone().transpose();
-                let q = (g_prime.clone() * input.g.clone())
+                let q = (g_prime * input.g)
                     .try_inverse()
                     .ok_or(Error::MatrixInversionError)?;
 
-                let p = (g_prime.clone() * input.w.clone() * input.g.clone())
+                let p = (g_prime * input.w * input.g)
                     .try_inverse()
                     .ok_or(Error::MatrixInversionError)?;
 
-                let x = p * (g_prime.clone() * input.w.clone() * input.y.clone());
+                let x = p * (g_prime * input.w * input.y);
                 if x[3].is_nan() {
                     return Err(Error::TimeIsNan);
                 }
@@ -221,22 +228,21 @@ impl std::fmt::Display for State3D {
     }
 }
 
-impl NyxState for State3D {
-    type Size = U3;
-    type VecLength = U3;
-    fn as_vector(&self) -> Result<OVector<f64, U3>, NyxError> {
-        Ok(self.inner.into())
-    }
-    fn unset_stm(&mut self) {}
-    fn set(&mut self, t: Epoch, vector: &OVector<f64, U3>) -> Result<(), NyxError> {
-        self.t = t;
-        self.inner = vector.clone();
-        Ok(())
-    }
-    fn epoch(&self) -> Epoch {
-        self.t
-    }
-    fn set_epoch(&mut self, t: Epoch) {
-        self.t = t;
-    }
-}
+// impl NyxState for State3D {
+//     type Size = U3;
+//     type VecLength = U3;
+//     fn as_vector(&self) -> OVector<f64, U3>, NyxError {
+//         self.inner.into()
+//     }
+//     fn unset_stm(&mut self) {}
+//     fn set(&mut self, t: Epoch, vector: &OVector<f64, U3>) -> () {
+//         self.t = t;
+//         self.inner = vector.clone();
+//     }
+//     fn epoch(&self) -> Epoch {
+//         self.t
+//     }
+//     fn set_epoch(&mut self, t: Epoch) {
+//         self.t = t;
+//     }
+// }
