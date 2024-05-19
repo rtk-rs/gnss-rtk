@@ -1,10 +1,9 @@
 //! Position solving candidate
+use crate::prelude::{Carrier, Config, Duration, Epoch, Error, InterpolationResult, SV};
 use hifitime::Unit;
 use itertools::Itertools;
-use nyx::cosmic::SPEED_OF_LIGHT;
-
-use crate::prelude::{Carrier, Config, Duration, Epoch, Error, InterpolationResult, SV};
 use log::debug;
+use nyx::cosmic::SPEED_OF_LIGHT;
 use std::cmp::Ordering;
 
 /// Signal observation to attach to each candidate
@@ -149,43 +148,28 @@ impl Candidate {
             .count()
             > 1
     }
-    /*
-     * Forms combination
-     */
     pub(crate) fn pseudorange_combination(&self) -> Option<Observation> {
-        let mut l1_pr = Option::<(Observation, Carrier)>::None;
-        for code in &self.pseudo_range {
-            match code.carrier {
-                Carrier::L1 => {
-                    l1_pr = Some((code.clone(), Carrier::L1));
-                    break;
-                },
-                Carrier::E1 => {
-                    l1_pr = Some((code.clone(), Carrier::E1));
-                    break;
-                },
-                _ => {},
-            }
-        }
+        let l1_pr = self
+            .pseudo_range
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                )
+            })
+            .reduce(|k, _| k)?;
 
-        let (c_l1, l1_signal) = l1_pr?;
+        let (c_l1, l1_signal) = (l1_pr.value, l1_pr.carrier);
         let freq_l1 = l1_signal.frequency();
-        let to_match = match l1_signal {
-            Carrier::L1 => vec![Carrier::L2, Carrier::L5],
-            Carrier::E1 => vec![Carrier::E5, Carrier::E6],
-            _ => unreachable!(),
-        };
 
-        let mut lx_pr = Option::<(Observation, Carrier)>::None;
+        let lx_pr = self
+            .pseudo_range
+            .iter()
+            .filter(|p| p.carrier != l1_signal)
+            .reduce(|k, _| k)?;
 
-        for code in &self.pseudo_range {
-            if to_match.contains(&code.carrier) {
-                lx_pr = Some((code.clone(), code.carrier));
-                break;
-            }
-        }
-
-        let (c_lx, lx_signal) = lx_pr?;
+        let (c_lx, lx_signal) = (lx_pr.value, lx_pr.carrier);
         let freq_lx = lx_signal.frequency();
 
         let alpha = 1.0 / (freq_l1.powi(2) - freq_lx.powi(2));
@@ -195,41 +179,33 @@ impl Candidate {
             Observation {
                 snr: None,
                 carrier: l1_signal,
-                value: alpha * (beta * c_l1.value - gamma * c_lx.value),
+                value: alpha * (beta * c_l1 - gamma * c_lx),
             }
         })
-    } /*
-       * Forms combination
-       */
+    }
     pub(crate) fn phase_combination(&self) -> Option<Observation> {
-        let mut phases = (
-            Option::<&Observation>::None,
-            Option::<&Observation>::None,
-            Option::<&Observation>::None,
-        );
-        for ph in &self.phase_range {
-            let freq = (ph.carrier.frequency() / 1.0E6) as u16;
-            if freq == 1575 {
-                phases.0 = Some(ph);
-            } else if freq == 1227 {
-                phases.1 = Some(ph);
-            } else if freq == 1176 {
-                phases.2 = Some(ph);
-            }
-        }
+        let l1_ph = self
+            .phase_range
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                )
+            })
+            .reduce(|k, _| k)?;
 
-        let c_l1 = phases.0?;
-        let f_l1 = 1575.42_f64 * 1.0E6_f64;
+        let (c_l1, l1_signal) = (l1_ph.value, l1_ph.carrier);
+        let f_l1 = l1_signal.frequency();
 
-        let (c_lx, f_lx) = match phases.1 {
-            Some(ph) => (ph, 1227.6_f64 * 1.0E6_f64),
-            None => match phases.2 {
-                Some(ph) => (ph, 1176.45_f64 * 1.0E6_f64),
-                None => {
-                    return None;
-                },
-            },
-        };
+        let lx_ph = self
+            .phase_range
+            .iter()
+            .filter(|p| p.carrier != l1_signal)
+            .reduce(|k, _| k)?;
+
+        let (c_lx, lx_signal) = (lx_ph.value, lx_ph.carrier);
+        let f_lx = lx_signal.frequency();
 
         let alpha = 1.0 / (f_l1.powi(2) - f_lx.powi(2));
         let beta = f_l1.powi(2);
@@ -237,36 +213,23 @@ impl Candidate {
         Some({
             Observation {
                 snr: None,
-                carrier: c_l1.carrier,
-                value: alpha * (beta * c_l1.value - gamma * c_lx.value),
+                carrier: l1_signal,
+                value: alpha * (beta * c_l1 - gamma * c_lx),
             }
         })
     }
-    /*
-     * Form a Phase Wide combination
-     */
     pub(crate) fn phase_wide_combination(&self) -> Option<Observation> {
         let l_1 = self
             .phase_range
             .iter()
-            .filter_map(|p| {
-                if p.carrier == Carrier::L1 || p.carrier == Carrier::E1 {
-                    Some(p)
-                } else {
-                    None
-                }
-            })
+            .filter(|p| matches!(p.carrier, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
             .reduce(|k, _| k)?;
 
         let l_j = self
             .phase_range
             .iter()
-            .filter_map(|p| {
-                if p.carrier != Carrier::L1 && p.carrier != Carrier::E1 {
-                    Some(p)
-                } else {
-                    None
-                }
+            .filter(|p| {
+                p.carrier != Carrier::L1 && p.carrier != Carrier::E1 && p.carrier != Carrier::B1aB1c
             })
             .reduce(|k, _| k)?;
 
@@ -279,31 +242,18 @@ impl Candidate {
             value: (f_1 * l_1.value - f_j * l_j.value) / (f_1 - f_j),
         })
     }
-    /*
-     * Form a PR Narrow combination
-     */
     pub(crate) fn code_narrow_combination(&self) -> Option<Observation> {
         let c_1 = self
             .pseudo_range
             .iter()
-            .filter_map(|p| {
-                if p.carrier == Carrier::L1 || p.carrier == Carrier::E1 {
-                    Some(p)
-                } else {
-                    None
-                }
-            })
+            .filter(|p| matches!(p.carrier, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
             .reduce(|k, _| k)?;
 
         let c_j = self
             .pseudo_range
             .iter()
-            .filter_map(|p| {
-                if p.carrier != Carrier::L1 && p.carrier != Carrier::E1 {
-                    Some(p)
-                } else {
-                    None
-                }
+            .filter(|p| {
+                p.carrier != Carrier::L1 && p.carrier != Carrier::E1 && p.carrier != Carrier::B1aB1c
             })
             .reduce(|k, _| k)?;
 
@@ -316,9 +266,6 @@ impl Candidate {
             value: (f_1 * c_1.value + f_j * c_j.value) / (f_1 + f_j),
         })
     }
-    /*
-     * Form a Melbourne Wubbena combination
-     */
     pub(crate) fn mw_combination(&self) -> Option<Observation> {
         let pw = self.phase_wide_combination()?;
         let cn = self.code_narrow_combination()?;
@@ -329,7 +276,7 @@ impl Candidate {
         })
     }
     /*
-     * apply min SNR mask
+     * Apply min SNR mask to mutable self
      */
     pub(crate) fn min_snr_mask(&mut self, min_snr: f64) {
         self.pseudo_range.retain(|c| {

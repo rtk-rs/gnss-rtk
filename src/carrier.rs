@@ -1,20 +1,36 @@
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum Carrier {
-    // L1 (GPS/QZSS/SBAS)
+    /// L1 (GPS/QZSS/SBAS) same frequency as E1 and B1aB1c
     #[default]
     L1,
-    // L2 (GPS/QZSS)
+    /// L2 (GPS/QZSS)
     L2,
-    // L5 (GPS/QZSS/SBAS)
+    /// L5 (GPS/QZSS/SBAS) same frequency as E5A and B2A
     L5,
-    // L6 (GPS/QZSS)
+    /// L6 (GPS/QZSS) same frequency as E6
     L6,
-    // E1 (Galileo)
+    /// E1 (Galileo)
     E1,
-    // E5 (Galileo)
+    /// E5 (Galileo) same frequency as B2
     E5,
-    // E6 (Galileo)
+    /// E5A (Galileo) same frequency as L5
+    E5A,
+    /// E5B (Galileo) same frequency as B2iB2b
+    E5B,
+    /// E6 (Galileo) same frequency as L6
     E6,
+    /// B1aB1c (BDS) same frequency as L1
+    B1aB1c,
+    /// B1I (BDS)
+    B1I,
+    /// B2I/B2B (BDS) same frequency as E5b
+    B2iB2b,
+    /// B2 (BDS) same frequency as E5
+    B2,
+    /// B2A (BDS) same frequency as L5 and E5A
+    B2A,
+    /// B3 (BDS)
+    B3,
 }
 
 impl std::fmt::Display for Carrier {
@@ -26,7 +42,15 @@ impl std::fmt::Display for Carrier {
             Self::L6 => write!(f, "L6"),
             Self::E1 => write!(f, "E1"),
             Self::E5 => write!(f, "E5"),
+            Self::E5A => write!(f, "E5A"),
+            Self::E5B => write!(f, "E5B"),
             Self::E6 => write!(f, "E6"),
+            Self::B1I => write!(f, "B1I"),
+            Self::B1aB1c => write!(f, "B1A/B1C"),
+            Self::B2iB2b => write!(f, "B2I/B2B"),
+            Self::B2 => write!(f, "B2"),
+            Self::B3 => write!(f, "B3"),
+            Self::B2A => write!(f, "B2A"),
         }
     }
 }
@@ -34,11 +58,14 @@ impl std::fmt::Display for Carrier {
 impl Carrier {
     pub(crate) fn frequency(&self) -> f64 {
         match self {
-            Self::L1 | Self::E1 => 1575.42E6_f64,
+            Self::L1 | Self::E1 | Self::B1aB1c => 1575.42E6_f64,
             Self::L2 => 1227.60E6_f64,
-            Self::L5 => 1176.45E6_f64,
-            Self::E5 => 1191.795E6_f64,
+            Self::L5 | Self::E5A | Self::B2A => 1176.45E6_f64,
+            Self::E5 | Self::B2 => 1191.795E6_f64,
             Self::L6 | Self::E6 => 1278.750E6_f64,
+            Self::B3 => 1268.52E6_f64,
+            Self::E5B | Self::B2iB2b => 1207.14E6_f64,
+            Self::B1I => 1561.098E6_f64,
         }
     }
 }
