@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use gnss::prelude::SV;
 use hifitime::Unit;
 use log::{debug, error, warn};
-use map_3d::{deg2rad, ecef2geodetic, Ellipsoid};
-use nalgebra::{Matrix3, OMatrix, OVector, Vector3, U3};
+use map_3d::{deg2rad, ecef2geodetic, rad2deg};
+use nalgebra::{Matrix3, Vector3};
+use std::f64::consts::PI;
 use thiserror::Error;
 
 use nyx::{
@@ -14,7 +15,6 @@ use nyx::{
         Orbit, SPEED_OF_LIGHT,
     },
     md::prelude::{Arc, Cosm, Frame},
-    od::{filter::kalman::KF, process::KfEstimate},
 };
 
 use crate::{
@@ -24,7 +24,7 @@ use crate::{
     cfg::{Config, Method},
     navigation::{
         solutions::validator::Validator as SolutionValidator, Input as NavigationInput, Navigation,
-        PVTSolution, PVTSolutionType, State3D,
+        PVTSolution, PVTSolutionType,
     },
     position::Position,
     prelude::{Duration, Epoch},
@@ -92,11 +92,43 @@ impl InterpolationResult {
             position: Vector3::<f64>::new(position.0, position.1, position.2),
         }
     }
-    /// Builds Self with given SV (elevation, azimuth) attitude
-    pub fn with_elevation_azimuth(&self, elev_azim: (f64, f64)) -> Self {
+    /// Augment self to fully defined with both Elevation and Azimuth angles
+    pub(crate) fn with_elevation_azimuth(&self, position: (f64, f64, f64)) -> Self {
+        let (x, y, z) = position;
+        let (lat_rad, lon_rad, _) = ecef2geodetic(x, y, z, map_3d::Ellipsoid::WGS84);
+
+        let (sv_x, sv_y, sv_z) = (self.position[0], self.position[1], self.position[2]);
+        let a_i = (sv_x - x, sv_y - y, sv_z - z);
+        let norm = (a_i.0.powf(2.0) + a_i.1.powf(2.0) + a_i.2.powf(2.0)).sqrt();
+        let a_i = (a_i.0 / norm, a_i.1 / norm, a_i.2 / norm);
+
+        let ecef_to_ven = (
+            (
+                lat_rad.cos() * lon_rad.cos(),
+                lat_rad.cos() * lon_rad.sin(),
+                lat_rad.sin(),
+            ),
+            (-lon_rad.sin(), lon_rad.cos(), 0.0_f64),
+            (
+                -lat_rad.sin() * lon_rad.cos(),
+                -lat_rad.sin() * lon_rad.sin(),
+                lat_rad.cos(),
+            ),
+        );
+        // ECEF to VEN transform
+        let ven = (
+            (ecef_to_ven.0 .0 * a_i.0 + ecef_to_ven.0 .1 * a_i.1 + ecef_to_ven.0 .2 * a_i.2),
+            (ecef_to_ven.1 .0 * a_i.0 + ecef_to_ven.1 .1 * a_i.1 + ecef_to_ven.1 .2 * a_i.2),
+            (ecef_to_ven.2 .0 * a_i.0 + ecef_to_ven.2 .1 * a_i.1 + ecef_to_ven.2 .2 * a_i.2),
+        );
+        let elevation = rad2deg(PI / 2.0 - ven.0.acos());
+        let mut azimuth = rad2deg(ven.1.atan2(ven.2));
+        if azimuth < 0.0 {
+            azimuth += 360.0;
+        }
         Self {
-            azimuth: elev_azim.1,
-            elevation: elev_azim.0,
+            azimuth,
+            elevation,
             position: self.position,
             velocity: self.velocity,
         }
@@ -196,7 +228,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     pub fn resolve(
         &mut self,
         t: Epoch,
-        pool: &Vec<Candidate>,
+        pool: &[Candidate],
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
@@ -209,7 +241,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let solver_opts = &self.cfg.solver;
-        let _filter = solver_opts.filter;
         let interp_order = self.cfg.interp_order;
 
         /* apply signal quality and condition filters */
@@ -256,11 +287,20 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    let interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
+                    let mut interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
+                    let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
+                    let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
+                    let mut max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
 
-                    let min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
-                    let min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
-                    let max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
+                    // provide more information after first iteration
+                    if let Some(initial) = &self.initial {
+                        let (x0, y0, z0) = (initial.ecef[0], initial.ecef[1], initial.ecef[2]);
+                        interpolated = interpolated.with_elevation_azimuth((x0, y0, z0));
+                    } else {
+                        min_elev = 0.0_f64; // cannot apply yet
+                        min_azim = 0.0_f64; // cannot apply yet
+                        max_azim = 360.0_f64; // cannot apply yet
+                    }
 
                     if interpolated.elevation < min_elev {
                         debug!(

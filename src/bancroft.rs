@@ -1,8 +1,7 @@
 //! Brancroft solver
-use crate::{navigation::Output, prelude::Candidate, solver::Error};
+use crate::{prelude::Candidate, solver::Error};
 
-use map_3d::distance as haversine;
-use nalgebra::{Matrix1, Matrix4, Vector4};
+use nalgebra::{Matrix4, Vector4};
 use nyx_space::cosmic::SPEED_OF_LIGHT;
 
 pub struct Bancroft {
@@ -27,7 +26,7 @@ impl Bancroft {
         Vector4::<f64>::new(1.0_f64, 1.0_f64, 1.0_f64, 1.0_f64)
     }
     /// Builds new Bancroft solver
-    pub fn new(cd: &Vec<Candidate>) -> Result<Self, Error> {
+    pub fn new(cd: &[Candidate]) -> Result<Self, Error> {
         let m = Self::m_matrix();
         let mut a = Vector4::<f64>::default();
         let mut b = Matrix4::<f64>::default();
@@ -60,7 +59,7 @@ impl Bancroft {
         })
     }
     pub fn resolve(&self) -> Result<Vector4<f64>, Error> {
-        let mut output = Vector4::<f64>::default();
+        let _output = Vector4::<f64>::default();
         let b_inv = self.b.try_inverse().ok_or(Error::MatrixInversionError)?;
         let b_1 = b_inv * self.ones;
         let b_a = b_inv * self.a;
@@ -105,11 +104,10 @@ impl Bancroft {
 mod test {
     use super::{lorentz_4_4, Bancroft};
     use crate::prelude::{
-        Candidate, Carrier, Constellation, Duration, Epoch, InterpolationResult, Observation,
-        Position, SV,
+        Candidate, Carrier, Constellation, Duration, Epoch, InterpolationResult, Observation, SV,
     };
-    use nalgebra::{Vector3, Vector4};
-    use nyx_space::cosmic::SPEED_OF_LIGHT;
+    use nalgebra::Vector4;
+
     #[test]
     fn lorentz_product() {
         let a = Vector4::<f64>::new(1.0, 2.0, 3.0, 4.0);

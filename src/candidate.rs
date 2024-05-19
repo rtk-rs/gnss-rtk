@@ -360,9 +360,9 @@ mod test {
     use crate::prelude::{Candidate, Carrier, Duration, Epoch, Observation, SV};
     #[test]
     fn prefered_pseudorange() {
-        let l1_freq = 1575.42_f64 * 1.0E6_f64;
-        let l2_freq = 1176.45_f64 * 1.0E6_f64;
-        let l5_freq = 1176.45_f64 * 1.0E6_f64;
+        let _l1_freq = 1575.42_f64 * 1.0E6_f64;
+        let _l2_freq = 1176.45_f64 * 1.0E6_f64;
+        let _l5_freq = 1176.45_f64 * 1.0E6_f64;
 
         for (observations, prefered) in [
             (
@@ -428,9 +428,9 @@ mod test {
     }
     #[test]
     fn best_snr() {
-        let l1_freq = 1575.42_f64 * 1.0E6_f64;
-        let l2_freq = 1176.45_f64 * 1.0E6_f64;
-        let l5_freq = 1176.45_f64 * 1.0E6_f64;
+        let _l1_freq = 1575.42_f64 * 1.0E6_f64;
+        let _l2_freq = 1176.45_f64 * 1.0E6_f64;
+        let _l5_freq = 1176.45_f64 * 1.0E6_f64;
 
         let codes = vec![
             Observation {

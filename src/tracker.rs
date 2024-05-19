@@ -1,4 +1,4 @@
-use crate::prelude::{Duration, SV};
+use crate::prelude::SV;
 use std::collections::HashMap;
 
 /// Signal tracker

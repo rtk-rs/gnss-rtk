@@ -36,22 +36,18 @@ struct Tester {
 }
 
 impl Tester {
-    pub fn run(&self, cfg: &Config, solutions: Vec<PVTSolution>) {
+    pub fn run(&self, _cfg: &Config, solutions: Vec<PVTSolution>) {
         for sol in solutions {
-            let (x, y, z) = (sol.position[0], sol.position[1], sol.position[2]);
+            let (_x, _y, _z) = (sol.position[0], sol.position[1], sol.position[2]);
             assert!(sol.gdop.abs() < self.max_gdop, "gdop limit exceeded");
             assert!(sol.tdop.abs() < self.max_tdop, "tdop limit exceeded");
             assert_eq!(
                 sol.timescale, self.timescale,
                 "solution expressed in wrong timescale"
             );
-            if self.absolute {
-            } else {
-            }
-            let (v_x, v_y, v_z) = (sol.velocity[0], sol.velocity[1], sol.velocity[2]);
-            if self.kinematic {
-            } else {
-            }
+            if self.absolute {}
+            let (_v_x, _v_y, _v_z) = (sol.velocity[0], sol.velocity[1], sol.velocity[2]);
+            if self.kinematic {}
         }
     }
 }

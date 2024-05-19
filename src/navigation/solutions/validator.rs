@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     cfg::SolverOpts,
     navigation::{Input, Output},
-    prelude::{Candidate, Position},
+    prelude::Candidate,
 };
 
 #[derive(Clone, Debug, Error)]
@@ -30,7 +30,7 @@ pub(crate) struct Validator {
 impl Validator {
     pub fn new(
         apriori_ecef: Vector3<f64>,
-        pool: &Vec<Candidate>,
+        pool: &[Candidate],
         input: &Input,
         output: &Output,
     ) -> Self {

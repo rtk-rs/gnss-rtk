@@ -2,7 +2,7 @@ pub mod solutions;
 pub use solutions::{PVTSolution, PVTSolutionType};
 
 mod filter;
-pub(crate) use filter::State3D;
+
 pub use filter::{Filter, FilterState};
 
 use log::debug;
@@ -91,7 +91,7 @@ impl Input {
         apriori: (f64, f64, f64),
         apriori_geo: (f64, f64, f64),
         cfg: &Config,
-        cd: &Vec<Candidate>,
+        cd: &[Candidate],
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<Self, Error> {
