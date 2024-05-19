@@ -206,21 +206,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             return Err(Error::NotEnoughCandidates);
         }
 
-        let (x0, y0, z0) = if let Some((_, pvt)) = &self.prev_solution {
-            //(pvt.position[0], pvt.position[1], pvt.position[2])
-            let ecef = match &self.initial {
-                Some(initial) => initial.ecef(),
-                None => Vector3::<f64>::default(),
-            };
-            (ecef[0], ecef[1], ecef[2])
-        } else {
-            let ecef = match &self.initial {
-                Some(initial) => initial.ecef(),
-                None => Vector3::<f64>::default(),
-            };
-            (ecef[0], ecef[1], ecef[2])
-        };
-
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let solver_opts = &self.cfg.solver;
@@ -400,22 +385,23 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         // sort by PRN to form consistant matrix
         pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
 
-        let (lat_ddeg, lon_ddeg, altitude_above_sea_m) = if let Some((_, pvt)) = &self.prev_solution
-        {
-            let geo = ecef2geodetic(
-                pvt.position[0],
-                pvt.position[1],
-                pvt.position[2],
-                Ellipsoid::WGS84,
-            );
-            (deg2rad(geo.0), deg2rad(geo.1), geo.2)
-        } else {
-            let geo = match &self.initial {
-                Some(initial) => initial.geodetic(),
-                None => Vector3::<f64>::default(),
-            };
-            (deg2rad(geo[0]), deg2rad(geo[1]), geo[2])
-        };
+        // Initialize solver if need be
+        if self.initial.is_none() {
+            let solver = Bancroft::new(&pool)?;
+            let output = solver.resolve()?;
+            self.initial = Some(Position::from_ecef(Vector3::new(
+                output[0], output[1], output[2],
+            )));
+        }
+
+        let initial = self.initial.as_ref().unwrap();
+        let (x0, y0, z0) = (initial.ecef()[0], initial.ecef()[1], initial.ecef()[2]);
+        let (lat_rad, lon_rad, altitude_above_sea_m) = (
+            initial.geodetic()[0],
+            initial.geodetic()[1],
+            initial.geodetic()[2],
+        );
+        let (lat_ddeg, lon_ddeg) = (deg2rad(lat_rad), deg2rad(lon_rad));
 
         let input = match NavigationInput::new(
             (x0, y0, z0),
@@ -431,25 +417,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 return Err(Error::MatrixError);
             },
         };
-
-        // First guess
-        if self.prev_solution.is_none() && self.initial.is_none() {
-            let solver = match Bancroft::new(&pool) {
-                Ok(solver) => solver,
-                Err(e) => {
-                    error!("failed to deploy bancroft solver: {}", e);
-                    return Err(Error::BancroftError);
-                },
-            };
-            let output = match solver.resolve() {
-                Ok(output) => output,
-                Err(e) => {
-                    error!("initial guess failure: {}", e);
-                    return Err(Error::FirstGuess);
-                },
-            };
-            panic!("todo");
-        }
 
         // Regular Iteration
         let output = match self.nav.resolve(&input) {
