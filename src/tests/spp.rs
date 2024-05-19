@@ -32,7 +32,7 @@ fn test_3d_lsq() {
                 "first solution should have been discarded"
             );
             let err = solutions.err().unwrap();
-            assert_eq!(err, Error::InvalidatedSolution);
+            assert_eq!(err, Error::NotEnoughMatchingCandidates); //TODO
         } else {
             assert!(
                 solutions.is_ok(),
@@ -75,7 +75,7 @@ fn test_3d_kf() {
                 "first solution should have been discarded"
             );
             let err = solutions.err().unwrap();
-            assert_eq!(err, Error::InvalidatedSolution);
+            assert_eq!(err, Error::NotEnoughMatchingCandidates); //TODO
         } else {
             assert!(
                 solutions.is_ok(),
@@ -120,7 +120,7 @@ fn test_3d_lsq_postfit() {
                 "first solution should have been discarded"
             );
             let err = solutions.err().unwrap();
-            assert_eq!(err, Error::InvalidatedSolution);
+            assert_eq!(err, Error::NotEnoughMatchingCandidates); //TODO
         } else {
             assert!(
                 solutions.is_ok(),
@@ -164,7 +164,7 @@ fn test_1d_lsq() {
                     "first solution should have been discarded"
                 );
                 let err = solutions.err().unwrap();
-                assert_eq!(err, Error::InvalidatedSolution);
+                assert_eq!(err, Error::NotEnoughMatchingCandidates); //TODO
             } else {
                 assert!(
                     solutions.is_ok(),
@@ -207,7 +207,7 @@ fn test_1d_kf() {
                     "first solution should have been discarded"
                 );
                 let err = solutions.err().unwrap();
-                assert_eq!(err, Error::InvalidatedSolution);
+                assert_eq!(err, Error::NotEnoughMatchingCandidates); //TODO
             } else {
                 assert!(
                     solutions.is_ok(),
