@@ -53,7 +53,7 @@ pub enum Error {
     PseudoRangeCombination,
     #[error("failed to form phase range combination")]
     PhaseCombination,
-    #[error("unresolved candidate state: should not have been proposed")]
+    #[error("unresolved candidate state")]
     UnresolvedState,
     #[error("physical non sense: rx prior tx")]
     PhysicalNonSenseRxPriorTx,
@@ -61,6 +61,10 @@ pub enum Error {
     PhysicalNonSenseRxTooLate,
     #[error("invalidated solution")]
     InvalidatedSolution,
+    #[error("bancroft solver error: invalid input ?")]
+    BancroftError,
+    #[error("bancroft solver error: invalid input (imaginary solution)")]
+    BancroftImaginarySolution,
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -430,13 +434,21 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         // First guess
         if self.prev_solution.is_none() && self.initial.is_none() {
-            match Bancroft::resolve(&input) {
-                Ok(solution) => panic!("not supported yet"),
+            let solver = match Bancroft::new(&pool) {
+                Ok(solver) => solver,
                 Err(e) => {
-                    warn!("First initial guess failure: {}", e);
+                    error!("failed to deploy bancroft solver: {}", e);
+                    return Err(Error::BancroftError);
+                },
+            };
+            let output = match solver.resolve() {
+                Ok(output) => output,
+                Err(e) => {
+                    error!("initial guess failure: {}", e);
                     return Err(Error::FirstGuess);
                 },
-            }
+            };
+            panic!("todo");
         }
 
         // Regular Iteration

@@ -72,6 +72,10 @@ impl Candidate {
             state: None,
         }
     }
+    /// Define state
+    pub fn set_state(&mut self, state: InterpolationResult) {
+        self.state = Some(state);
+    }
     /*
      * Returns best observed SNR, whatever the signal
      */
