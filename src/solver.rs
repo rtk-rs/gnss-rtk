@@ -28,7 +28,7 @@ use crate::{
     },
     position::Position,
     prelude::{Duration, Epoch},
-    tracker::Tracker,
+    // tracker::Tracker,
 };
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -176,7 +176,7 @@ where
     // Navigator
     nav: Navigation,
     // Tracker
-    tracker: Tracker,
+    // tracker: Tracker,
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
@@ -212,7 +212,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             initial,
             interpolator,
             cfg: cfg.clone(),
-            tracker: Tracker::new(),
+            // tracker: Tracker::new(),
             // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
@@ -495,10 +495,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             Ok(_) => {
                 if method == Method::PPP {
                     let ambiguities = output.state.ambiguities();
-                    for (i, sv) in input.sv.keys().enumerate() {
-                        debug!("{} - {} amb: {}", t, sv, ambiguities[i]);
-                        self.tracker.update(*sv, ambiguities[i]);
-                    }
+                    //for (i, sv) in input.sv.keys().enumerate() {
+                    //    debug!("{} - {} amb: {}", t, sv, ambiguities[i]);
+                    //    self.tracker.update(*sv, ambiguities[i]);
+                    //}
                 }
                 self.nav.validate();
             },

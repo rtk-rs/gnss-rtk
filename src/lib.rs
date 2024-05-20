@@ -13,7 +13,8 @@ mod cfg;
 mod navigation;
 mod position;
 mod solver;
-mod tracker;
+
+// mod tracker;
 
 #[cfg(test)]
 mod tests;
