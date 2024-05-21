@@ -31,7 +31,7 @@ impl Bancroft {
         let mut a = Vector4::<f64>::default();
         let mut b = Matrix4::<f64>::default();
         assert!(
-            cd.len() == 4,
+            cd.len() > 3,
             "can't resolve Bancroft equation: invalid input"
         );
 

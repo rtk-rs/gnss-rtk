@@ -1,8 +1,8 @@
 //! PVT solver
 use std::collections::HashMap;
 
-use gnss::prelude::SV;
 use hifitime::Unit;
+use itertools::Itertools;
 use log::{debug, error, warn};
 use map_3d::{deg2rad, ecef2geodetic, rad2deg};
 use nalgebra::{Matrix3, Vector3};
@@ -27,8 +27,9 @@ use crate::{
         PVTSolution, PVTSolutionType,
     },
     position::Position,
-    prelude::{Duration, Epoch},
+    prelude::{Duration, Epoch, SV},
     // tracker::Tracker,
+    // utils::factorial,
 };
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -232,9 +233,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
-        let min_required = Self::min_required(&self.cfg);
-
+        let min_required = self.min_sv_required();
         if pool.len() < min_required {
+            // no need to proceed further
             return Err(Error::NotEnoughCandidates);
         }
 
@@ -390,49 +391,52 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             }
         }
 
-        // sort by quality
-        pool.sort_by(|cd_a, cd_b| {
-            let state_a = cd_a.state.unwrap();
-            let state_b = cd_b.state.unwrap();
-            state_b.elevation.partial_cmp(&state_a.elevation).unwrap()
-        });
-
-        // Retain required nb of SV
-        if self.prev_solution.is_none() && self.initial.is_none() {
-            // Bancroft needs 4 SV
-            let mut index = 0;
-            pool.retain(|_| {
-                index += 1;
-                index < 5
-            });
-        } else {
-            // Regular iteration
-            let mut index = 0;
-            let min_required = match self.cfg.sol_type {
-                PVTSolutionType::TimeOnly => 2,
-                _ => min_required + 1,
-            };
-            pool.retain(|_| {
-                index += 1;
-                index < min_required
-            });
-        }
-
-        if pool.len() != min_required {
+        if pool.len() < min_required {
             return Err(Error::NotEnoughMatchingCandidates);
         }
 
-        // sort by PRN to form consistant matrix
-        pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
-
-        // Initialize solver if need be
         if self.initial.is_none() {
             let solver = Bancroft::new(&pool)?;
             let output = solver.resolve()?;
+            let (x0, y0, z0) = (output[0], output[1], output[2]);
+            // update attitudes
+            for cd in pool.iter_mut() {
+                let mut state = cd.state.unwrap();
+                state.with_elevation_azimuth((x0, y0, z0));
+            }
+            // store
             self.initial = Some(Position::from_ecef(Vector3::new(
                 output[0], output[1], output[2],
             )));
         }
+
+        // Improve geometry
+        if min_required > 1 {
+            Self::minimize_geometry_error(&mut pool, min_required);
+            // Retain min_required SV
+            let mut index = 0;
+            pool.retain(|_| {
+                index += 1;
+                index < min_required + 1
+            });
+        } else {
+            let mut max_elev = 0.0f64;
+            for cd in &pool {
+                let state = cd.state.unwrap();
+                let elev = state.elevation;
+                if elev > max_elev {
+                    max_elev = elev;
+                }
+            }
+            pool.retain(|cd| {
+                let state = cd.state.unwrap();
+                state.elevation == max_elev
+            });
+        }
+
+        // Prepare for NAV:
+        //   2. Sort by PRN to form consistant matrix
+        pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
 
         let initial = self.initial.as_ref().unwrap();
         let (x0, y0, z0) = (initial.ecef()[0], initial.ecef()[1], initial.ecef()[2]);
@@ -537,24 +541,24 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         Self::rework_solution(&mut solution, &self.cfg);
         Ok((t, solution))
     }
-    /*
-     * Returns nb of vehicles we need to gather
-     */
-    fn min_required(cfg: &Config) -> usize {
-        match cfg.sol_type {
-            PVTSolutionType::TimeOnly => 1,
-            _ => {
-                let mut n = 4;
-                if cfg.fixed_altitude.is_some() {
-                    n -= 1;
-                }
-                n
-            },
+    /* returns minimal number of SV */
+    fn min_sv_required(&self) -> usize {
+        if self.initial.is_none() {
+            4
+        } else {
+            match self.cfg.sol_type {
+                PVTSolutionType::TimeOnly => 1,
+                _ => {
+                    if self.cfg.fixed_altitude.is_some() {
+                        3
+                    } else {
+                        4
+                    }
+                },
+            }
         }
     }
-    /*
-     * Apply appropriate adjustments
-     */
+    /* rotate interpolated position */
     fn rotate_position(
         rotate: bool,
         interpolated: InterpolationResult,
@@ -606,4 +610,71 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             pvt.velocity = Default::default();
         }
     }
+    /*
+     * Minimize geometry error
+     */
+    pub(crate) fn minimize_geometry_error(candidates: &mut Vec<Candidate>, min_required: usize) {
+        let nb_candidates = candidates.len();
+        let (mut sv_min_elev, mut min_elev) = (SV::default(), 365.0_f64);
+        let (mut sv_max_elev, mut max_elev) = (SV::default(), 0.0_f64);
+
+        for cd in candidates.iter() {
+            let state = cd.state.unwrap();
+            if state.elevation < min_elev {
+                sv_min_elev = cd.sv;
+                min_elev = state.elevation;
+            }
+            if state.elevation > max_elev {
+                sv_max_elev = cd.sv;
+                max_elev = state.elevation;
+            }
+        }
+
+        debug!("sv_min_elev: {}, sv_max_elev: {}", sv_min_elev, sv_max_elev);
+
+        let mut retained = Vec::<SV>::with_capacity(min_required);
+        retained.push(sv_min_elev);
+        retained.push(sv_max_elev);
+
+        let mut combinations: Vec<(Vec<SV>, f64)> = Vec::with_capacity(16);
+        for combination in candidates.iter().combinations(min_required) {
+            let mut mean = 0.0_f64;
+            for cd in combination.iter() {
+                let state = cd.state.unwrap();
+                mean += state.azimuth;
+            }
+            mean /= min_required as f64;
+            let mut dev = 0.0_f64;
+            for cd in combination.iter() {
+                let state = cd.state.unwrap();
+                dev += (state.azimuth - mean).powi(2);
+            }
+            dev /= min_required as f64;
+            let svs = combination.iter().map(|cd| cd.sv).collect::<Vec<_>>();
+            combinations.push((svs, dev));
+        }
+
+        combinations.sort_by(|(_, dev_a), (_, dev_b)| dev_b.partial_cmp(&dev_a).unwrap());
+
+        for i in 0..combinations.len() {
+            for sv in &combinations[combinations.len() - i - 1].0 {
+                if !retained.contains(sv) {
+                    retained.push(*sv);
+                }
+                if retained.len() == min_required {
+                    break;
+                }
+            }
+        }
+        println!("RETAINED: {:?}", retained);
+
+        let mut index = 0;
+        candidates.retain(|cd| retained.contains(&cd.sv));
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_geometry() {}
 }
