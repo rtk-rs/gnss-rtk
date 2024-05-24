@@ -71,8 +71,20 @@ pub enum Profile {
     /// and laboratories applications.
     #[default]
     Static,
-    /// Roaming: Pedestrian (<5 to 10 km/h)
-    Pedestrian,
+}
+
+/// Select geometry optimization preference. Only applies when
+/// navigation is not set to [PVTSolutionType::TimeOnly].
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+pub enum GeometryStrategy {
+    /// Elect vehicles with best elevation
+    #[default]
+    BestElevation,
+    /// Spread Azimuth with min,max(elev) retained.
+    /// This may be very limited when stringent min,max(sv_azimuth) 
+    /// criterias are being used.
+    SpreadAzimuth,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -147,6 +159,10 @@ fn default_phase_windup() -> bool {
 
 fn default_postfit_kf() -> bool {
     false
+}
+
+fn default_geometry_strategy() -> GeometryStrategy {
+    GeometryStrategy::default()
 }
 
 fn default_weight_matrix() -> Option<WeightMatrix> {
@@ -355,6 +371,9 @@ pub struct Config {
     /// Minimal SNR for an SV to contribute to the solution.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_snr: Option<f64>,
+    /// SV election criteria to minimize geometry errors
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub geometry_strategy: GeometryStrategy,
     /// Atmospherical and Physical [Modeling] used to improve the accuracy of solution.
     #[cfg_attr(feature = "serde", serde(default))]
     pub modeling: Modeling,
@@ -382,6 +401,7 @@ impl Config {
                 modeling: Modeling::default(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
+                geometry_strategy: default_geometry_strategy(),
                 solver: SolverOpts {
                     filter: Filter::LSQ,
                     gdop_threshold: default_gdop_threshold(),
@@ -407,6 +427,7 @@ impl Config {
                 modeling: Modeling::default(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
+                geometry_strategy: default_geometry_strategy(),
                 solver: SolverOpts {
                     filter: Filter::LSQ,
                     gdop_threshold: default_gdop_threshold(),
@@ -432,6 +453,7 @@ impl Config {
                 modeling: Modeling::default(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
+                geometry_strategy: default_geometry_strategy(),
                 solver: SolverOpts {
                     filter: Filter::LSQ,
                     gdop_threshold: default_gdop_threshold(),

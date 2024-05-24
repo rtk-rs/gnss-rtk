@@ -21,7 +21,7 @@ use crate::{
     bancroft::Bancroft,
     bias::{IonosphereBias, TroposphereBias},
     candidate::Candidate,
-    cfg::{Config, Method},
+    cfg::{Config, Method, GeometryStrategy},
     navigation::{
         solutions::validator::Validator as SolutionValidator, Input as NavigationInput, Navigation,
         PVTSolution, PVTSolutionType,
@@ -239,6 +239,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             return Err(Error::NotEnoughCandidates);
         }
 
+        let mut max_elev = 0.0_f64;
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let solver_opts = &self.cfg.solver;
@@ -297,6 +298,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     if let Some(initial) = &self.initial {
                         let (x0, y0, z0) = (initial.ecef[0], initial.ecef[1], initial.ecef[2]);
                         interpolated = interpolated.with_elevation_azimuth((x0, y0, z0));
+                        if interpolated.elevation > max_elev {
+                            max_elev = interpolated.elevation;
+                        }
+
                     } else {
                         min_elev = 0.0_f64; // cannot apply yet
                         min_azim = 0.0_f64; // cannot apply yet
@@ -395,14 +400,16 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             return Err(Error::NotEnoughMatchingCandidates);
         }
 
+        // First solution
         if self.initial.is_none() {
             let solver = Bancroft::new(&pool)?;
             let output = solver.resolve()?;
             let (x0, y0, z0) = (output[0], output[1], output[2]);
             // update attitudes
             for cd in pool.iter_mut() {
-                let mut state = cd.state.unwrap();
-                state.with_elevation_azimuth((x0, y0, z0));
+                if let Some(state) = cd.state {
+                    cd.state = Some(state.with_elevation_azimuth((x0, y0, z0)));
+                }
             }
             // store
             self.initial = Some(Position::from_ecef(Vector3::new(
@@ -411,27 +418,39 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         // Improve geometry
-        if min_required > 1 {
-            Self::minimize_geometry_error(&mut pool, min_required);
-            // Retain min_required SV
-            let mut index = 0;
-            pool.retain(|_| {
-                index += 1;
-                index < min_required + 1
-            });
-        } else {
-            let mut max_elev = 0.0f64;
-            for cd in &pool {
-                let state = cd.state.unwrap();
-                let elev = state.elevation;
-                if elev > max_elev {
-                    max_elev = elev;
+        match self.cfg.geometry_strategy {
+            GeometryStrategy::SpreadAzimuth => {
+                if min_required == 1 {
+                    // Does not apply 
+                    pool.retain(|cd| {
+                        let state = cd.state.unwrap();
+                        state.elevation == max_elev
+                    });
+                } else {
+
                 }
-            }
-            pool.retain(|cd| {
-                let state = cd.state.unwrap();
-                state.elevation == max_elev
-            });
+            },
+            GeometryStrategy::BestElevation => {
+                if min_required == 1 {
+                    pool.retain(|cd| {
+                        let state = cd.state.unwrap();
+                        state.elevation == max_elev
+                    });
+                } else {
+                    // Prepare for NAV:
+                    //   2. Sort by PRN to form consistant matrix
+                    pool.sort_by(|cd_a, cd_b| {
+                        let state_a = cd_a.state.unwrap();
+                        let state_b = cd_b.state.unwrap();
+                        state_a.elevation.partial_cmp(&state_b.elevation).unwrap()
+                    });
+                    let mut index = 0;
+                    pool.retain(|_| {
+                        index += 1;
+                        index < min_required + 1
+                    });
+                }
+            },
         }
 
         // Prepare for NAV:
@@ -655,14 +674,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         combinations.sort_by(|(_, dev_a), (_, dev_b)| dev_b.partial_cmp(&dev_a).unwrap());
+        println!("SORTED COMBINATIONS: {:?}", combinations);
 
-        for i in 0..combinations.len() {
+        for i in 0..min_required {
             for sv in &combinations[combinations.len() - i - 1].0 {
                 if !retained.contains(sv) {
                     retained.push(*sv);
-                }
-                if retained.len() == min_required {
-                    break;
                 }
             }
         }
