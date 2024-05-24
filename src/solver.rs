@@ -8,6 +8,7 @@ use map_3d::{deg2rad, ecef2geodetic, rad2deg};
 use nalgebra::{Matrix3, Vector3};
 use std::f64::consts::PI;
 use thiserror::Error;
+use std::cmp::Ordering;
 
 use nyx::{
     cosmic::{
@@ -150,6 +151,10 @@ impl InterpolationResult {
             dt,
             frame,
         )
+    }
+    #[cfg(test)]
+    fn set_elevation(&mut self, elev: f64) {
+        self.elevation = elev;
     }
 }
 
@@ -410,32 +415,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             )));
         }
 
-        // Improve geometry
-        if min_required > 1 {
-            Self::minimize_geometry_error(&mut pool, min_required);
-            // Retain min_required SV
-            let mut index = 0;
-            pool.retain(|_| {
-                index += 1;
-                index < min_required + 1
-            });
-        } else {
-            let mut max_elev = 0.0f64;
-            for cd in &pool {
-                let state = cd.state.unwrap();
-                let elev = state.elevation;
-                if elev > max_elev {
-                    max_elev = elev;
-                }
-            }
-            pool.retain(|cd| {
-                let state = cd.state.unwrap();
-                state.elevation == max_elev
-            });
-        }
-
         // Prepare for NAV:
-        //   2. Sort by PRN to form consistant matrix
+        Self::retain_best_elevation(&mut pool);
+        // Sort by PRN to form consistant matrix
         pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
 
         let initial = self.initial.as_ref().unwrap();
@@ -613,7 +595,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     /*
      * Minimize geometry error
      */
-    pub(crate) fn minimize_geometry_error(candidates: &mut Vec<Candidate>, min_required: usize) {
+    fn minimize_geometry_error(candidates: &mut Vec<Candidate>, min_required: usize) {
         let nb_candidates = candidates.len();
         let (mut sv_min_elev, mut min_elev) = (SV::default(), 365.0_f64);
         let (mut sv_max_elev, mut max_elev) = (SV::default(), 0.0_f64);
@@ -671,10 +653,66 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut index = 0;
         candidates.retain(|cd| retained.contains(&cd.sv));
     }
+    fn retain_best_elevation(pool: &mut Vec<Candidates>, min_required: usize) {
+        let total = pool.len();
+        //   1. Retain best elevation
+        pool.sort_by(|cd_a, cd_b| {
+            let state_a = cd_a.state.unwrap();
+            let state_b = cd_b.state.unwrap();
+            state_a.elevation.partial_cmp(&state_b.elevation)
+        });
+
+        let min_elev = pool[total -1 -min_required].state.unwrap().elevation;
+        
+        pool.retain(|cd| {
+            let state = cd.state.unwrap();
+            state.elevation >= min_elev
+        });
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::prelude::{Candidate, Epoch, SV, Duration, Observation};
     #[test]
-    fn test_geometry() {}
+    fn retain_best_elev() {
+        let mut pool = Vec::<Candidate>::new();
+        for elev in [
+            0.0,
+            3.0,
+            8.0,
+            16.0,
+            16.5,
+            21.0,
+            45.0,
+        ] {
+            let cd = Candidate::new(
+                SV::default(),
+                Epoch::default(),
+                clock_corr: Duration::default(),
+                tgd: None,
+                pseudo_range: vec![],
+                phase_range: vec![],
+                doppler: vec![]
+            );
+            let mut state = InterpolationResult::from_position((0.0, 0.0, 0.0));
+            state.set_elevation(elev);
+            cd.set_state(state);
+            pool.push(cd);
+        }
+
+        for min_required in [
+            1, 3, 4, 5
+        ] {
+            let mut tested = pool.clone();
+            Solver::retain_best_elevation(&mut tested, min_required),
+            if min_required == 1 {
+                assert_eq!(tested.len(), 1);
+                assert_eq!(tested[0].state.unwrap().elevation, 45.0); 
+            } else if min_required == 3 {
+            } else if min_required == 4 {
+            } else if min_required == 5 {
+            }
+        }
+    }
 }
