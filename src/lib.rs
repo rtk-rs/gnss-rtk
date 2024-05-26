@@ -5,7 +5,7 @@ extern crate gnss_rs as gnss;
 extern crate nyx_space as nyx;
 
 // private modules
-// mod ambiguity;
+mod ambiguity;
 mod bancroft;
 mod bias;
 mod candidate;
