@@ -657,6 +657,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     }
     fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
         let total = pool.len();
+        let mut index = 0;
         //   1. Retain best elevation
         pool.sort_by(|cd_a, cd_b| {
             let state_a = cd_a.state.unwrap();
@@ -664,11 +665,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             state_a.elevation.partial_cmp(&state_b.elevation).unwrap()
         });
 
-        let min_elev = pool[total - 1 - min_required].state.unwrap().elevation;
-
-        pool.retain(|cd| {
-            let state = cd.state.unwrap();
-            state.elevation >= min_elev
+        pool.retain(|_| {
+            index += 1;
+            index > total - min_required
         });
     }
 }
