@@ -10,6 +10,9 @@ use crate::{
 
 use nalgebra::{base::dimension::U8, OMatrix};
 
+mod method;
+pub use method::Method;
+
 /// Configuration Error
 #[derive(Debug, Error)]
 pub enum Error {
@@ -17,48 +20,16 @@ pub enum Error {
     UnknownTropoModel(String),
 }
 
-/// Solving method
+/// Geometry strategy
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum Method {
-    /// Single Point Positioning (SPP).
-    /// Code based navigation on a single carrier frequency.
-    /// Phase observations are not required, and Ionosphere model must be provided
-    /// for best results. Exhibits metric accuracy on high quality data.
-    SPP,
-    /// Code based Precise Point Positioning (CPP).
-    /// Code based navigation on dual carrier frequencies.
-    /// Both phase observations and Ionosphere modeling are not required.
-    /// Exhibits metric accuracy on high quality data.
+pub enum GeometryStrategy {
+    /// Algorithm selects best elevation angles
     #[default]
-    CPP,
-    /// Precise Point Positioning (PPP).
-    /// Code and Carrier based navigation, requires Pseudo range and
-    /// Carrier phase observations on two frequencies.
-    /// Exhibits centimetric accuracy on high quality data.
-    PPP,
+    BestElevation,
+    /// Spread geometry algorithm (aims at minimizing geometric error)
+    SpreadAzimuth,
 }
-
-impl std::fmt::Display for Method {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::SPP => write!(fmt, "SPP"),
-            Self::CPP => write!(fmt, "CPP"),
-            Self::PPP => write!(fmt, "PPP"),
-        }
-    }
-}
-
-// impl std::str::FromStr for  Method {
-//     type Err = Error;
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         match s.trim().to_lowercase().as_str() {
-//             "spp" => Ok(Self::SPP),
-//             "code-ppp" => Ok(Self::Code_PPP),
-//             _ => Err(Error::UnknownMethod(s.to_string())),
-//         }
-//     }
-// }
 
 /// Rover or receiver use case Profile, to the [Solver]
 /// selects appropriate settings. Failing to select
@@ -71,7 +42,7 @@ pub enum Profile {
     /// and laboratories applications.
     #[default]
     Static,
-    /// Roaming: Pedestrian (<5 to 10 km/h)
+    /// Roaming: Pedestrian (5 to 10 km/h)
     Pedestrian,
 }
 

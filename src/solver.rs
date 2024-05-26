@@ -6,9 +6,9 @@ use itertools::Itertools;
 use log::{debug, error, warn};
 use map_3d::{deg2rad, ecef2geodetic, rad2deg};
 use nalgebra::{Matrix3, Vector3};
+use std::cmp::Ordering;
 use std::f64::consts::PI;
 use thiserror::Error;
-use std::cmp::Ordering;
 
 use nyx::{
     cosmic::{
@@ -39,6 +39,8 @@ pub enum Error {
     NotEnoughCandidates,
     #[error("not enough candidates match pre-fit criteria")]
     NotEnoughMatchingCandidates,
+    #[error("non supported/invalid strategy")]
+    InvalidStrategy,
     #[error("failed to form matrix (invalid input?)")]
     MatrixError,
     #[error("first guess failure")]
@@ -416,7 +418,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         // Prepare for NAV:
-        Self::retain_best_elevation(&mut pool);
+        Self::retain_best_elevation(&mut pool, min_required);
         // Sort by PRN to form consistant matrix
         pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
 
@@ -653,17 +655,17 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         let mut index = 0;
         candidates.retain(|cd| retained.contains(&cd.sv));
     }
-    fn retain_best_elevation(pool: &mut Vec<Candidates>, min_required: usize) {
+    fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
         let total = pool.len();
         //   1. Retain best elevation
         pool.sort_by(|cd_a, cd_b| {
             let state_a = cd_a.state.unwrap();
             let state_b = cd_b.state.unwrap();
-            state_a.elevation.partial_cmp(&state_b.elevation)
+            state_a.elevation.partial_cmp(&state_b.elevation).unwrap()
         });
 
-        let min_elev = pool[total -1 -min_required].state.unwrap().elevation;
-        
+        let min_elev = pool[total - 1 - min_required].state.unwrap().elevation;
+
         pool.retain(|cd| {
             let state = cd.state.unwrap();
             state.elevation >= min_elev
@@ -673,27 +675,19 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::{Candidate, Epoch, SV, Duration, Observation};
+    use crate::prelude::{Candidate, Duration, Epoch, Observation, SV};
     #[test]
     fn retain_best_elev() {
         let mut pool = Vec::<Candidate>::new();
-        for elev in [
-            0.0,
-            3.0,
-            8.0,
-            16.0,
-            16.5,
-            21.0,
-            45.0,
-        ] {
+        for elev in [0.0, 3.0, 8.0, 16.0, 16.5, 21.0, 45.0] {
             let cd = Candidate::new(
                 SV::default(),
                 Epoch::default(),
-                clock_corr: Duration::default(),
-                tgd: None,
-                pseudo_range: vec![],
-                phase_range: vec![],
-                doppler: vec![]
+                Duration::default(),
+                None,
+                vec![],
+                vec![],
+                vec![],
             );
             let mut state = InterpolationResult::from_position((0.0, 0.0, 0.0));
             state.set_elevation(elev);
@@ -701,14 +695,12 @@ mod test {
             pool.push(cd);
         }
 
-        for min_required in [
-            1, 3, 4, 5
-        ] {
+        for min_required in [1, 3, 4, 5] {
             let mut tested = pool.clone();
-            Solver::retain_best_elevation(&mut tested, min_required),
+            Solver::retain_best_elevation(&mut tested, min_required);
             if min_required == 1 {
                 assert_eq!(tested.len(), 1);
-                assert_eq!(tested[0].state.unwrap().elevation, 45.0); 
+                assert_eq!(tested[0].state.unwrap().elevation, 45.0);
             } else if min_required == 3 {
             } else if min_required == 4 {
             } else if min_required == 5 {
