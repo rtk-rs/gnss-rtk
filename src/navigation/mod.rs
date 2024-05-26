@@ -150,16 +150,20 @@ impl Input {
                 models -= delay * SPEED_OF_LIGHT;
             }
 
-            let pr = match cfg.method {
-                Method::SPP => cd[index]
-                    .prefered_pseudorange()
-                    .ok_or(Error::MissingPseudoRange)?,
-                Method::CPP | Method::PPP => cd[index]
-                    .pseudorange_combination()
-                    .ok_or(Error::PseudoRangeCombination)?,
+            let (pr, frequency) = match cfg.method {
+                Method::SPP => {
+                    let pr = cd[index]
+                        .prefered_pseudorange()
+                        .ok_or(Error::MissingPseudoRange)?;
+                    (pr.value, pr.carrier.frequency())
+                },
+                Method::CPP | Method::PPP => {
+                    let pr = cd[index]
+                        .code_if_combination()
+                        .ok_or(Error::PseudoRangeCombination)?;
+                    (pr.value, pr.reference.frequency())
+                },
             };
-
-            let (pr, frequency) = (pr.value, pr.carrier.frequency());
 
             // frequency dependent delay
             for delay in &cfg.int_delay {
@@ -216,7 +220,7 @@ impl Input {
 
                 if cfg.method == Method::PPP && i > 3 {
                     let ph = cd[index]
-                        .phase_combination()
+                        .phase_if_combination()
                         .ok_or(Error::PseudoRangeCombination)?;
 
                     // TODO: conclude windup

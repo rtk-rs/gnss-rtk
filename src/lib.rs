@@ -5,6 +5,7 @@ extern crate gnss_rs as gnss;
 extern crate nyx_space as nyx;
 
 // private modules
+// mod ambiguity;
 mod bancroft;
 mod bias;
 mod candidate;
@@ -23,7 +24,7 @@ mod tests;
 // prelude
 pub mod prelude {
     pub use crate::bias::{BdModel, IonosphereBias, KbModel, NgModel, TroposphereBias};
-    pub use crate::candidate::{Candidate, Observation};
+    pub use crate::candidate::{Candidate, PhaseRange, PseudoRange};
     pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, PVTSolution, PVTSolutionType};
