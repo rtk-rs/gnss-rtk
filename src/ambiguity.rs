@@ -220,7 +220,7 @@ mod test {
         let mut avg = Averager::new();
         for (value, expect) in [(1.0, 1.0)] {
             assert_eq!(
-                averager.average(value),
+                avg.average(value),
                 expect,
                 "failed for +={}={}",
                 value,
