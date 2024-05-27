@@ -89,25 +89,30 @@ impl Buffer {
     // }
 }
 
-pub struct SVTracker {
+struct SVTracker {
     /// last seen [Epoch]
-    last_seen: Option<Epoch>,
+    pub last_seen: Option<Epoch>,
     /// MW tracker per [SV]
-    mw_tracker: Averager,
+    pub mw_tracker: Averager,
     /// N_1 tracker per [SV]
-    n1_tracker: Averager,
+    pub n1_tracker: Averager,
     /// GF moving window
-    gf_buffer: Buffer,
+    pub gf_buffer: Buffer,
 }
 
 impl SVTracker {
-    pub fn new() -> Self {
+    pub fn new(last_seen: Epoch) -> Self {
         Self {
-            last_seen: None,
+            last_seen: Some(last_seen),
             n1_tracker: Averager::new(),
             mw_tracker: Averager::new(),
             gf_buffer: Buffer::malloc(128, Duration::from_hours(1.0), Duration::from_seconds(30.0)),
         }
+    }
+    pub fn reset(&mut self) {
+        self.n1_tracker.reset();
+        self.mw_tracker.reset();
+        self.gf_buffer.reset();
     }
 }
 
@@ -117,6 +122,8 @@ pub struct AmbiguitySolver {
     sampling_interval: Duration,
     /// [SV] tracker
     sv_trackers: HashMap<SV, SVTracker>,
+    /// [SV] out of sight
+    untracked: Vec<SV>,
 }
 
 impl AmbiguitySolver {
@@ -124,27 +131,48 @@ impl AmbiguitySolver {
     pub fn new(sampling_interval: Duration) -> Self {
         Self {
             sampling_interval,
+            untracked: Vec::with_capacity(8),
             sv_trackers: HashMap::with_capacity(8),
         }
     }
     /// Resolve [Ambiguities]
     pub fn resolve(&mut self, pool: &mut [Candidate]) -> Result<(), Error> {
-        Ok(())
-        //// 1. account for possible new SV
-        //for cd in pool {
-        //    if self.mw_trackers.get_mut(&cd.sv).is_none() {
-        //        self.last_seen.insert(*cd.sv, pool.t_rx);
-        //        self.mw_trackers.insert(*cd.sv, Tracker::new());
-        //        self.n1_trackers.insert(*cd.sv, Tracker::new());
-        //        self.gf_buffers.insert(*cd.sv, Buffer::malloc(128));
-        //    }
-        //    // manage loss of sight
-        //    let last_seen = self.last_seen.get(&cd.sv).unwrap();
-        //    if cd.t_rx - last_seen > self.sampling_interval {
-        //        warn!("{}({}): tracker - loss of sight", cd.t_rx, cd.sv);
-        //        // TODO: reset all trackers
-        //    }
-        //}
+        // 1. account for possible new SV
+        for cd in pool {
+            match self.sv_trackers.get_mut(&cd.sv) {
+                Some(tracker) => {
+                    // manage loss of sight
+                    if let Some(last_seen) = tracker.last_seen {
+                        let dt = cd.t - last_seen;
+                        if dt > self.sampling_interval && !self.untracked.contains(&cd.sv) {
+                            warn!("{}({}): tracker reset - {} loss of sight", cd.t, cd.sv, dt);
+                            tracker.reset();
+                            self.untracked.push(cd.sv);
+                        } else {
+                            self.untracked.retain(|sv| *sv != cd.sv);
+                        }
+                    }
+                    // proceed
+                    if !self.untracked.contains(&cd.sv) {
+                        if let Some(cmb) = cd.mw_combination() {
+                            let (l_1, l_j) = (cmb.reference.frequency(), cmb.lhs.frequency());
+                            let (lambda_1, lambda_j) =
+                                (cmb.reference.wavelength(), cmb.lhs.wavelength());
+                            let lambda_w = SPEED_OF_LIGHT / (l_1 + l_j);
+                            let lamba_w = SPEED_OF_LIGHT / (l_1 - l_j);
+                            let n_w = tracker.mw_tracker.average(cmb.value / lambda_w);
+                            debug!("{}({}): n_w: {}", cd.t, cd.sv, n_w);
+                        } else {
+                            error!("{}({}): fail to form mw - missing signal", cd.t, cd.sv);
+                        }
+                    }
+                },
+                None => {
+                    self.sv_trackers.insert(cd.sv, SVTracker::new(cd.t));
+                    self.untracked.retain(|sv| *sv != cd.sv);
+                },
+            }
+        }
 
         //// 3. proceed
         //for cd in pool {
@@ -156,12 +184,6 @@ impl AmbiguitySolver {
         //    }
         //    if let Some(cmb) = cd.mw_combination() {
         //        // MW tracker
-        //        let mut mw_tracker = self.mw_tracker.get_mut(&cd.sv).unwrap();
-        //        let (l_1, l_j) = (cmb.reference.frequency(), cmb.lhs.frequency());
-        //        let (lambda_1, lambda_j) = (cmb.reference.wavelength(), cmb.lhs.wavelength());
-        //        let lambda_w = SPEED_OF_LIGHT / (l_1 - l_j);
-        //        let nw = mw_tracker.average(cmb.value / lambda_w);
-
         //        // N_1 tracker
         //        let l_1 = cd
         //            .phase_range
@@ -185,6 +207,7 @@ impl AmbiguitySolver {
         //    }
         //}
 
+        Ok(())
         //Ok(Ambiguities::default())
     }
 }

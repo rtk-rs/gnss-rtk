@@ -19,6 +19,7 @@ use nyx::{
 };
 
 use crate::{
+    ambiguity::AmbiguitySolver,
     bancroft::Bancroft,
     bias::{IonosphereBias, TroposphereBias},
     candidate::Candidate,
@@ -29,8 +30,6 @@ use crate::{
     },
     position::Position,
     prelude::{Duration, Epoch, SV},
-    // tracker::Tracker,
-    // utils::factorial,
 };
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -69,6 +68,8 @@ pub enum Error {
     BancroftError,
     #[error("bancroft solver error: invalid input (imaginary solution)")]
     BancroftImaginarySolution,
+    #[error("ambiguity solver error")]
+    AmbiguitySolver,
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -164,7 +165,6 @@ impl InterpolationResult {
 /// I: Interpolated SV APC coordinates interface.
 /// You are required to provide APC coordinates at requested ("t", "sv"),
 /// expressed in meters [ECEF], for this to proceed.
-#[derive(Debug, Clone)]
 pub struct Solver<I>
 where
     I: Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
@@ -183,8 +183,8 @@ where
     sun_frame: Frame,
     // Navigator
     nav: Navigation,
-    // Tracker
-    // tracker: Tracker,
+    // Solver
+    ambiguity: AmbiguitySolver,
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
@@ -220,7 +220,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             initial,
             interpolator,
             cfg: cfg.clone(),
-            // tracker: Tracker::new(),
+            // TODO
+            ambiguity: AmbiguitySolver::new(Duration::from_seconds(300.0)),
             // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
@@ -415,6 +416,17 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             self.initial = Some(Position::from_ecef(Vector3::new(
                 output[0], output[1], output[2],
             )));
+        }
+
+        // Resolve ambiguities
+        if method == Method::CPP {
+            match self.ambiguity.resolve(&mut pool) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("ambiguity solver: {}", e);
+                    return Err(Error::AmbiguitySolver);
+                },
+            }
         }
 
         // Prepare for NAV:
