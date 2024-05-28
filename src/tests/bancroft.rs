@@ -1,4 +1,3 @@
-
 use crate::bancroft::Bancroft;
 use crate::prelude::{
     Candidate, Carrier, Constellation, Duration, Epoch, InterpolationResult, PseudoRange, SV,

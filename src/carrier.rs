@@ -1,6 +1,6 @@
 use nyx::cosmic::SPEED_OF_LIGHT;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Carrier {
     /// L1 (GPS/QZSS/SBAS) same frequency as E1 and B1aB1c
     #[default]

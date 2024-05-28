@@ -3,6 +3,14 @@ use log::{debug, error, warn};
 use nyx::cosmic::SPEED_OF_LIGHT;
 use std::collections::HashMap;
 
+pub type Ambiguities = HashMap<(SV, Carrier), Ambiguity>;
+
+pub struct Ambiguity {
+    pub n_1: f64,
+    pub n_2: f64,
+    pub n_w: f64,
+}
+
 /// Data averager
 struct Averager {
     y: f64,
@@ -136,8 +144,9 @@ impl AmbiguitySolver {
         }
     }
     /// Resolve [Ambiguities]
-    pub fn resolve(&mut self, pool: &mut [Candidate]) -> Result<(), Error> {
-        // 1. account for possible new SV
+    pub fn resolve(&mut self, pool: &[Candidate]) -> Ambiguities {
+        let mut ambiguities = Ambiguities::with_capacity(pool.len());
+
         for cd in pool {
             match self.sv_trackers.get_mut(&cd.sv) {
                 Some(tracker) => {
@@ -149,6 +158,7 @@ impl AmbiguitySolver {
                             tracker.reset();
                             self.untracked.push(cd.sv);
                         } else {
+                            tracker.last_seen = Some(cd.t);
                             self.untracked.retain(|sv| *sv != cd.sv);
                         }
                     }
@@ -161,9 +171,25 @@ impl AmbiguitySolver {
                             let lambda_w = SPEED_OF_LIGHT / (l_1 + l_j);
                             let lamba_w = SPEED_OF_LIGHT / (l_1 - l_j);
                             let n_w = tracker.mw_tracker.average(cmb.value / lambda_w);
-                            debug!("{}({}): n_w: {}", cd.t, cd.sv, n_w);
+
+                            let l_1 = cd.l1_phaserange().unwrap();
+                            let l_j = cd.lj_phaserange().unwrap();
+                            let (lambda_1, lambda_2) =
+                                (l_1.carrier.wavelength(), l_j.carrier.wavelength());
+                            let n_1 = tracker.n1_tracker.average(
+                                (l_1.value - l_j.value - lambda_2 * n_w) / (lambda_1 - lambda_2),
+                            );
+                            let n_2 = n_1 - n_w;
+
+                            let ambiguity = Ambiguity { n_1, n_2, n_w };
+
+                            debug!(
+                                "{}({}): n_1: {} n_2: {} n_w: {}",
+                                cd.t, cd.sv, n_1, n_2, n_w
+                            );
+                            ambiguities.insert((cd.sv, l_1.carrier), ambiguity);
                         } else {
-                            error!("{}({}): fail to form mw - missing signal", cd.t, cd.sv);
+                            error!("{}({}): fail to form mw_cmb - missing signal", cd.t, cd.sv);
                         }
                     }
                 },
@@ -173,42 +199,7 @@ impl AmbiguitySolver {
                 },
             }
         }
-
-        //// 3. proceed
-        //for cd in pool {
-        //    if let Some(cmb) = cd.phase_gf_combination() {
-        //        let mut gf_buffer = self.gf_trackers.get_mut(&cd.sv).unwrap();
-        //        gf_buffer.push(cd.t_rx, cmb.value);
-        //        // let (a, b, c) = gf
-        //        // TODO polyfit, threshold.. declare CS.. reset
-        //    }
-        //    if let Some(cmb) = cd.mw_combination() {
-        //        // MW tracker
-        //        // N_1 tracker
-        //        let l_1 = cd
-        //            .phase_range
-        //            .iter()
-        //            .filter(|p| p.carrier == cmb.reference)
-        //            .reduce(|k, _| k)
-        //            .unwrap();
-        //        let l_j = cd
-        //            .phase_range
-        //            .iter()
-        //            .filter(|p| p.carrier == cmb.lhs)
-        //            .reduce(|k, _| k)
-        //            .unwrap();
-        //        let mut n1_tracker = self.n1_trackers.get_mut(&cd.sv).unwrap();
-        //        let n1 = n1_tracker.average((l_1.value - l_j.value - lambda_j * nw) / (lambda_1 - lambda_j));
-
-        //        let n2 = n1 - nw;
-        //        debug!("{}({}}: nw: {} | n1: {} | n2: {}", cd.t_rx, cd.sv, nw, n1, n2);
-
-        //        // TODO: fix ambiguities (&mut pool)
-        //    }
-        //}
-
-        Ok(())
-        //Ok(Ambiguities::default())
+        ambiguities
     }
 }
 

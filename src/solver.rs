@@ -55,7 +55,7 @@ pub enum Error {
     #[error("failed to form pseudo range combination")]
     PseudoRangeCombination,
     #[error("failed to form phase range combination")]
-    PhaseCombination,
+    PhaseRangeCombination,
     #[error("unresolved candidate state")]
     UnresolvedState,
     #[error("physical non sense: rx prior tx")]
@@ -68,8 +68,8 @@ pub enum Error {
     BancroftError,
     #[error("bancroft solver error: invalid input (imaginary solution)")]
     BancroftImaginarySolution,
-    #[error("ambiguity solver error")]
-    AmbiguitySolver,
+    #[error("unresolved signal ambiguity")]
+    UnresolvedAmbiguity,
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -419,15 +419,11 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
 
         // Resolve ambiguities
-        if method == Method::CPP {
-            match self.ambiguity.resolve(&mut pool) {
-                Ok(_) => {},
-                Err(e) => {
-                    error!("ambiguity solver: {}", e);
-                    return Err(Error::AmbiguitySolver);
-                },
-            }
-        }
+        let ambiguities = if method == Method::PPP {
+            self.ambiguity.resolve(&pool)
+        } else {
+            Default::default()
+        };
 
         // Prepare for NAV:
         Self::retain_best_elevation(&mut pool, min_required);
@@ -448,6 +444,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             (lat_ddeg, lon_ddeg, altitude_above_sea_m),
             &self.cfg,
             &pool,
+            &ambiguities,
             iono_bias,
             tropo_bias,
         ) {
@@ -468,6 +465,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         };
 
         let x = output.state.estimate();
+        let position = match method {
+            Method::SPP | Method::CPP => Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
+            _ => Vector3::new(x[4] + x0, x[5] + y0, x[6] + z0),
+        };
 
         let mut solution = PVTSolution {
             gdop: output.gdop,
@@ -492,16 +493,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             SolutionValidator::new(Vector3::<f64>::new(x0, y0, z0), &pool, &input, &output);
 
         match validator.validate(solver_opts) {
-            Ok(_) => {
-                if method == Method::PPP {
-                    let ambiguities = output.state.ambiguities();
-                    //for (i, sv) in input.sv.keys().enumerate() {
-                    //    debug!("{} - {} amb: {}", t, sv, ambiguities[i]);
-                    //    self.tracker.update(*sv, ambiguities[i]);
-                    //}
-                }
-                self.nav.validate();
-            },
+            Ok(_) => self.nav.validate(),
             Err(e) => {
                 error!("solution invalidated - {}", e);
                 return Err(Error::InvalidatedSolution);

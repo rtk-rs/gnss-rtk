@@ -5,10 +5,11 @@ mod filter;
 
 pub use filter::{Filter, FilterState};
 
-use log::debug;
+use log::{debug, error};
 use std::collections::HashMap;
 
 use crate::{
+    ambiguity::Ambiguities,
     bias::{Bias, IonosphereBias, RuntimeParam as BiasRuntimeParams, TropoModel, TroposphereBias},
     candidate::Candidate,
     cfg::Config,
@@ -92,6 +93,7 @@ impl Input {
         apriori_geo: (f64, f64, f64),
         cfg: &Config,
         cd: &[Candidate],
+        ambiguities: &Ambiguities,
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<Self, Error> {
@@ -219,13 +221,31 @@ impl Input {
                 g[(i, i)] = 1.0_f64;
 
                 if cfg.method == Method::PPP && i > 3 {
-                    let ph = cd[index]
+                    let cmb = cd[index]
                         .phase_if_combination()
                         .ok_or(Error::PseudoRangeCombination)?;
 
+                    let f_1 = cmb.reference.frequency();
+                    let f_j = cmb.lhs.frequency();
+                    let lambda_2 = cmb.lhs.wavelength();
+                    let lambda_w = SPEED_OF_LIGHT / (f_1 - f_j);
+                    let lambda_n = SPEED_OF_LIGHT / (f_1 + f_j);
+                    let correction =
+                        if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.reference)) {
+                            let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
+                            lambda_n * (n_1 + lambda_w / lambda_2 * n_w)
+                        } else {
+                            error!(
+                                "{} ({}/{}): unresolved ambiguity",
+                                cd[index].t, cd[index].sv, cmb.reference
+                            );
+                            return Err(Error::UnresolvedAmbiguity);
+                        };
+
                     // TODO: conclude windup
                     let windup = 0.0_f64;
-                    y[i] = ph.value - rho - models - windup;
+
+                    y[i] = cmb.value - correction - rho - models - windup;
                 }
             }
 
