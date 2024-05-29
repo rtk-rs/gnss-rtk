@@ -226,14 +226,21 @@ impl Input {
                         .ok_or(Error::PseudoRangeCombination)?;
 
                     let f_1 = cmb.reference.frequency();
+                    let lambda_j = cmb.lhs.wavelength();
                     let f_j = cmb.lhs.frequency();
-                    let lambda_2 = cmb.lhs.wavelength();
-                    let lambda_w = SPEED_OF_LIGHT / (f_1 - f_j);
-                    let lambda_n = SPEED_OF_LIGHT / (f_1 + f_j);
-                    let correction =
+
+                    let (lambda_n, lambda_w) =
+                        (SPEED_OF_LIGHT / (f_1 + f_j), SPEED_OF_LIGHT / (f_1 - f_j));
+
+                    let bias =
                         if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.reference)) {
                             let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
-                            lambda_n * (n_1 + lambda_w / lambda_2 * n_w)
+                            let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
+                            debug!(
+                                "{} ({}/{}) b_c: {}",
+                                cd[index].t, cd[index].sv, cmb.reference, b_c
+                            );
+                            b_c
                         } else {
                             error!(
                                 "{} ({}/{}): unresolved ambiguity",
@@ -245,7 +252,7 @@ impl Input {
                     // TODO: conclude windup
                     let windup = 0.0_f64;
 
-                    y[i] = cmb.value - correction - rho - models - windup;
+                    y[i] = cmb.value - rho - models - windup + bias;
                 }
             }
 

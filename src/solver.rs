@@ -221,7 +221,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             interpolator,
             cfg: cfg.clone(),
             // TODO
-            ambiguity: AmbiguitySolver::new(Duration::from_seconds(300.0)),
+            ambiguity: AmbiguitySolver::new(Duration::from_seconds(600.0)),
             // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
@@ -407,6 +407,13 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             let solver = Bancroft::new(&pool)?;
             let output = solver.resolve()?;
             let (x0, y0, z0) = (output[0], output[1], output[2]);
+            let position = Position::from_ecef(Vector3::<f64>::new(x0, y0, z0));
+            let geo = position.geodetic();
+            let (lat, lon) = (rad2deg(geo[0]), rad2deg(geo[1]));
+            debug!(
+                "{} - estimated initial position lat={:.3E}°, lon={:.3E}°",
+                pool[0].t, lat, lon
+            );
             // update attitudes
             for cd in pool.iter_mut() {
                 let mut state = cd.state.unwrap();
@@ -466,8 +473,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         let x = output.state.estimate();
         let position = match method {
+            // Method::PPP => Vector3::new(x[4] + x0, x[5] + y0, x[6] + z0),
+            Method::PPP => {
+                debug!("b_c(0): {} b_c(1): {}", x[4], x[5]);
+                Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0)
+            },
             Method::SPP | Method::CPP => Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
-            _ => Vector3::new(x[4] + x0, x[5] + y0, x[6] + z0),
         };
 
         let mut solution = PVTSolution {
@@ -477,8 +488,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             sv: input.sv.clone(),
             q: output.q_covar4x4(),
             timescale: self.cfg.timescale,
+            position,
             velocity: Vector3::<f64>::default(),
-            position: Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
             dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT),
         };
 

@@ -14,24 +14,31 @@ pub struct Ambiguity {
 /// Data averager
 struct Averager {
     y: f64,
-    n: u64,
+    pub n: u64,
+    sigma: f64,
 }
 
 impl Averager {
     /// Builds new Averager
     pub fn new() -> Self {
-        Self { y: 0.0, n: 0 }
+        Self {
+            y: 0.0,
+            sigma: 0.0,
+            n: 0,
+        }
     }
     /// Updates average value, taking new `value` into account
-    pub fn average(&mut self, x: f64) -> f64 {
+    pub fn average(&mut self, x: f64, sigma: f64) -> (f64, f64) {
         self.y = (x + (self.n as f64) * self.y) / (self.n + 1) as f64;
+        self.sigma = (sigma + (self.n as f64) * self.sigma) / (self.n + 1) as f64;
         self.n += 1;
-        self.y
+        (self.y, self.sigma)
     }
     /// Hard reset
     pub fn reset(&mut self) {
-        self.y = 0.0;
         self.n = 0;
+        self.y = 0.0;
+        self.sigma = 0.0;
     }
 }
 
@@ -170,24 +177,31 @@ impl AmbiguitySolver {
                                 (cmb.reference.wavelength(), cmb.lhs.wavelength());
                             let lambda_w = SPEED_OF_LIGHT / (l_1 + l_j);
                             let lamba_w = SPEED_OF_LIGHT / (l_1 - l_j);
-                            let n_w = tracker.mw_tracker.average(cmb.value / lambda_w);
+                            let (n_w, sigma_n_w) =
+                                tracker.mw_tracker.average(cmb.value / lambda_w, 0.0);
+                            let n_w = n_w.round();
 
                             let l_1 = cd.l1_phaserange().unwrap();
                             let l_j = cd.lj_phaserange().unwrap();
                             let (lambda_1, lambda_2) =
                                 (l_1.carrier.wavelength(), l_j.carrier.wavelength());
-                            let n_1 = tracker.n1_tracker.average(
+                            let (n_1, sigma_n_1) = tracker.n1_tracker.average(
                                 (l_1.value - l_j.value - lambda_2 * n_w) / (lambda_1 - lambda_2),
+                                0.0,
                             );
-                            let n_2 = n_1 - n_w;
 
-                            let ambiguity = Ambiguity { n_1, n_2, n_w };
+                            let n_1 = n_1.round();
+                            let n_2 = (n_1 - n_w).round();
 
-                            debug!(
-                                "{}({}): n_1: {} n_2: {} n_w: {}",
-                                cd.t, cd.sv, n_1, n_2, n_w
-                            );
-                            ambiguities.insert((cd.sv, l_1.carrier), ambiguity);
+                            if tracker.mw_tracker.n > 100 {
+                                debug!(
+                                    "{}({}): n_w: {}({}), n_1: {}({}) n_2: {}",
+                                    cd.t, cd.sv, n_w, sigma_n_w, n_1, sigma_n_1, n_2
+                                );
+
+                                let ambiguity = Ambiguity { n_1, n_2, n_w };
+                                ambiguities.insert((cd.sv, l_1.carrier), ambiguity);
+                            }
                         } else {
                             error!("{}({}): fail to form mw_cmb - missing signal", cd.t, cd.sv);
                         }
@@ -211,7 +225,7 @@ mod test {
         let mut avg = Averager::new();
         for (value, expect) in [(1.0, 1.0)] {
             assert_eq!(
-                avg.average(value),
+                avg.average(value, 0.0).0,
                 expect,
                 "failed for +={}={}",
                 value,
