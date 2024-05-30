@@ -6,7 +6,7 @@ use itertools::Itertools;
 use log::{debug, error, warn};
 use map_3d::{deg2rad, ecef2geodetic, rad2deg};
 use nalgebra::{Matrix3, Vector3};
-use std::cmp::Ordering;
+// use std::cmp::Ordering;
 use std::f64::consts::PI;
 use thiserror::Error;
 
@@ -447,11 +447,24 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         );
         let (lat_ddeg, lon_ddeg) = (deg2rad(lat_rad), deg2rad(lon_rad));
 
+        let mut w = self.cfg
+            .solver
+            .weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
+
+        // Reduce contribution of newer (rising) vehicles (rising)
+        for (i, cd) in pool.iter().enumerate() {
+            if !self.prev_used.contains(&cd.sv) {
+                w[(i, i)] = 0.05;
+                w[(2 * i, 2 * i)] = 0.05;
+            }
+        }
+
         let mut input = match NavigationInput::new(
             (x0, y0, z0),
             (lat_ddeg, lon_ddeg, altitude_above_sea_m),
             &self.cfg,
             &pool,
+            w,
             &ambiguities,
             iono_bias,
             tropo_bias,
@@ -462,15 +475,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 return Err(Error::MatrixError);
             },
         };
-
-        // TODO: test
-        // pondère de 1/2 la contribution des nouveaux véhicules
-        for i in 0..pool.len() {
-            if !self.prev_used.contains(&pool[i].sv) {
-                input.w[(i, i)] = 0.1;
-                input.w[(2 * i, 2 * i)] = 0.1;
-            }
-        }
+            
+        self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
 
         // Regular Iteration
         let output = match self.nav.resolve(&input) {
@@ -507,12 +513,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if self.prev_solution.is_none() {
             self.prev_vdop = Some(solution.vdop(lat_rad, lon_rad));
             self.prev_solution = Some((t, solution.clone()));
-            self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
             // always discard 1st solution
             return Err(Error::InvalidatedSolution);
         }
-
-        self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
 
         let validator =
             SolutionValidator::new(Vector3::<f64>::new(x0, y0, z0), &pool, &input, &output);

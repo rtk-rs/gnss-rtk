@@ -194,7 +194,7 @@ impl SolverOpts {
     /*
      * form the weight matrix to be used in the solving process
      */
-    pub(crate) fn weight_matrix(&self, _sv_elev: Vec<f64>) -> OMatrix<f64, U8, U8> {
+    pub(crate) fn weight_matrix(&self) -> OMatrix<f64, U8, U8> {
         let mat = OMatrix::<f64, U8, U8>::identity();
         if let Some(opts) = &self.filter_opts {
             match &opts.weight_matrix {
