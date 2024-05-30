@@ -93,6 +93,7 @@ impl Input {
         apriori_geo: (f64, f64, f64),
         cfg: &Config,
         cd: &[Candidate],
+        w: OMatrix<f64, U8, U8>,
         ambiguities: &Ambiguities,
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
@@ -266,10 +267,6 @@ impl Input {
                 sv.insert(cd[i].sv, sv_input);
             }
         }
-
-        let w = cfg
-            .solver
-            .weight_matrix(sv.values().map(|sv| sv.elevation).collect());
 
         debug!("y: {} g: {}, w: {}", y, g, w);
         Ok(Self { y, g, w, sv })
