@@ -17,6 +17,7 @@ fn lorentz_4_4(a: Vector4<f64>, b: Vector4<f64>, m: &Matrix4<f64>) -> f64 {
 }
 
 impl Bancroft {
+    const EARTHDIAMETER_M: i64 = 12_741_000;
     fn m_matrix() -> Matrix4<f64> {
         let mut m = Matrix4::<f64>::identity();
         m[(3, 3)] = -1.0;
@@ -74,22 +75,22 @@ impl Bancroft {
                 self.m * b_inv * (x.0 * self.ones + self.a),
                 self.m * b_inv * (x.1 * self.ones + self.a),
             );
-            if solutions.0[3] < 0.0 {
-                Ok(solutions.1)
-            } else if solutions.1[3] < 0.0 {
+            let rho = (
+                (solutions.0[0].powi(2) + solutions.0[1].powi(2) + solutions.0[2].powi(2))
+                    .sqrt()
+                    .round() as i64,
+                (solutions.1[0].powi(2) + solutions.1[1].powi(2) + solutions.1[2].powi(2))
+                    .sqrt()
+                    .round() as i64,
+            );
+            let err = (
+                (rho.0 - Self::EARTHDIAMETER_M).abs(),
+                (rho.1 - Self::EARTHDIAMETER_M).abs(),
+            );
+            if err.0 < err.1 {
                 Ok(solutions.0)
             } else {
-                let rho = (
-                    (solutions.0[0].powi(2) + solutions.0[1].powi(2) + solutions.0[2].powi(2))
-                        .sqrt(),
-                    (solutions.1[0].powi(2) + solutions.1[1].powi(2) + solutions.1[2].powi(2))
-                        .sqrt(),
-                );
-                if rho.0 < rho.1 {
-                    Ok(solutions.0)
-                } else {
-                    Ok(solutions.1)
-                }
+                Ok(solutions.1)
             }
         } else if delta < 0.0 {
             Err(Error::BancroftImaginarySolution)

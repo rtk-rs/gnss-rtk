@@ -190,6 +190,10 @@ where
     /* prev. solution for internal logic */
     /// Previous solution
     prev_solution: Option<(Epoch, PVTSolution)>,
+    /// Previous VDOP
+    prev_vdop: Option<f64>,
+    /// Previously used
+    prev_used: Vec<SV>,
     /// Stored previous SV state
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
@@ -219,13 +223,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             earth_frame,
             initial,
             interpolator,
+            prev_vdop: None,
+            prev_used: vec![],
             cfg: cfg.clone(),
+            prev_solution: None,
             // TODO
-            ambiguity: AmbiguitySolver::new(Duration::from_seconds(600.0)),
+            ambiguity: AmbiguitySolver::new(Duration::from_seconds(120.0)),
             // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
-            prev_solution: Option::<(Epoch, PVTSolution)>::None,
         })
     }
     /// [PVTSolution] resolution attempt.
@@ -378,9 +384,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         /* apply eclipse filter (if need be) */
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             let mut nb_removed: usize = 0;
-            for idx in 0..pool.len() {
-                let state = pool[idx - nb_removed].state.unwrap(); // infaillible
-                let orbit = state.orbit(pool[idx - nb_removed].t, self.earth_frame);
+            pool.retain(|cd| {
+                let state = cd.state.unwrap(); // infaillible
+                let orbit = state.orbit(cd.t, self.earth_frame);
                 let state = eclipse_state(&orbit, self.sun_frame, self.earth_frame, &self.cosmic);
                 let eclipsed = match state {
                     EclipseState::Umbra => true,
@@ -388,15 +394,10 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     EclipseState::Penumbra(r) => r < min_rate,
                 };
                 if eclipsed {
-                    debug!(
-                        "{} ({}): dropped - eclipsed by Earth",
-                        pool[idx - nb_removed].t,
-                        pool[idx - nb_removed].sv
-                    );
-                    let _ = pool.swap_remove(idx - nb_removed);
-                    nb_removed += 1;
+                    debug!("{} ({}): eclipsed", cd.t, cd.sv);
                 }
-            }
+                !eclipsed
+            });
         }
 
         if pool.len() < min_required {
@@ -446,7 +447,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         );
         let (lat_ddeg, lon_ddeg) = (deg2rad(lat_rad), deg2rad(lon_rad));
 
-        let input = match NavigationInput::new(
+        let mut input = match NavigationInput::new(
             (x0, y0, z0),
             (lat_ddeg, lon_ddeg, altitude_above_sea_m),
             &self.cfg,
@@ -461,6 +462,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 return Err(Error::MatrixError);
             },
         };
+
+        // TODO: test
+        // pondère de 1/2 la contribution des nouveaux véhicules
+        for i in 0..pool.len() {
+            if !self.prev_used.contains(&pool[i].sv) {
+                input.w[(i, i)] = 0.1;
+                input.w[(2 * i, 2 * i)] = 0.1;
+            }
+        }
 
         // Regular Iteration
         let output = match self.nav.resolve(&input) {
@@ -495,16 +505,22 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         // First solution
         if self.prev_solution.is_none() {
-            // always discard 1st solution
+            self.prev_vdop = Some(solution.vdop(lat_rad, lon_rad));
             self.prev_solution = Some((t, solution.clone()));
+            self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
+            // always discard 1st solution
             return Err(Error::InvalidatedSolution);
         }
+
+        self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
 
         let validator =
             SolutionValidator::new(Vector3::<f64>::new(x0, y0, z0), &pool, &input, &output);
 
         match validator.validate(solver_opts) {
-            Ok(_) => self.nav.validate(),
+            Ok(_) => {
+                self.nav.validate();
+            },
             Err(e) => {
                 error!("solution invalidated - {}", e);
                 return Err(Error::InvalidatedSolution);
@@ -671,8 +687,9 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         candidates.retain(|cd| retained.contains(&cd.sv));
     }
     fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
-        let total = pool.len();
         let mut index = 0;
+        let total = pool.len();
+
         //   1. Retain best elevation
         pool.sort_by(|cd_a, cd_b| {
             let state_a = cd_a.state.unwrap();

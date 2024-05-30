@@ -191,11 +191,17 @@ impl Input {
             if cfg.modeling.tropo_delay {
                 if tropo_bias.needs_modeling() {
                     let bias = TroposphereBias::model(TropoModel::Niel, &rtm);
-                    debug!("{} : modeled tropo delay {:.3E}[m]", cd[index].t, bias);
+                    debug!(
+                        "{}({}): modeled tropo delay {:.3E}[m]",
+                        cd[index].t, cd[index].sv, bias
+                    );
                     models += bias;
                     sv_input.tropo_bias = Bias::modeled(bias);
                 } else if let Some(bias) = tropo_bias.bias(&rtm) {
-                    debug!("{} : measured tropo delay {:.3E}[m]", cd[index].t, bias);
+                    debug!(
+                        "{}({}): measured tropo delay {:.3E}[m]",
+                        cd[index].t, cd[index].sv, bias
+                    );
                     models += bias;
                     sv_input.tropo_bias = Bias::measured(bias);
                 }
@@ -220,7 +226,7 @@ impl Input {
             if i > 3 {
                 g[(i, i)] = 1.0_f64;
 
-                if cfg.method == Method::PPP && i > 3 {
+                if cfg.method == Method::PPP {
                     let cmb = cd[index]
                         .phase_if_combination()
                         .ok_or(Error::PseudoRangeCombination)?;

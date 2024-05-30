@@ -1,6 +1,7 @@
 use crate::prelude::{Candidate, Carrier, Duration, Epoch, Error, SV};
 use log::{debug, error, warn};
 use nyx::cosmic::SPEED_OF_LIGHT;
+use polyfit_rs::polyfit_rs::polyfit;
 use std::collections::HashMap;
 
 pub type Ambiguities = HashMap<(SV, Carrier), Ambiguity>;
@@ -14,8 +15,8 @@ pub struct Ambiguity {
 /// Data averager
 struct Averager {
     y: f64,
-    pub n: u64,
     sigma: f64,
+    pub n: u64,
 }
 
 impl Averager {
@@ -45,7 +46,7 @@ impl Averager {
 struct Buffer {
     window: Duration,
     gap_tolerance: Duration,
-    inner: Vec<(Epoch, f64)>,
+    pub inner: Vec<(Epoch, f64)>,
 }
 
 impl Buffer {
@@ -65,11 +66,12 @@ impl Buffer {
                 self.reset();
             }
         }
+        self.inner.push((t, y));
+
         let t0 = self.inner[0].0;
-        if (t0 - t) > self.window {
+        if (t - t0) > self.window {
             self.inner.remove(0);
         }
-        self.inner.push((t, y));
     }
     /// Resets self
     pub fn reset(&mut self) {
@@ -79,29 +81,43 @@ impl Buffer {
     pub fn len(&self) -> usize {
         self.inner.len()
     }
-    /// Returns std_mean over self
-    pub fn std_mean(&self) -> f64 {
-        let mut v = 0.0_f64;
-        for i in 0..self.inner.len() {
-            v += self.inner[i].1;
-        }
-        v / self.inner.len() as f64
-    }
-    /// Returns std_dev over self
-    pub fn std_dev(&self) -> f64 {
-        let mean = self.std_mean();
-        let mut v = 0.0_f64;
-        for i in 0..self.inner.len() {
-            v += (self.inner[i].1 - mean).powi(2);
-        }
-        v / self.inner.len() as f64
-    }
-    // /// Performs polyfit (nth order) over self
-    // pub fn polyfit(&self, order: usize) -> &[f64] {
-    //     let x_s = self.inner.iter().map(|(k, _)| k).collect();
-    //     let y_s = self.inner.iter().map(|(_, v)| v).collect();
-    //     polyfit(self.inner, x_s, y_s)
+    // /// Returns std_mean over self
+    // pub fn std_mean(&self) -> f64 {
+    //     let mut v = 0.0_f64;
+    //     for i in 0..self.inner.len() {
+    //         v += self.inner[i].1;
+    //     }
+    //     v / self.inner.len() as f64
     // }
+    // /// Returns std_dev over self
+    // pub fn std_dev(&self) -> f64 {
+    //     let mean = self.std_mean();
+    //     let mut v = 0.0_f64;
+    //     for i in 0..self.inner.len() {
+    //         v += (self.inner[i].1 - mean).powi(2);
+    //     }
+    //     v / self.inner.len() as f64
+    // }
+    /// Performs polyfit (nth order) over self
+    pub fn polyfit(&self, order: usize) -> Option<Vec<f64>> {
+        if self.inner.len() > order {
+            let x_s = self
+                .inner
+                .iter()
+                .map(|(k, _)| k.duration.to_seconds())
+                .collect::<Vec<f64>>();
+            let y_s = self.inner.iter().map(|(_, v)| *v).collect::<Vec<f64>>();
+            match polyfit(&x_s, &y_s, order) {
+                Ok(fit) => Some(fit),
+                Err(e) => {
+                    warn!("polyfit error: {}", e);
+                    None
+                },
+            }
+        } else {
+            None
+        }
+    }
 }
 
 struct SVTracker {
@@ -116,12 +132,17 @@ struct SVTracker {
 }
 
 impl SVTracker {
-    pub fn new(last_seen: Epoch) -> Self {
+    pub fn new(last_seen: Epoch, gap_tolerance: Duration) -> Self {
         Self {
             last_seen: Some(last_seen),
             n1_tracker: Averager::new(),
             mw_tracker: Averager::new(),
-            gf_buffer: Buffer::malloc(128, Duration::from_hours(1.0), Duration::from_seconds(30.0)),
+            gf_buffer: Buffer::malloc(
+                128,
+                //TODO: programmble
+                Duration::from_seconds(1000.0),
+                gap_tolerance,
+            ),
         }
     }
     pub fn reset(&mut self) {
@@ -134,7 +155,7 @@ impl SVTracker {
 /// [AmbiguitySolver] resolves phase range ambiguities in real time.
 pub struct AmbiguitySolver {
     /// Sampling interval [Duration]
-    sampling_interval: Duration,
+    gap_tolerance: Duration,
     /// [SV] tracker
     sv_trackers: HashMap<SV, SVTracker>,
     /// [SV] out of sight
@@ -143,9 +164,9 @@ pub struct AmbiguitySolver {
 
 impl AmbiguitySolver {
     /// Builds new [AmbiguitySolver] to work with given sample interval [Duration].
-    pub fn new(sampling_interval: Duration) -> Self {
+    pub fn new(gap_tolerance: Duration) -> Self {
         Self {
-            sampling_interval,
+            gap_tolerance,
             untracked: Vec::with_capacity(8),
             sv_trackers: HashMap::with_capacity(8),
         }
@@ -155,62 +176,87 @@ impl AmbiguitySolver {
         let mut ambiguities = Ambiguities::with_capacity(pool.len());
 
         for cd in pool {
-            match self.sv_trackers.get_mut(&cd.sv) {
-                Some(tracker) => {
-                    // manage loss of sight
-                    if let Some(last_seen) = tracker.last_seen {
-                        let dt = cd.t - last_seen;
-                        if dt > self.sampling_interval && !self.untracked.contains(&cd.sv) {
-                            warn!("{}({}): tracker reset - {} loss of sight", cd.t, cd.sv, dt);
-                            tracker.reset();
-                            self.untracked.push(cd.sv);
-                        } else {
-                            tracker.last_seen = Some(cd.t);
-                            self.untracked.retain(|sv| *sv != cd.sv);
-                        }
-                    }
-                    // proceed
-                    if !self.untracked.contains(&cd.sv) {
-                        if let Some(cmb) = cd.mw_combination() {
-                            let (l_1, l_j) = (cmb.reference.frequency(), cmb.lhs.frequency());
-                            let (lambda_1, lambda_j) =
-                                (cmb.reference.wavelength(), cmb.lhs.wavelength());
-                            let lambda_w = SPEED_OF_LIGHT / (l_1 + l_j);
-                            let lamba_w = SPEED_OF_LIGHT / (l_1 - l_j);
-                            let (n_w, sigma_n_w) =
-                                tracker.mw_tracker.average(cmb.value / lambda_w, 0.0);
-                            let n_w = n_w.round();
+            if self.sv_trackers.get(&cd.sv).is_none() {
+                self.sv_trackers
+                    .insert(cd.sv, SVTracker::new(cd.t, self.gap_tolerance));
+                self.untracked.retain(|sv| *sv != cd.sv);
+            }
 
-                            let l_1 = cd.l1_phaserange().unwrap();
-                            let l_j = cd.lj_phaserange().unwrap();
-                            let (lambda_1, lambda_2) =
-                                (l_1.carrier.wavelength(), l_j.carrier.wavelength());
-                            let (n_1, sigma_n_1) = tracker.n1_tracker.average(
-                                (l_1.value - l_j.value - lambda_2 * n_w) / (lambda_1 - lambda_2),
-                                0.0,
-                            );
+            let sv_tracker = self.sv_trackers.get_mut(&cd.sv).unwrap();
 
-                            let n_1 = n_1.round();
-                            let n_2 = (n_1 - n_w).round();
-
-                            if tracker.mw_tracker.n > 100 {
-                                debug!(
-                                    "{}({}): n_w: {}({}), n_1: {}({}) n_2: {}",
-                                    cd.t, cd.sv, n_w, sigma_n_w, n_1, sigma_n_1, n_2
-                                );
-
-                                let ambiguity = Ambiguity { n_1, n_2, n_w };
-                                ambiguities.insert((cd.sv, l_1.carrier), ambiguity);
-                            }
-                        } else {
-                            error!("{}({}): fail to form mw_cmb - missing signal", cd.t, cd.sv);
-                        }
-                    }
-                },
-                None => {
-                    self.sv_trackers.insert(cd.sv, SVTracker::new(cd.t));
+            // manage loss of sight
+            if let Some(last_seen) = sv_tracker.last_seen {
+                let dt = cd.t - last_seen;
+                if dt > self.gap_tolerance && !self.untracked.contains(&cd.sv) {
+                    warn!("{}({}): tracker reset - {} loss of sight", cd.t, cd.sv, dt);
+                    sv_tracker.reset();
+                    self.untracked.push(cd.sv);
+                } else {
+                    sv_tracker.last_seen = Some(cd.t);
                     self.untracked.retain(|sv| *sv != cd.sv);
-                },
+                }
+            }
+
+            // proceed
+            if !self.untracked.contains(&cd.sv) {
+                if let Some(cmb) = cd.phase_gf_combination() {
+                    if let Some(fit) = sv_tracker.gf_buffer.polyfit(2) {
+                        let t = cd.t.duration.to_seconds();
+                        let n = sv_tracker.gf_buffer.inner.len();
+                        let dt = t - sv_tracker.gf_buffer.inner[n - 2].0.duration.to_seconds();
+                        let (a2, a1, a0) = (fit[2], fit[1], fit[0]);
+                        let predicted = a2 * t.powi(2) + a1 * t + a0;
+                        let err = (cmb.value - predicted).abs();
+                        let t0 = 60.0;
+                        let a0 = (cmb.lhs.wavelength() - cmb.reference.wavelength()) * 3.0 / 2.0;
+                        let threshold = a0 - a0 / 2.0 * (-dt / t0).exp();
+                        let threshold = 5.0;
+                        if err > threshold {
+                            debug!(
+                                "{}({}) gf cycle slip declared: {}/{}",
+                                cd.t, cd.sv, err, threshold
+                            );
+                            sv_tracker.mw_tracker.reset();
+                        }
+                    }
+                    sv_tracker.gf_buffer.push(cd.t, cmb.value);
+                } else {
+                    error!(
+                        "{}({}): failed to form gf comb (missing signal)",
+                        cd.t, cd.sv
+                    );
+                }
+                if let Some(cmb) = cd.mw_combination() {
+                    let (l_1, l_j) = (cmb.reference.frequency(), cmb.lhs.frequency());
+                    let (lambda_1, lambda_j) = (cmb.reference.wavelength(), cmb.lhs.wavelength());
+                    let lambda_w = SPEED_OF_LIGHT / (l_1 + l_j);
+                    let lamba_w = SPEED_OF_LIGHT / (l_1 - l_j);
+                    let (n_w, sigma_n_w) = sv_tracker.mw_tracker.average(cmb.value / lambda_w, 0.0);
+                    let n_w = n_w.round();
+
+                    let (l_1, l_j) = (cd.l1_phaserange().unwrap(), cd.lj_phaserange().unwrap());
+
+                    let (lambda_1, lambda_2) = (l_1.carrier.wavelength(), l_j.carrier.wavelength());
+                    let (n_1, sigma_n_1) = sv_tracker.n1_tracker.average(
+                        (l_1.value - l_j.value - lambda_2 * n_w) / (lambda_1 - lambda_2),
+                        0.0,
+                    );
+
+                    let n_1 = n_1.round();
+                    let n_2 = (n_1 - n_w).round();
+
+                    if sv_tracker.mw_tracker.n > 10 {
+                        debug!(
+                            "{}({}): n_w: {}({}), n_1: {}({}) n_2: {}",
+                            cd.t, cd.sv, n_w, sigma_n_w, n_1, sigma_n_1, n_2
+                        );
+
+                        let ambiguity = Ambiguity { n_1, n_2, n_w };
+                        ambiguities.insert((cd.sv, l_1.carrier), ambiguity);
+                    }
+                } else {
+                    error!("{}({}): fail to form mw comb (missing signal)", cd.t, cd.sv);
+                }
             }
         }
         ambiguities
