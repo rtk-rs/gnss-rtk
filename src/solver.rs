@@ -451,13 +451,13 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .solver
             .weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
 
-        // Reduce contribution of newer (rising) vehicles (rising)
-        for (i, cd) in pool.iter().enumerate() {
-            if !self.prev_used.contains(&cd.sv) {
-                w[(i, i)] = 0.05;
-                w[(2 * i, 2 * i)] = 0.05;
-            }
-        }
+        // // Reduce contribution of newer (rising) vehicles (rising)
+        // for (i, cd) in pool.iter().enumerate() {
+        //     if !self.prev_used.contains(&cd.sv) {
+        //         w[(i, i)] = 0.05;
+        //         w[(2 * i, 2 * i)] = 0.05;
+        //     }
+        // }
 
         let mut input = match NavigationInput::new(
             (x0, y0, z0),
