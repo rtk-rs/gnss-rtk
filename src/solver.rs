@@ -447,9 +447,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         );
         let (lat_ddeg, lon_ddeg) = (deg2rad(lat_rad), deg2rad(lon_rad));
 
-        let mut w = self.cfg
-            .solver
-            .weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
+        let mut w = self.cfg.solver.weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
 
         // // Reduce contribution of newer (rising) vehicles (rising)
         // for (i, cd) in pool.iter().enumerate() {
@@ -475,7 +473,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 return Err(Error::MatrixError);
             },
         };
-            
+
         self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
 
         // Regular Iteration
