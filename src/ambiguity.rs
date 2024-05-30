@@ -1,4 +1,4 @@
-use crate::prelude::{Candidate, Carrier, Duration, Epoch, Error, SV};
+use crate::prelude::{Candidate, Carrier, Duration, Epoch, SV}; // Error
 use log::{debug, error, warn};
 use nyx::cosmic::SPEED_OF_LIGHT;
 use polyfit_rs::polyfit_rs::polyfit;

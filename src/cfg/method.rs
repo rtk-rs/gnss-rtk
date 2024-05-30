@@ -1,7 +1,7 @@
 use crate::prelude::Error;
 
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::Deserialize; //, Serialize};
 
 /// Solving method
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
