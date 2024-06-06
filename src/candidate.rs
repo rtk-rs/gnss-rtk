@@ -108,10 +108,6 @@ impl Candidate {
             wind_up: 0.0_f64,
         }
     }
-    /// Define state
-    pub(crate) fn set_state(&mut self, state: InterpolationResult) {
-        self.state = Some(state);
-    }
     /*
      * Returns best observed SNR, whatever the signal
      */
@@ -345,15 +341,9 @@ impl Candidate {
             .filter(|p| p.carrier != c_1.carrier)
             .reduce(|k, _| k)?;
 
-        let l_1 = c_1.carrier;
-        let f_1 = l_1.frequency();
-
-        let l_j = c_j.carrier;
-        let f_j = l_j.frequency();
-
         Some(PhaseCombination {
-            lhs: l_j,
-            reference: l_1,
+            lhs: c_j.carrier,
+            reference: c_1.carrier,
             ambiguity: None,
             value: c_1.value - c_j.value,
         })
@@ -372,15 +362,9 @@ impl Candidate {
             .filter(|p| p.carrier != c_1.carrier)
             .reduce(|k, _| k)?;
 
-        let l_1 = c_1.carrier;
-        let f_1 = l_1.frequency();
-
-        let l_j = c_j.carrier;
-        let f_j = l_j.frequency();
-
         Some(PseudoRangeCombination {
-            lhs: l_j,
-            reference: l_1,
+            lhs: c_j.carrier,
+            reference: c_1.carrier,
             value: c_j.value - c_1.value,
         })
     }
@@ -483,6 +467,10 @@ impl Candidate {
             dt
         );
         Ok((e_tx, dt))
+    }
+    #[cfg(test)]
+    pub fn set_state(&mut self, state: InterpolationResult) {
+        self.state = Some(state);
     }
 }
 

@@ -1,7 +1,7 @@
 //! PVT Solutions
 use std::collections::HashMap;
 
-use crate::prelude::{Duration, TimeScale, Vector3, SV};
+use crate::prelude::{Ambiguities, Duration, TimeScale, Vector3, SV};
 
 use super::SVInput;
 use nalgebra::base::{Matrix3, Matrix4};
@@ -58,6 +58,9 @@ pub struct PVTSolution {
     pub tdop: f64,
     /// Position Dilution of Precision
     pub pdop: f64,
+    /// Resolved ambiguities (at this point and time).
+    /// Ambiguities are null if navigation does not use them (see [Method]).
+    pub ambiguities: Ambiguities,
     // Q
     pub(crate) q: Matrix4<f64>,
 }

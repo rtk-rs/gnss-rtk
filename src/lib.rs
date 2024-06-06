@@ -23,6 +23,7 @@ mod tests;
 
 // prelude
 pub mod prelude {
+    pub use crate::ambiguity::Ambiguities;
     pub use crate::bias::{BdModel, IonosphereBias, KbModel, NgModel, TroposphereBias};
     pub use crate::candidate::{Candidate, PhaseRange, PseudoRange};
     pub use crate::carrier::Carrier;

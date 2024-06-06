@@ -4,11 +4,16 @@ use nyx::cosmic::SPEED_OF_LIGHT;
 use polyfit_rs::polyfit_rs::polyfit;
 use std::collections::HashMap;
 
+/// Ambiguity, per SV and reference signal
 pub type Ambiguities = HashMap<(SV, Carrier), Ambiguity>;
 
+#[derive(Clone, Debug)]
 pub struct Ambiguity {
+    /// Reference signal ambiguity
     pub n_1: f64,
+    /// Subsidary signal ambiguity
     pub n_2: f64,
+    /// MW ambiguity
     pub n_w: f64,
 }
 
@@ -202,14 +207,14 @@ impl AmbiguitySolver {
                 if let Some(cmb) = cd.phase_gf_combination() {
                     if let Some(fit) = sv_tracker.gf_buffer.polyfit(2) {
                         let t = cd.t.duration.to_seconds();
-                        let n = sv_tracker.gf_buffer.inner.len();
-                        let dt = t - sv_tracker.gf_buffer.inner[n - 2].0.duration.to_seconds();
+                        // let n = sv_tracker.gf_buffer.inner.len();
+                        // let dt = t - sv_tracker.gf_buffer.inner[n - 2].0.duration.to_seconds();
                         let (a2, a1, a0) = (fit[2], fit[1], fit[0]);
                         let predicted = a2 * t.powi(2) + a1 * t + a0;
                         let err = (cmb.value - predicted).abs();
-                        let t0 = 60.0;
-                        let a0 = (cmb.lhs.wavelength() - cmb.reference.wavelength()) * 3.0 / 2.0;
-                        let threshold = a0 - a0 / 2.0 * (-dt / t0).exp();
+                        // let t0 = 60.0;
+                        // let a0 = (cmb.lhs.wavelength() - cmb.reference.wavelength()) * 3.0 / 2.0;
+                        // let threshold = a0 - a0 / 2.0 * (-dt / t0).exp();
                         let threshold = 5.0;
                         if err > threshold {
                             debug!(
@@ -227,15 +232,13 @@ impl AmbiguitySolver {
                     );
                 }
                 if let Some(cmb) = cd.mw_combination() {
-                    let (l_1, l_j) = (cmb.reference.frequency(), cmb.lhs.frequency());
-                    let (lambda_1, lambda_j) = (cmb.reference.wavelength(), cmb.lhs.wavelength());
-                    let lambda_w = SPEED_OF_LIGHT / (l_1 + l_j);
-                    let lamba_w = SPEED_OF_LIGHT / (l_1 - l_j);
+                    let (f_1, f_j) = (cmb.reference.frequency(), cmb.lhs.frequency());
+                    let lambda_w = SPEED_OF_LIGHT / (f_1 + f_j);
+                    let lamba_w = SPEED_OF_LIGHT / (f_1 - f_j);
                     let (n_w, sigma_n_w) = sv_tracker.mw_tracker.average(cmb.value / lambda_w, 0.0);
                     let n_w = n_w.round();
 
                     let (l_1, l_j) = (cd.l1_phaserange().unwrap(), cd.lj_phaserange().unwrap());
-
                     let (lambda_1, lambda_2) = (l_1.carrier.wavelength(), l_j.carrier.wavelength());
                     let (n_1, sigma_n_1) = sv_tracker.n1_tracker.average(
                         (l_1.value - l_j.value - lambda_2 * n_w) / (lambda_1 - lambda_2),
