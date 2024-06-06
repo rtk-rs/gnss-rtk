@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+use nyx::cosmic::SPEED_OF_LIGHT;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum Carrier {
     /// L1 (GPS/QZSS/SBAS) same frequency as E1 and B1aB1c
     #[default]
@@ -56,7 +58,7 @@ impl std::fmt::Display for Carrier {
 }
 
 impl Carrier {
-    pub(crate) fn frequency(&self) -> f64 {
+    pub fn frequency(&self) -> f64 {
         match self {
             Self::L1 | Self::E1 | Self::B1aB1c => 1575.42E6_f64,
             Self::L2 => 1227.60E6_f64,
@@ -67,6 +69,9 @@ impl Carrier {
             Self::E5B | Self::B2iB2b => 1207.14E6_f64,
             Self::B1I => 1561.098E6_f64,
         }
+    }
+    pub fn wavelength(&self) -> f64 {
+        SPEED_OF_LIGHT / self.frequency()
     }
 }
 

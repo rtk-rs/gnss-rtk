@@ -71,7 +71,7 @@ impl Validator {
             residuals[idx] -= sv.iono_bias.value().unwrap_or(0.0);
             residuals[idx] /= input.w[(idx, idx)];
             debug!(
-                "{:?} ({}): coderes={}/w={}",
+                "{} ({}): coderes={}/w={}",
                 cd.t,
                 cd.sv,
                 residuals[idx],

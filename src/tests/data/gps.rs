@@ -1,7 +1,7 @@
 use crate::{
     prelude::{
-        Candidate, Carrier, Constellation, Duration, Epoch, IonosphereBias, Observation,
-        TroposphereBias, SV,
+        Candidate, Carrier, Constellation, Duration, Epoch, IonosphereBias, PhaseRange,
+        PseudoRange, TroposphereBias, SV,
     },
     tests::SolverInput,
 };
@@ -22,40 +22,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Duration::from_seconds(0.162520179759E-04),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
                         },
                     ],
                     vec![
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
                     ],
-                    vec![],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 2),
@@ -63,40 +65,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Duration::from_seconds(-0.477580320500E-03),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
                         },
                     ],
                     vec![
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
                     ],
-                    vec![],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 3),
@@ -104,40 +108,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Duration::from_seconds(-0.220043185257E-03),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
                         },
                     ],
                     vec![
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
                     ],
-                    vec![],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 5),
@@ -145,40 +151,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Duration::from_seconds(-0.153530275954E-04),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
                         },
                     ],
                     vec![
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
                     ],
-                    vec![],
                 ),
             ],
             iono_bias: IonosphereBias {
@@ -201,40 +209,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Duration::from_seconds(0.162520179759E-04),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
                         },
                     ],
                     vec![
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
+                            ambiguity: None,
                             snr: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
+                            ambiguity: None,
                             snr: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
                     ],
-                    vec![],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 2),
@@ -242,40 +252,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Duration::from_seconds(-0.477580320500E-03),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
                         },
                     ],
                     vec![
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
+                            ambiguity: None,
                             snr: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
                     ],
-                    vec![],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 3),
@@ -283,40 +295,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Duration::from_seconds(-0.220043185257E-03),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
                         },
                     ],
                     vec![
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
                     ],
-                    vec![],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 5),
@@ -324,40 +338,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Duration::from_seconds(-0.153530275954E-04),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
                             snr: None,
                         },
-                        Observation {
+                        PseudoRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
                         },
                     ],
                     vec![
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L1,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L2,
                             value: 1.0E6_f64,
+                            ambiguity: None,
                             snr: None,
                         },
-                        Observation {
+                        PhaseRange {
                             carrier: Carrier::L5,
                             value: 1.0E6_f64,
                             snr: None,
+                            ambiguity: None,
                         },
                     ],
-                    vec![],
                 ),
             ],
             iono_bias: IonosphereBias {

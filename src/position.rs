@@ -24,7 +24,7 @@ impl Position {
     /// Builds new [Position] from Geodetic coordinates
     /// - latitude [rad]
     /// - longitude [rad]
-    /// - altitude above sea levl [m]
+    /// - altitude above sea level [m]
     pub fn from_geo(geodetic: Vector3<f64>) -> Self {
         let (lat, lon, alt) = (geodetic[0], geodetic[1], geodetic[2]);
         let (x, y, z) = geodetic2ecef(lat, lon, alt, Ellipsoid::WGS84);

@@ -5,10 +5,11 @@ mod filter;
 
 pub use filter::{Filter, FilterState};
 
-use log::debug;
+use log::{debug, error};
 use std::collections::HashMap;
 
 use crate::{
+    ambiguity::Ambiguities,
     bias::{Bias, IonosphereBias, RuntimeParam as BiasRuntimeParams, TropoModel, TroposphereBias},
     candidate::Candidate,
     cfg::Config,
@@ -92,6 +93,8 @@ impl Input {
         apriori_geo: (f64, f64, f64),
         cfg: &Config,
         cd: &[Candidate],
+        w: OMatrix<f64, U8, U8>,
+        ambiguities: &Ambiguities,
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<Self, Error> {
@@ -150,16 +153,20 @@ impl Input {
                 models -= delay * SPEED_OF_LIGHT;
             }
 
-            let pr = match cfg.method {
-                Method::SPP => cd[index]
-                    .prefered_pseudorange()
-                    .ok_or(Error::MissingPseudoRange)?,
-                Method::CPP | Method::PPP => cd[index]
-                    .pseudorange_combination()
-                    .ok_or(Error::PseudoRangeCombination)?,
+            let (pr, frequency) = match cfg.method {
+                Method::SPP => {
+                    let pr = cd[index]
+                        .prefered_pseudorange()
+                        .ok_or(Error::MissingPseudoRange)?;
+                    (pr.value, pr.carrier.frequency())
+                },
+                Method::CPP | Method::PPP => {
+                    let pr = cd[index]
+                        .code_if_combination()
+                        .ok_or(Error::PseudoRangeCombination)?;
+                    (pr.value, pr.reference.frequency())
+                },
             };
-
-            let (pr, frequency) = (pr.value, pr.carrier.frequency());
 
             // frequency dependent delay
             for delay in &cfg.int_delay {
@@ -185,11 +192,17 @@ impl Input {
             if cfg.modeling.tropo_delay {
                 if tropo_bias.needs_modeling() {
                     let bias = TroposphereBias::model(TropoModel::Niel, &rtm);
-                    debug!("{} : modeled tropo delay {:.3E}[m]", cd[index].t, bias);
+                    debug!(
+                        "{}({}): modeled tropo delay {:.3E}[m]",
+                        cd[index].t, cd[index].sv, bias
+                    );
                     models += bias;
                     sv_input.tropo_bias = Bias::modeled(bias);
                 } else if let Some(bias) = tropo_bias.bias(&rtm) {
-                    debug!("{} : measured tropo delay {:.3E}[m]", cd[index].t, bias);
+                    debug!(
+                        "{}({}): measured tropo delay {:.3E}[m]",
+                        cd[index].t, cd[index].sv, bias
+                    );
                     models += bias;
                     sv_input.tropo_bias = Bias::measured(bias);
                 }
@@ -214,14 +227,39 @@ impl Input {
             if i > 3 {
                 g[(i, i)] = 1.0_f64;
 
-                if cfg.method == Method::PPP && i > 3 {
-                    let ph = cd[index]
-                        .phase_combination()
+                if cfg.method == Method::PPP {
+                    let cmb = cd[index]
+                        .phase_if_combination()
                         .ok_or(Error::PseudoRangeCombination)?;
+
+                    let f_1 = cmb.reference.frequency();
+                    let lambda_j = cmb.lhs.wavelength();
+                    let f_j = cmb.lhs.frequency();
+
+                    let (lambda_n, lambda_w) =
+                        (SPEED_OF_LIGHT / (f_1 + f_j), SPEED_OF_LIGHT / (f_1 - f_j));
+
+                    let bias =
+                        if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.reference)) {
+                            let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
+                            let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
+                            debug!(
+                                "{} ({}/{}) b_c: {}",
+                                cd[index].t, cd[index].sv, cmb.reference, b_c
+                            );
+                            b_c
+                        } else {
+                            error!(
+                                "{} ({}/{}): unresolved ambiguity",
+                                cd[index].t, cd[index].sv, cmb.reference
+                            );
+                            return Err(Error::UnresolvedAmbiguity);
+                        };
 
                     // TODO: conclude windup
                     let windup = 0.0_f64;
-                    y[i] = ph.value - rho - models - windup;
+
+                    y[i] = cmb.value - rho - models - windup + bias;
                 }
             }
 
@@ -229,10 +267,6 @@ impl Input {
                 sv.insert(cd[i].sv, sv_input);
             }
         }
-
-        let w = cfg
-            .solver
-            .weight_matrix(sv.values().map(|sv| sv.elevation).collect());
 
         debug!("y: {} g: {}, w: {}", y, g, w);
         Ok(Self { y, g, w, sv })

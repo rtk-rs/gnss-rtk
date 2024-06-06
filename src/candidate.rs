@@ -1,14 +1,30 @@
 //! Position solving candidate
-use crate::prelude::{Carrier, Config, Duration, Epoch, Error, InterpolationResult, SV};
+use crate::prelude::{Carrier, Config, Duration, Epoch, Error, InterpolationResult, Vector3, SV};
 use hifitime::Unit;
 use itertools::Itertools;
 use log::debug;
 use nyx::cosmic::SPEED_OF_LIGHT;
 use std::cmp::Ordering;
 
-/// Signal observation to attach to each candidate
+/// Phase range observation to attach to each candidate
 #[derive(Debug, Default, PartialEq, Clone)]
-pub struct Observation {
+pub struct PhaseRange {
+    /// Carrier signal
+    pub carrier: Carrier,
+    /// Measured value
+    pub value: f64,
+    /// For navigation methods that use PhaseRange like [Method::PPP], phase range ambiguities
+    /// need to be fixed at some point, otherwise, you end up with similar performances as
+    /// [PseudoRange] based navigation methods.
+    /// If you resolved the ambiguities yourself, set this value ahead of time, otherwise we will take care of it.
+    pub ambiguity: Option<f64>,
+    /// Optional (but recommended) SNR in [dB]
+    pub snr: Option<f64>,
+}
+
+/// Pseudo range observation to attach to each candidate
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct PseudoRange {
     /// Carrier signal
     pub carrier: Carrier,
     /// Measured value
@@ -17,27 +33,49 @@ pub struct Observation {
     pub snr: Option<f64>,
 }
 
+/// Combination of observations
+pub(crate) struct PhaseCombination {
+    /// LHS signal
+    pub lhs: Carrier,
+    /// RHS reference signal
+    pub reference: Carrier,
+    /// Value
+    pub value: f64,
+    /// Ambiguity
+    pub ambiguity: Option<f64>,
+}
+
+/// Combination of observations
+pub(crate) struct PseudoRangeCombination {
+    /// LHS signal
+    pub lhs: Carrier,
+    /// RHS reference signal
+    pub reference: Carrier,
+    /// Value
+    pub value: f64,
+}
+
 /// Position solving candidate
 #[derive(Debug, Clone)]
 pub struct Candidate {
-    /// SV
+    /// [SV]
     pub sv: SV,
-    /// Sampling Epoch
+    /// Sampling [Epoch]
     pub t: Epoch,
     /// Tx Epoch
     pub t_tx: Epoch,
     /// State that needs to be resolved
     pub state: Option<InterpolationResult>,
-    // SV group delay
+    // SV group delay expressed as a [Duration]
     pub(crate) tgd: Option<Duration>,
+    // Windup term in cycles
+    pub(crate) wind_up: f64,
     // SV clock correction
     pub(crate) clock_corr: Duration,
-    // Pseudo Range Code observations
-    pub(crate) pseudo_range: Vec<Observation>,
+    // Pseudo Range observations
+    pub(crate) pseudo_range: Vec<PseudoRange>,
     // Phase range observations
-    pub(crate) phase_range: Vec<Observation>,
-    // Doppler observations
-    pub(crate) doppler: Vec<Observation>,
+    pub(crate) phase_range: Vec<PhaseRange>,
 }
 
 impl Candidate {
@@ -50,15 +88,13 @@ impl Candidate {
     /// - pseudo_range: provide as many Pseudo Range observations as you can
     /// - phase_range: provide as many Phase Range observations as you can.
     ///   NB: we do not accept raw "radians" here, but phase range [m] once again.
-    /// - doppler: provide as many Doppler observations as you can
     pub fn new(
         sv: SV,
         t: Epoch,
         clock_corr: Duration,
         tgd: Option<Duration>,
-        pseudo_range: Vec<Observation>,
-        phase_range: Vec<Observation>,
-        doppler: Vec<Observation>,
+        pseudo_range: Vec<PseudoRange>,
+        phase_range: Vec<PhaseRange>,
     ) -> Self {
         Self {
             sv,
@@ -68,22 +104,16 @@ impl Candidate {
             tgd,
             pseudo_range,
             phase_range,
-            doppler,
             state: None,
+            wind_up: 0.0_f64,
         }
-    }
-    /// Define state
-    pub fn set_state(&mut self, state: InterpolationResult) {
-        self.state = Some(state);
     }
     /*
      * Returns best observed SNR, whatever the signal
      */
-    pub(crate) fn best_snr(&self) -> Option<f64> {
+    pub(crate) fn pseudorange_best_snr(&self) -> Option<f64> {
         self.pseudo_range
             .iter()
-            .chain(self.phase_range.iter())
-            .chain(self.doppler.iter())
             .max_by(|a, b| {
                 if let Some(snr_a) = a.snr {
                     if let Some(snr_b) = b.snr {
@@ -101,9 +131,9 @@ impl Candidate {
      * Returns one pseudo range observation [m], whatever the frequency.
      * Best SNR is preferred though (if such information was provided).
      */
-    pub(crate) fn prefered_pseudorange(&self) -> Option<Observation> {
+    pub(crate) fn prefered_pseudorange(&self) -> Option<PseudoRange> {
         let mut snr = Option::<f64>::None;
-        let mut pr = Option::<Observation>::None;
+        let mut pr = Option::<PseudoRange>::None;
         for c in &self.pseudo_range {
             if pr.is_none() {
                 pr = Some(c.clone());
@@ -152,9 +182,9 @@ impl Candidate {
             .count()
             > 1
     }
-    pub(crate) fn pseudorange_combination(&self) -> Option<Observation> {
-        let l1_pr = self
-            .pseudo_range
+    // Returns the L1 Pseudo Range observation [m] if it exists
+    pub(crate) fn l1_pseudorange(&self) -> Option<&PseudoRange> {
+        self.pseudo_range
             .iter()
             .filter(|p| {
                 matches!(
@@ -162,15 +192,54 @@ impl Candidate {
                     Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
                 )
             })
-            .reduce(|k, _| k)?;
-
+            .reduce(|k, _| k)
+    }
+    // Returns the L1 Phase Range observation [m] if it exists
+    pub(crate) fn l1_phaserange(&self) -> Option<&PhaseRange> {
+        self.phase_range
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                )
+            })
+            .reduce(|k, _| k)
+    }
+    // Returns the Lj Pseudo Range observation [m] if it exists
+    pub(crate) fn lj_pseudorange(&self) -> Option<&PseudoRange> {
+        self.pseudo_range
+            .iter()
+            .filter(|p| {
+                !matches!(
+                    p.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                )
+            })
+            .reduce(|k, _| k)
+    }
+    // Returns the Lj Phase Range observation [m] if it exists
+    pub(crate) fn lj_phaserange(&self) -> Option<&PhaseRange> {
+        self.phase_range
+            .iter()
+            .filter(|p| {
+                !matches!(
+                    p.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                )
+            })
+            .reduce(|k, _| k)
+    }
+    /// Returns IF code range combination
+    pub(crate) fn code_if_combination(&self) -> Option<PseudoRangeCombination> {
+        let l1_pr = self.l1_pseudorange()?;
         let (c_l1, l1_signal) = (l1_pr.value, l1_pr.carrier);
         let freq_l1 = l1_signal.frequency();
 
         let lx_pr = self
             .pseudo_range
             .iter()
-            .filter(|p| p.carrier != l1_signal)
+            .filter(|p| p.carrier != l1_pr.carrier)
             .reduce(|k, _| k)?;
 
         let (c_lx, lx_signal) = (lx_pr.value, lx_pr.carrier);
@@ -180,32 +249,23 @@ impl Candidate {
         let beta = freq_l1.powi(2);
         let gamma = freq_lx.powi(2);
         Some({
-            Observation {
-                snr: None,
-                carrier: l1_signal,
+            PseudoRangeCombination {
+                lhs: lx_signal,
+                reference: l1_signal,
                 value: alpha * (beta * c_l1 - gamma * c_lx),
             }
         })
     }
-    pub(crate) fn phase_combination(&self) -> Option<Observation> {
-        let l1_ph = self
-            .phase_range
-            .iter()
-            .filter(|p| {
-                matches!(
-                    p.carrier,
-                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                )
-            })
-            .reduce(|k, _| k)?;
-
+    /// Returns IF phase range combination
+    pub(crate) fn phase_if_combination(&self) -> Option<PhaseCombination> {
+        let l1_ph = self.l1_phaserange()?;
         let (c_l1, l1_signal) = (l1_ph.value, l1_ph.carrier);
         let f_l1 = l1_signal.frequency();
 
         let lx_ph = self
             .phase_range
             .iter()
-            .filter(|p| p.carrier != l1_signal)
+            .filter(|p| p.carrier != l1_ph.carrier)
             .reduce(|k, _| k)?;
 
         let (c_lx, lx_signal) = (lx_ph.value, lx_ph.carrier);
@@ -214,39 +274,82 @@ impl Candidate {
         let alpha = 1.0 / (f_l1.powi(2) - f_lx.powi(2));
         let beta = f_l1.powi(2);
         let gamma = f_lx.powi(2);
-        Some({
-            Observation {
-                snr: None,
-                carrier: l1_signal,
-                value: alpha * (beta * c_l1 - gamma * c_lx),
-            }
+        Some(PhaseCombination {
+            lhs: lx_signal,
+            ambiguity: None,
+            reference: l1_signal,
+            value: alpha * (beta * c_l1 - gamma * c_lx),
         })
     }
-    pub(crate) fn phase_wide_combination(&self) -> Option<Observation> {
-        let l_1 = self
+    /// Returns phase wide lane combination
+    pub(crate) fn phase_wl_combination(&self) -> Option<PhaseCombination> {
+        let l_1 = self.l1_phaserange()?;
+        let l_j = self
+            .phase_range
+            .iter()
+            .filter(|p| p.carrier != l_1.carrier)
+            .reduce(|k, _| k)?;
+
+        let f_1 = l_1.carrier.frequency();
+        let f_j = l_j.carrier.frequency();
+        Some(PhaseCombination {
+            lhs: l_j.carrier,
+            ambiguity: None,
+            reference: l_1.carrier,
+            value: (f_1 * l_1.value - f_j * l_j.value) / (f_1 - f_j),
+        })
+    }
+    /// Returns code narrow lane combination
+    pub(crate) fn code_nl_combination(&self) -> Option<PseudoRangeCombination> {
+        let c_1 = self.l1_pseudorange()?;
+        let c_j = self
+            .pseudo_range
+            .iter()
+            .filter(|p| p.carrier != c_1.carrier)
+            .reduce(|k, _| k)?;
+
+        let f_1 = c_1.carrier.frequency();
+        let f_j = c_j.carrier.frequency();
+
+        Some(PseudoRangeCombination {
+            lhs: c_j.carrier,
+            reference: c_1.carrier,
+            value: (f_1 * c_1.value + f_j * c_j.value) / (f_1 + f_j),
+        })
+    }
+    pub(crate) fn mw_combination(&self) -> Option<PhaseCombination> {
+        let pw = self.phase_wl_combination()?;
+        let cn = self.code_nl_combination()?;
+        Some(PhaseCombination {
+            lhs: pw.lhs,
+            ambiguity: None,
+            reference: pw.reference,
+            value: pw.value - cn.value,
+        })
+    }
+    // Form GF combination
+    pub(crate) fn phase_gf_combination(&self) -> Option<PhaseCombination> {
+        let c_1 = self
             .phase_range
             .iter()
             .filter(|p| matches!(p.carrier, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
             .reduce(|k, _| k)?;
 
-        let l_j = self
+        let c_j = self
             .phase_range
             .iter()
-            .filter(|p| {
-                p.carrier != Carrier::L1 && p.carrier != Carrier::E1 && p.carrier != Carrier::B1aB1c
-            })
+            .filter(|p| p.carrier != c_1.carrier)
             .reduce(|k, _| k)?;
 
-        let f_1 = l_1.carrier.frequency();
-        let f_j = l_j.carrier.frequency();
-
-        Some(Observation {
-            snr: None,
-            carrier: l_1.carrier,
-            value: (f_1 * l_1.value - f_j * l_j.value) / (f_1 - f_j),
+        Some(PhaseCombination {
+            lhs: c_j.carrier,
+            reference: c_1.carrier,
+            ambiguity: None,
+            value: c_1.value - c_j.value,
         })
     }
-    pub(crate) fn code_narrow_combination(&self) -> Option<Observation> {
+    // Form GF combination
+    pub(crate) fn code_gf_combination(&self) -> Option<PseudoRangeCombination> {
         let c_1 = self
             .pseudo_range
             .iter()
@@ -254,44 +357,49 @@ impl Candidate {
             .reduce(|k, _| k)?;
 
         let c_j = self
-            .pseudo_range
+            .phase_range
             .iter()
-            .filter(|p| {
-                p.carrier != Carrier::L1 && p.carrier != Carrier::E1 && p.carrier != Carrier::B1aB1c
-            })
+            .filter(|p| p.carrier != c_1.carrier)
             .reduce(|k, _| k)?;
 
-        let f_1 = c_1.carrier.frequency();
-        let f_j = c_j.carrier.frequency();
+        Some(PseudoRangeCombination {
+            lhs: c_j.carrier,
+            reference: c_1.carrier,
+            value: c_j.value - c_1.value,
+        })
+    }
+    // Computes phase windup term. Self should be fully resolved, otherwse
+    // will panic.
+    pub(crate) fn windup_correction(&mut self, ref_enu: Vector3<f64>, sun: Vector3<f64>) -> f64 {
+        0.0
+        // let state = self.state.unwrap();
+        // let r_sv = state.to_ecef();
 
-        Some(Observation {
-            snr: None,
-            carrier: c_1.carrier,
-            value: (f_1 * c_1.value + f_j * c_j.value) / (f_1 + f_j),
-        })
+        // let norm = (
+        //     (sun[0] - r_sv[0]).powi(2)
+        //     + (sun[1] - r_sv[1]).powi(2)
+        //     + (sun[2] - r_sv[2]).powi(2)
+        // ).sqrt();
+
+        // let e = (r_sun - r_sv_mc ) / norm;
+        // let j = k.cross(e);
+        // let i = j.cross(k);
+
+        // let d_prime_norm = d_prime.norm();
+        // let d_norm = d.norm();
+        // let psi = pho * (d_prime.cross(d));
+        // let dphi = d_prime.dot(d) / d_prime.norm() / d.norm();
+
+        // let n = (self.delta_phi.unwrap_or(0.0) / 2.0 / PI).round();
+        // self.delta_phi = dphi + 2.0 * n;
+
+        // self.delta_phi
+        // self.wind_up =
     }
-    pub(crate) fn mw_combination(&self) -> Option<Observation> {
-        let pw = self.phase_wide_combination()?;
-        let cn = self.code_narrow_combination()?;
-        Some(Observation {
-            snr: None,
-            carrier: pw.carrier,
-            value: pw.value - cn.value,
-        })
-    }
-    /*
-     * Apply min SNR mask to mutable self
-     */
+    // Retains only observations with SNR >= min_snr
     pub(crate) fn min_snr_mask(&mut self, min_snr: f64) {
         self.pseudo_range.retain(|c| {
             if let Some(snr) = c.snr {
-                snr >= min_snr
-            } else {
-                false
-            }
-        });
-        self.doppler.retain(|d| {
-            if let Some(snr) = d.snr {
                 snr >= min_snr
             } else {
                 false
@@ -304,17 +412,24 @@ impl Candidate {
                 false
             }
         });
+        // self.doppler.retain(|d| {
+        //     if let Some(snr) = d.snr {
+        //         snr >= min_snr
+        //     } else {
+        //         false
+        //     }
+        // });
     }
-    /*
-     * Computes signal transmission time, expressed as [Epoch]
-     * returns (t_tx, dt_ttx)
-     * "t_tx": Epoch in given timescale
-     * "dt_ttx": elapsed duration in seconds in given timescale
-     */
+    ///
+    /// Computes signal transmission time, expressed as [Epoch]
+    /// - returns (t_tx, dt_ttx)
+    /// - "t_tx": Epoch in given timescale
+    /// - "dt_ttx": elapsed duration in seconds in given timescale
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, Duration), Error> {
         let (t, ts) = (self.t, self.t.time_scale);
         let seconds_ts = t.to_duration_in_time_scale(t.time_scale).to_seconds();
 
+        // TODO: prefere (when possible) resolved phase range here ?
         let dt_tx = seconds_ts
             - self
                 .prefered_pseudorange()
@@ -353,156 +468,21 @@ impl Candidate {
         );
         Ok((e_tx, dt))
     }
+    #[cfg(test)]
+    pub fn set_state(&mut self, state: InterpolationResult) {
+        self.state = Some(state);
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::{Candidate, Carrier, Duration, Epoch, Observation, SV};
+    use super::{PhaseCombination, PseudoRangeCombination};
+    use crate::prelude::{Candidate, Carrier, Duration, Epoch, PhaseRange, PseudoRange, SV};
     #[test]
-    fn prefered_pseudorange() {
-        let _l1_freq = 1575.42_f64 * 1.0E6_f64;
-        let _l2_freq = 1176.45_f64 * 1.0E6_f64;
-        let _l5_freq = 1176.45_f64 * 1.0E6_f64;
-
-        for (observations, prefered) in [
-            (
-                vec![
-                    Observation {
-                        value: 1.0,
-                        snr: None,
-                        carrier: Carrier::L1,
-                    },
-                    Observation {
-                        value: 2.0,
-                        snr: None,
-                        carrier: Carrier::L2,
-                    },
-                    Observation {
-                        value: 3.0,
-                        snr: None,
-                        carrier: Carrier::L5,
-                    },
-                ],
-                Observation {
-                    value: 1.0,
-                    snr: None,
-                    carrier: Carrier::L1,
-                },
-            ),
-            (
-                vec![
-                    Observation {
-                        value: 1.0,
-                        snr: None,
-                        carrier: Carrier::L1,
-                    },
-                    Observation {
-                        value: 2.0,
-                        snr: Some(2.0),
-                        carrier: Carrier::L2,
-                    },
-                    Observation {
-                        value: 3.0,
-                        snr: None,
-                        carrier: Carrier::L5,
-                    },
-                ],
-                Observation {
-                    value: 2.0,
-                    snr: Some(2.0),
-                    carrier: Carrier::L2,
-                },
-            ),
-        ] {
-            let cd = Candidate::new(
-                SV::default(),
-                Epoch::default(),
-                Duration::default(),
-                None,
-                observations,
-                vec![],
-                vec![],
-            );
-            assert_eq!(cd.prefered_pseudorange(), Some(prefered),);
-        }
-    }
-    #[test]
-    fn best_snr() {
-        let _l1_freq = 1575.42_f64 * 1.0E6_f64;
-        let _l2_freq = 1176.45_f64 * 1.0E6_f64;
-        let _l5_freq = 1176.45_f64 * 1.0E6_f64;
-
-        let codes = vec![
-            Observation {
-                value: 1.0,
-                snr: None,
-                carrier: Carrier::L1,
-            },
-            Observation {
-                value: 2.0,
-                snr: None,
-                carrier: Carrier::L2,
-            },
-            Observation {
-                value: 3.0,
-                snr: Some(10.0),
-                carrier: Carrier::L5,
-            },
-            Observation {
-                value: 4.0,
-                snr: Some(11.0),
-                carrier: Carrier::L2,
-            },
-            Observation {
-                value: 5.0,
-                snr: Some(9.0),
-                carrier: Carrier::L2,
-            },
-        ];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            codes,
-            vec![],
-            vec![],
-        );
-        assert_eq!(cd.best_snr(), Some(11.0));
-
-        let codes = vec![
-            Observation {
-                value: 1.0,
-                snr: Some(1.0),
-                carrier: Carrier::L1,
-            },
-            Observation {
-                value: 2.0,
-                snr: Some(1.1),
-                carrier: Carrier::L2,
-            },
-            Observation {
-                value: 3.0,
-                snr: Some(1.2),
-                carrier: Carrier::L5,
-            },
-        ];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            codes,
-            vec![],
-            vec![],
-        );
-        assert_eq!(cd.best_snr(), Some(1.2));
-    }
-    #[test]
-    fn ppp_compatibility() {
+    fn cpp_compatibility() {
         for (pr_observations, phase_observations, cpp_compatible) in [
             (
-                vec![Observation {
+                vec![PseudoRange {
                     value: 1.0,
                     snr: Some(1.0),
                     carrier: Carrier::L1,
@@ -512,12 +492,12 @@ mod test {
             ),
             (
                 vec![
-                    Observation {
+                    PseudoRange {
                         value: 1.0,
                         snr: Some(1.0),
                         carrier: Carrier::L1,
                     },
-                    Observation {
+                    PseudoRange {
                         value: 2.0,
                         snr: Some(2.0),
                         carrier: Carrier::L2,
@@ -534,226 +514,8 @@ mod test {
                 None,
                 pr_observations,
                 phase_observations,
-                vec![],
             );
             assert_eq!(cd.cpp_compatible(), cpp_compatible);
         }
-    }
-    #[test]
-    fn l1_phase_wide() {
-        let phases = vec![
-            Observation {
-                snr: None,
-                value: 64.0,
-                carrier: Carrier::L1,
-            },
-            Observation {
-                snr: None,
-                value: 128.0,
-                carrier: Carrier::L2,
-            },
-        ];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            vec![],
-            phases,
-            vec![],
-        );
-        let pw = cd.phase_wide_combination();
-        assert!(pw.is_some(), "failed to form Ph_wide combination");
-        let pw = pw.unwrap();
-        assert_eq!(pw.carrier, Carrier::L1);
-        assert_eq!(
-            pw.value,
-            (Carrier::L1.frequency() * 64.0 - Carrier::L2.frequency() * 128.0)
-                / (Carrier::L1.frequency() - Carrier::L2.frequency())
-        );
-
-        let phases = vec![Observation {
-            snr: None,
-            value: 64.0,
-            carrier: Carrier::L1,
-        }];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            vec![],
-            phases,
-            vec![],
-        );
-
-        assert!(
-            cd.phase_wide_combination().is_none(),
-            "Ph_wide should not be feasible!"
-        );
-    }
-    #[test]
-    fn e1_phase_wide() {
-        let phases = vec![
-            Observation {
-                snr: None,
-                value: 64.0,
-                carrier: Carrier::E1,
-            },
-            Observation {
-                snr: None,
-                value: 128.0,
-                carrier: Carrier::E5,
-            },
-        ];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            vec![],
-            phases,
-            vec![],
-        );
-        let pw = cd.phase_wide_combination();
-        assert!(pw.is_some(), "failed to form Ph_wide combination");
-        let pw = pw.unwrap();
-        assert_eq!(pw.carrier, Carrier::E1);
-        assert_eq!(
-            pw.value,
-            (Carrier::E1.frequency() * 64.0 - Carrier::E5.frequency() * 128.0)
-                / (Carrier::E1.frequency() - Carrier::E5.frequency())
-        );
-    }
-    #[test]
-    fn l1_code_narrow() {
-        let codes = vec![
-            Observation {
-                snr: None,
-                value: 64.0,
-                carrier: Carrier::L1,
-            },
-            Observation {
-                snr: None,
-                value: 128.0,
-                carrier: Carrier::L2,
-            },
-        ];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            codes,
-            vec![],
-            vec![],
-        );
-        let cn = cd.code_narrow_combination();
-        assert!(cn.is_some(), "failed to form Cn_narrow combination");
-        let cn = cn.unwrap();
-        assert_eq!(cn.carrier, Carrier::L1);
-        assert_eq!(
-            cn.value,
-            (Carrier::L1.frequency() * 64.0 + Carrier::L2.frequency() * 128.0)
-                / (Carrier::L1.frequency() + Carrier::L2.frequency())
-        );
-
-        let codes = vec![Observation {
-            snr: None,
-            value: 64.0,
-            carrier: Carrier::L1,
-        }];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            codes,
-            vec![],
-            vec![],
-        );
-
-        assert!(
-            cd.code_narrow_combination().is_none(),
-            "Cn_narrow should not be feasible!"
-        );
-    }
-    #[test]
-    fn e1_code_narrow() {
-        let codes = vec![
-            Observation {
-                snr: None,
-                value: 64.0,
-                carrier: Carrier::E1,
-            },
-            Observation {
-                snr: None,
-                value: 128.0,
-                carrier: Carrier::E5,
-            },
-        ];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            codes,
-            vec![],
-            vec![],
-        );
-        let cn = cd.code_narrow_combination();
-        assert!(cn.is_some(), "failed to form Cn_narrow combination");
-        let cn = cn.unwrap();
-        assert_eq!(cn.carrier, Carrier::E1);
-        assert_eq!(
-            cn.value,
-            (Carrier::E1.frequency() * 64.0 + Carrier::E5.frequency() * 128.0)
-                / (Carrier::E1.frequency() + Carrier::E5.frequency())
-        );
-    }
-    #[test]
-    fn e1_e5_mw_combination() {
-        let codes = vec![
-            Observation {
-                snr: None,
-                value: 64.0,
-                carrier: Carrier::E1,
-            },
-            Observation {
-                snr: None,
-                value: 128.0,
-                carrier: Carrier::E5,
-            },
-        ];
-        let phases = vec![
-            Observation {
-                snr: None,
-                value: 16.0,
-                carrier: Carrier::E1,
-            },
-            Observation {
-                snr: None,
-                value: 32.0,
-                carrier: Carrier::E5,
-            },
-        ];
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            Duration::default(),
-            None,
-            codes,
-            phases,
-            vec![],
-        );
-        let mw = cd.mw_combination();
-        assert!(mw.is_some(), "failed to form MW combination");
-        let mw = mw.unwrap();
-        assert_eq!(mw.carrier, Carrier::E1);
-        let pw = (Carrier::E1.frequency() * 16.0 - Carrier::E5.frequency() * 32.0)
-            / (Carrier::E1.frequency() - Carrier::E5.frequency());
-        let cn = (Carrier::E1.frequency() * 64.0 + Carrier::E5.frequency() * 128.0)
-            / (Carrier::E1.frequency() + Carrier::E5.frequency());
-        assert_eq!(mw.value, pw - cn);
     }
 }
