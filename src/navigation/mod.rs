@@ -1,5 +1,5 @@
 pub mod solutions;
-pub use solutions::{PVTSolution, PVTSolutionType};
+pub use solutions::{InstrumentBias, PVTSolution, PVTSolutionType};
 
 mod filter;
 
@@ -20,6 +20,7 @@ use nalgebra::{
     base::dimension::{U4, U8},
     OMatrix, OVector,
 };
+
 use nyx::cosmic::SPEED_OF_LIGHT;
 
 /// SV Navigation information

@@ -25,8 +25,8 @@ use crate::{
     candidate::Candidate,
     cfg::{Config, Method},
     navigation::{
-        solutions::validator::Validator as SolutionValidator, Input as NavigationInput, Navigation,
-        PVTSolution, PVTSolutionType,
+        solutions::validator::Validator as SolutionValidator, Input as NavigationInput,
+        InstrumentBias, Navigation, PVTSolution, PVTSolutionType,
     },
     position::Position,
     prelude::{Duration, Epoch, SV},
@@ -493,8 +493,23 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             Method::SPP | Method::CPP => Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
         };
 
+        // Bias
+        let mut bias = InstrumentBias::new();
+        for (i, sv) in input.sv.keys().enumerate() {
+            let b_i = x[(i, i + 4)];
+            if let Some(cd) = pool.iter().filter(|cd| cd.sv == *sv).reduce(|k, _| k) {
+                if let Some(l_c) = cd.phase_if_combination() {
+                    if let Some(amb) = ambiguities.get(&(*sv, l_c.reference)) {
+                        //TODO: c'est n_c pas n_1
+                        bias.insert((*sv, l_c.reference), b_i - amb.n_1);
+                    }
+                }
+            }
+        }
+
         // Form Solution
         let mut solution = PVTSolution {
+            bias,
             position,
             ambiguities,
             gdop: output.gdop,
