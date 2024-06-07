@@ -484,24 +484,24 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         };
 
         let x = output.state.estimate();
+        debug!("x: {}", x);
+
         let position = match method {
             // Method::PPP => Vector3::new(x[4] + x0, x[5] + y0, x[6] + z0),
-            Method::PPP => {
-                debug!("b_c(0): {} b_c(1): {}", x[4], x[5]);
-                Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0)
-            },
+            Method::PPP => Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
             Method::SPP | Method::CPP => Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
         };
 
         // Bias
         let mut bias = InstrumentBias::new();
-        for (i, sv) in input.sv.keys().enumerate() {
-            let b_i = x[(i, i + 4)];
-            if let Some(cd) = pool.iter().filter(|cd| cd.sv == *sv).reduce(|k, _| k) {
+        if method == Method::PPP {
+            for i in 0..x.ncols() - 4 {
+                let b_i = x[i + 4];
+                let cd = &pool[i];
                 if let Some(l_c) = cd.phase_if_combination() {
-                    if let Some(amb) = ambiguities.get(&(*sv, l_c.reference)) {
-                        //TODO: c'est n_c pas n_1
-                        bias.insert((*sv, l_c.reference), b_i - amb.n_1);
+                    if let Some(amb) = ambiguities.get(&(cd.sv, l_c.reference)) {
+                        //TODO: c'est n_c pas n_1, puisque b_i est lié à la combinaison LC
+                        bias.insert((cd.sv, l_c.reference), b_i - amb.n_1);
                     }
                 }
             }
