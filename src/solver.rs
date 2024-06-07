@@ -494,18 +494,18 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         // Bias
         let mut bias = InstrumentBias::new();
-        if method == Method::PPP {
-            for i in 0..x.ncols() - 4 {
-                let b_i = x[i + 4];
-                let cd = &pool[i];
-                if let Some(l_c) = cd.phase_if_combination() {
-                    if let Some(amb) = ambiguities.get(&(cd.sv, l_c.reference)) {
-                        //TODO: c'est n_c pas n_1, puisque b_i est lié à la combinaison LC
-                        bias.insert((cd.sv, l_c.reference), b_i - amb.n_1);
-                    }
-                }
-            }
-        }
+        //if method == Method::PPP {
+        //    for i in 0..x.ncols() - 4 {
+        //        let b_i = x[i + 4];
+        //        let cd = &pool[i];
+        //        if let Some(l_c) = cd.phase_if_combination() {
+        //            if let Some(amb) = ambiguities.get(&(cd.sv, l_c.reference)) {
+        //                //TODO: c'est n_c pas n_1, puisque b_i est lié à la combinaison LC
+        //                bias.insert((cd.sv, l_c.reference), b_i - amb.n_1);
+        //            }
+        //        }
+        //    }
+        //}
 
         // Form Solution
         let mut solution = PVTSolution {
@@ -629,7 +629,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         reworked
     }
     /*
-     * Reworks solution to adapt to configuration setup and desired format.
+     * Reworks solution
      */
     fn rework_solution(pvt: &mut PVTSolution, cfg: &Config) {
         if let Some(alt) = cfg.fixed_altitude {
@@ -641,71 +641,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             pvt.velocity = Default::default();
         }
     }
-    // //*
-    // / * Minimize geometry error
-    // / */
-    //fn minimize_geometry_error(candidates: &mut Vec<Candidate>, min_required: usize) {
-    //    let nb_candidates = candidates.len();
-    //    let (mut sv_min_elev, mut min_elev) = (SV::default(), 365.0_f64);
-    //    let (mut sv_max_elev, mut max_elev) = (SV::default(), 0.0_f64);
-
-    //    for cd in candidates.iter() {
-    //        let state = cd.state.unwrap();
-    //        if state.elevation < min_elev {
-    //            sv_min_elev = cd.sv;
-    //            min_elev = state.elevation;
-    //        }
-    //        if state.elevation > max_elev {
-    //            sv_max_elev = cd.sv;
-    //            max_elev = state.elevation;
-    //        }
-    //    }
-
-    //    debug!("sv_min_elev: {}, sv_max_elev: {}", sv_min_elev, sv_max_elev);
-
-    //    let mut retained = Vec::<SV>::with_capacity(min_required);
-    //    retained.push(sv_min_elev);
-    //    retained.push(sv_max_elev);
-
-    //    let mut combinations: Vec<(Vec<SV>, f64)> = Vec::with_capacity(16);
-    //    for combination in candidates.iter().combinations(min_required) {
-    //        let mut mean = 0.0_f64;
-    //        for cd in combination.iter() {
-    //            let state = cd.state.unwrap();
-    //            mean += state.azimuth;
-    //        }
-    //        mean /= min_required as f64;
-    //        let mut dev = 0.0_f64;
-    //        for cd in combination.iter() {
-    //            let state = cd.state.unwrap();
-    //            dev += (state.azimuth - mean).powi(2);
-    //        }
-    //        dev /= min_required as f64;
-    //        let svs = combination.iter().map(|cd| cd.sv).collect::<Vec<_>>();
-    //        combinations.push((svs, dev));
-    //    }
-
-    //    combinations.sort_by(|(_, dev_a), (_, dev_b)| dev_b.partial_cmp(&dev_a).unwrap());
-
-    //    for i in 0..combinations.len() {
-    //        for sv in &combinations[combinations.len() - i - 1].0 {
-    //            if !retained.contains(sv) {
-    //                retained.push(*sv);
-    //            }
-    //            if retained.len() == min_required {
-    //                break;
-    //            }
-    //        }
-    //    }
-    //    println!("RETAINED: {:?}", retained);
-
-    //    let mut index = 0;
-    //    candidates.retain(|cd| retained.contains(&cd.sv));
-    //}
     fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
-        let mut index = 0;
-        let total = pool.len();
-
         //   1. Retain best elevation
         pool.sort_by(|cd_a, cd_b| {
             let state_a = cd_a.state.unwrap();
@@ -713,10 +649,20 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             state_a.elevation.partial_cmp(&state_b.elevation).unwrap()
         });
 
-        pool.retain(|_| {
-            index += 1;
-            index > total - min_required
-        });
+        let mut index = 0;
+
+        if min_required == 1 {
+            pool.retain(|_| {
+                index += 1;
+                index == 1
+            });
+        } else {
+            let total = pool.len();
+            pool.retain(|_| {
+                index += 1;
+                index > total - min_required
+            });
+        }
     }
 }
 
