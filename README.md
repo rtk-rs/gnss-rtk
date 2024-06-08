@@ -143,7 +143,7 @@ fn position_provider(t: Epoch, sv: SV, order: usize) -> Option<InterpolationResu
 
 # The preset API is useful to quickly deploy depending on your application.
 # Static presets target static positioning.
-let cfg = Config::static_preset(Method::CPP); // Dual Freq. Pseudo Range based
+let cfg = Config::static_preset(Method::SPP); // Single Freq. Pseudo Range based
 
 let solver = Solver::new(
     &cfg, 
@@ -162,6 +162,42 @@ while let Some((epoch, data)) = some_data_provider.gather() {
     // Iterate your data and call solver.resolve() for each Epoch.
     // All we have to do at this point, is gather the signal observations,
     // per SV, as a list of [Candidate]s.
+    // "epoch" is the Sampling Epoch or Epoch of "observation".
+
+    // Since we're using SPP here, we only need to gather one Pseudo Range observation
+    // for 4 SV
+    let candidates = [
+        // Create a candidate from your Pseudo Range observation
+        Candidate::new(
+            data.next_sv(),
+            epoch, // sampling epoch
+            // for each SV you must provide the clock correction to apply
+            // at "epoch". It is up to you to determine this information.
+            data.next_clock_correction(),
+            // if you know the total group day for this SV, specify it here
+            data.next_tgd(),
+            // List of Pseudo Range observations, we only need one in this scenario
+
+            // List of Phase Range observations: not needed in this scenario
+            vec![],
+        ),
+        Candidate::new(
+            // proceed similarly, by iterating your data source
+            // for each SV in sight
+        ),
+        Candidate::new(
+            // proceed similarly, by iterating your data source
+            // for each SV in sight
+        ),
+        Candidate::new(
+            // proceed similarly, by iterating your data source
+            // for each SV in sight
+        ),
+        Candidate::new(
+            // It's better to gather more than needed, this leaves us
+            // more options to make a decision
+        ),
+    ];
 
     // External bias sources are not very well supported yet.
     // We recommend you use the internal modeling.
