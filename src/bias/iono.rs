@@ -7,6 +7,7 @@ use std::f64::consts::PI;
 /// any resolution attempt. Fill as much as you can.
 /// If this structure is empty, you should then provide observations
 /// on at least two carrier signals so the solver can estimate this bias.
+#[derive(Default)]
 pub struct IonosphereBias {
     /// Klobuchar Model to apply
     pub kb_model: Option<KbModel>,

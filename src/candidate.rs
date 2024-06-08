@@ -34,7 +34,7 @@ pub struct PseudoRange {
 }
 
 /// Combination of observations
-pub(crate) struct PhaseCombination {
+pub struct PhaseCombination {
     /// LHS signal
     pub lhs: Carrier,
     /// RHS reference signal
@@ -46,7 +46,7 @@ pub(crate) struct PhaseCombination {
 }
 
 /// Combination of observations
-pub(crate) struct PseudoRangeCombination {
+pub struct PseudoRangeCombination {
     /// LHS signal
     pub lhs: Carrier,
     /// RHS reference signal
@@ -131,7 +131,7 @@ impl Candidate {
      * Returns one pseudo range observation [m], whatever the frequency.
      * Best SNR is preferred though (if such information was provided).
      */
-    pub(crate) fn prefered_pseudorange(&self) -> Option<PseudoRange> {
+    pub fn prefered_pseudorange(&self) -> Option<PseudoRange> {
         let mut snr = Option::<f64>::None;
         let mut pr = Option::<PseudoRange>::None;
         for c in &self.pseudo_range {
@@ -231,7 +231,7 @@ impl Candidate {
             .reduce(|k, _| k)
     }
     /// Returns IF code range combination
-    pub(crate) fn code_if_combination(&self) -> Option<PseudoRangeCombination> {
+    pub fn code_if_combination(&self) -> Option<PseudoRangeCombination> {
         let l1_pr = self.l1_pseudorange()?;
         let (c_l1, l1_signal) = (l1_pr.value, l1_pr.carrier);
         let freq_l1 = l1_signal.frequency();
@@ -257,7 +257,7 @@ impl Candidate {
         })
     }
     /// Returns IF phase range combination
-    pub(crate) fn phase_if_combination(&self) -> Option<PhaseCombination> {
+    pub fn phase_if_combination(&self) -> Option<PhaseCombination> {
         let l1_ph = self.l1_phaserange()?;
         let (c_l1, l1_signal) = (l1_ph.value, l1_ph.carrier);
         let f_l1 = l1_signal.frequency();

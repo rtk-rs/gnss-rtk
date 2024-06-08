@@ -6,7 +6,7 @@ GNSS-RTK
 [![crates.io](https://docs.rs/gnss-rtk/badge.svg)](https://docs.rs/gnss-rtk)
 [![rustc](https://img.shields.io/badge/rustc-1.64%2B-blue.svg)](https://img.shields.io/badge/rustc-1.64%2B-blue.svg)
 
-Precise position solver :crab:
+Precise positioning calculations, in Rust
 
 Notes on this ecosystem
 =======================
@@ -16,31 +16,33 @@ Notes on this ecosystem
 - `Hifitime` provides timing and timescale definitions
 - `Gnss-rs` provides basic GNSS definitions
 
-[The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework.  
+[The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework (at a high level).  
+
+Solver
+======
+
+We only support 1D direct positioning, a subsidary data source required for RTK is not supported and will be developed very soon.   
+That means the only differential technique you can currently used is SBAS (Ground/Space differential technique). 
 
 PVT Solutions
 =============
 
-The objective is to resolve PVT solutions, implemented in the form of a `prelude::PVTSolution`,
-ideally the most precise as possible, at a given _Epoch_.
-
-Resolving a PVT requires a minimum number of SV (actual measurements) in sight and within the preset criteria:
-
-- 4 SV are required, per Epoch, in default mode
-- 3 SV in fixed altitude mode
-- 1 SV in time only mode
+The objective is to resolve PVT solutions, which requires a minimum of SV in sights:
+- 4 SV required, in default mode
+- 3 SV required, in fixed altitude mode
+- 1 SV required, in time only mode
 
 The preset criteria are manually set in the configuration file (or config script).
-At the moment, refer to the RINEX Wiki pages for meaningful examples.
+At the moment, refer to the RINEX Wiki or RINEX scripts database, for meaningful examples.
 
 Depending on the preset configuration, other requirements will apply to the previous list, most importantly:
 
 - `CPP` strategy will required pseudo range observation on a secondary frequency
-- `PPP` strategy will required pseudo range and phase observations on a two frequencies
+- `PPP` strategy will required pseudo range and phase observations on two frequencies
 - SNR, Elevation and Azimuth mask will require to gather the required amount of SV within those conditions
 
 Each PVT solution contains the Dilution of Precision (DOP) and other meaningful information, like which SV
-contributed. We have the capability to express the clock offset to any desired Timescale.
+contributed to the solution. We have the capability to express the clock offset in all supported Timescale.
 
 Strategy and other settings
 ===========================
@@ -68,9 +70,10 @@ Modeling are closely tied to the selected solver strategy. For example,
 models that impact at the centimetric level like the sunlight rate, are not meaningful in strategies other than advanced PPP.
 On the other hand, you will not reach metric solutions, whatever the strategy might be, if a minimum of physical phenomena are not accounted for.
 
-## Atmospherical and Environmental biases
+Atmosphere and Environmental biases
+===================================
 
-This solver is always capable of modelizing all conditions and form a solution.   
+This solver is always capable of modeling all conditions and form a solution.   
 It is important to understand how our API is designed and operate it the best you can to get the best results.
 
 Troposphere Delay
@@ -99,3 +102,15 @@ Ionosphere Delay
 ================
 
 TODO
+
+A priori position
+=================
+
+The solver can be armed with a priori knowledge (rough idea of the final position),
+or can operate in complete autonomy. In this case, the solver will initialize itself
+very accurately, this requires one extra step.
+
+Getting started
+===============
+
+Refer to our example applications to understand how to operate our API in more detail.
