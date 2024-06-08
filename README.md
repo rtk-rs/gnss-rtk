@@ -119,11 +119,12 @@ built ahead of time. The only difficulty is you need to design your source of SV
 ```rust
 use gnss_rtk::prelude::{
     Config, Method, Solver,
+    Carrier,
     InterpolationResult, Epoch, SV,
     IonosphereBias, TroposphereBias,
 };
 
-# Define your SV position provider. 
+// Define your SV position provider. 
 fn position_provider(t: Epoch, sv: SV, order: usize) -> Option<InterpolationResult> {
     // For each requested "t" and "sv", 
     // you should design an InterpolationResult,
@@ -141,64 +142,69 @@ fn position_provider(t: Epoch, sv: SV, order: usize) -> Option<InterpolationResu
     Some(Interpolation::from_position((x, y, z)))
 }
 
+// Data source example
+struct MyDataSource {}
+
+impl MyDataSource {
+    // Data source example
+    fn new() -> Self {
+        Self {}
+    }
+    // The objective here is to propose enough SV observations to resolve a solution.
+    // Since our example only requires PseudoRange on a single frequency
+    // we will limit ourselves to that.
+    fn next(&mut self) -> Option<(epoch, Vec<Candidate>)> {
+        Some((
+            // This must be the Epoch of observation,
+            // ie, Sampling Instant
+            Epoch::default(),
+            vec![
+                // Create a candidate from your Pseudo Range observation
+                Candidate::new(
+                    // Candidate Identity
+                    SV::default(),
+                    // Sampling Epoch. Must be identical for this grouping of candidates
+                    Epoch::default(),
+                    // For each Candidate, you must provide the ongoing clock correction we should apply
+                    Duration::default(),
+                    // If you know the total group day for this Candidate, specify it here
+                    None,
+                    // List of Pseudo Range observations, we only need one in this scenario
+                    vec![
+                        PseudoRange {
+                            carrier: Carrier::L1, // example
+                            value: 3.0E6, // example, this is raw observation
+                            // Note that if you apply a min_snr preset,
+                            // we might drop candidates that do not have this info
+                            snr: None, // unknown
+                        },
+                    ],
+                    // List of Phase Range observations: not needed in this scenario
+                    vec![],
+                ),
+                // Create all as many candidates as possible.
+                // It's better to have more than needed, it leaves us more possibility in the election process.
+            ],
+        ))
+    }
+}
+
 # The preset API is useful to quickly deploy depending on your application.
 # Static presets target static positioning.
 let cfg = Config::static_preset(Method::SPP); // Single Freq. Pseudo Range based
 
 let solver = Solver::new(
     &cfg, 
-    # Deploy without apriori knowledge (auto initialization)
+    // Deploy without apriori knowledge (auto initialization)
     None, 
-    # connect the position provider
+    // connect the position provider
     |t, sv, order| position_provider(t, sv, order)
 );
-```
 
-The strategy will restrict the type of observations you will have to provide when iterating the solver (see the strategy requirements).
+let mut source = MyDataSource::new();
 
-```rust
 // Browse your data source (This is an Example) 
-while let Some((epoch, data)) = some_data_provider.gather() {
-    // Iterate your data and call solver.resolve() for each Epoch.
-    // All we have to do at this point, is gather the signal observations,
-    // per SV, as a list of [Candidate]s.
-    // "epoch" is the Sampling Epoch or Epoch of "observation".
-
-    // Since we're using SPP here, we only need to gather one Pseudo Range observation
-    // for 4 SV
-    let candidates = [
-        // Create a candidate from your Pseudo Range observation
-        Candidate::new(
-            data.next_sv(),
-            epoch, // sampling epoch
-            // for each SV you must provide the clock correction to apply
-            // at "epoch". It is up to you to determine this information.
-            data.next_clock_correction(),
-            // if you know the total group day for this SV, specify it here
-            data.next_tgd(),
-            // List of Pseudo Range observations, we only need one in this scenario
-
-            // List of Phase Range observations: not needed in this scenario
-            vec![],
-        ),
-        Candidate::new(
-            // proceed similarly, by iterating your data source
-            // for each SV in sight
-        ),
-        Candidate::new(
-            // proceed similarly, by iterating your data source
-            // for each SV in sight
-        ),
-        Candidate::new(
-            // proceed similarly, by iterating your data source
-            // for each SV in sight
-        ),
-        Candidate::new(
-            // It's better to gather more than needed, this leaves us
-            // more options to make a decision
-        ),
-    ];
-
+while let Some((epoch, candidates)) = source.next() {
     // External bias sources are not very well supported yet.
     // We recommend you use the internal modeling.
     // This is done by specifying you simply have no knowledge
@@ -206,7 +212,7 @@ while let Some((epoch, data)) = some_data_provider.gather() {
     let ionod = Option::<IonosphereBias>::None;
     let tropod = Option::<TroposphereBias>::None;
 
-    match solver.resolve(epoch, &pool, ionod, tropod) {
+    match solver.resolve(epoch, &candidates, ionod, tropod) {
         Ok((epoch, solution)) => {
             // A solution was successfully resolved for this Epoch.
             // The position is expressed as absolute ECEF [m].
