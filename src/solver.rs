@@ -509,7 +509,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         // Form Solution
         let mut solution = PVTSolution {
-            bias,
+            // bias,
             position,
             ambiguities,
             gdop: output.gdop,
