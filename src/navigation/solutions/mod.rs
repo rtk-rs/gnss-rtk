@@ -7,6 +7,7 @@ use super::SVInput;
 use nalgebra::base::{Matrix3, Matrix4};
 
 pub(crate) mod validator;
+pub use validator::InvalidationCause;
 
 /// InstrumentBias, estimated per SV and signal for each solution (ie., in Time),
 /// when navigation is based on Phase Range observations.

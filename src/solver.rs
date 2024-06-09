@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use hifitime::Unit;
 // use itertools::Itertools;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use map_3d::{deg2rad, ecef2geodetic, rad2deg};
 use nalgebra::{Matrix3, Vector3};
 // use std::cmp::Ordering;
@@ -25,8 +25,8 @@ use crate::{
     candidate::Candidate,
     cfg::{Config, Method},
     navigation::{
-        solutions::validator::Validator as SolutionValidator, Input as NavigationInput,
-        InstrumentBias, Navigation, PVTSolution, PVTSolutionType,
+        solutions::validator::{InvalidationCause, Validator as SolutionValidator},
+        Input as NavigationInput, InstrumentBias, Navigation, PVTSolution, PVTSolutionType,
     },
     position::Position,
     prelude::{Duration, Epoch, SV},
@@ -62,8 +62,8 @@ pub enum Error {
     PhysicalNonSenseRxPriorTx,
     #[error("physical non sense: t_rx is too late")]
     PhysicalNonSenseRxTooLate,
-    #[error("invalidated solution")]
-    InvalidatedSolution,
+    #[error("invalidated solution, cause: {0}")]
+    InvalidatedSolution(InvalidationCause),
     #[error("bancroft solver error: invalid input ?")]
     BancroftError,
     #[error("bancroft solver error: invalid input (imaginary solution)")]
@@ -201,7 +201,11 @@ where
 impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
     /// Create a new Position [Solver].
     /// - cfg: Solver [Config]
-    /// - initial: Possible initial [Position], used to initialize the Solver
+    /// - initial: possible initial [Position], used to initialize the Solver.
+    ///   When not provided (no apriori knowledge), the solver will initialize itself autonomously.
+    ///   Note that we need at least one set of 4 valid SV observations to initiliaze ourselves.
+    ///   This means you need to have special initialization cycles when operating
+    ///   in Fixed Altitude or Time Only modes.
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
     pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
         let cosmic = Cosm::de438();
@@ -221,7 +225,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             cosmic,
             sun_frame,
             earth_frame,
-            initial,
+            initial: {
+                if let Some(ref initial) = initial {
+                    let geo = initial.geodetic();
+                    let (lat, lon) = (rad2deg(geo[0]), rad2deg(geo[1]));
+                    info!("initial position lat={:.3E}°, lon={:.3E}°", lat, lon);
+                }
+                initial
+            },
             interpolator,
             prev_vdop: None,
             prev_used: vec![],
@@ -410,7 +421,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             let position = Position::from_ecef(Vector3::<f64>::new(x0, y0, z0));
             let geo = position.geodetic();
             let (lat, lon) = (rad2deg(geo[0]), rad2deg(geo[1]));
-            debug!(
+            info!(
                 "{} - estimated initial position lat={:.3E}°, lon={:.3E}°",
                 pool[0].t, lat, lon
             );
@@ -527,19 +538,19 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             self.prev_vdop = Some(solution.vdop(lat_rad, lon_rad));
             self.prev_solution = Some((t, solution.clone()));
             // always discard 1st solution
-            return Err(Error::InvalidatedSolution);
+            return Err(Error::InvalidatedSolution(InvalidationCause::FirstSolution));
         }
 
         let validator =
             SolutionValidator::new(Vector3::<f64>::new(x0, y0, z0), &pool, &input, &output);
 
-        match validator.validate(solver_opts) {
+        match validator.validate(&self.cfg) {
             Ok(_) => {
                 self.nav.validate();
             },
-            Err(e) => {
-                error!("solution invalidated - {}", e);
-                return Err(Error::InvalidatedSolution);
+            Err(cause) => {
+                error!("solution invalidated - {}", cause);
+                return Err(Error::InvalidatedSolution(cause));
             },
         };
 
@@ -650,14 +661,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         });
 
         let mut index = 0;
+        let total = pool.len();
 
         if min_required == 1 {
             pool.retain(|_| {
                 index += 1;
-                index == 1
+                index == total
             });
         } else {
-            let total = pool.len();
             pool.retain(|_| {
                 index += 1;
                 index > total - min_required
