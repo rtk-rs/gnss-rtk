@@ -1,12 +1,12 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    Candidate, Carrier, Config, Duration, Epoch, Error, InterpolationResult, IonosphereBias,
-    Method, PseudoRange, Solver, TroposphereBias, SV,
+    Candidate, Carrier, Config, Duration, Epoch, Error, InterpolationResult, InvalidationCause,
+    IonosphereBias, Method, PseudoRange, Solver, TroposphereBias, SV,
 };
 
 // Define your SV position provider.
-fn position_provider(t: Epoch, sv: SV, order: usize) -> Option<InterpolationResult> {
+fn position_provider(_t: Epoch, _sv: SV, _order: usize) -> Option<InterpolationResult> {
     // For each requested "t" and "sv",
     // you should design an InterpolationResult,
     // ideally using recommended "order" in case interpolation is involved in your workflow,
@@ -99,40 +99,42 @@ pub fn main() {
         let tropod = TroposphereBias::default(); // Unknown
 
         match solver.resolve(epoch, &candidates, &ionod, &tropod) {
-            Ok((epoch, solution)) => {
+            Ok((_epoch, solution)) => {
                 // A solution was successfully resolved for this Epoch.
                 // The position is expressed as absolute ECEF [m].
-                let position = solution.position;
+                let _position = solution.position;
                 // The velocity vector is expressed as variations of absolute ECEF positions [m/s]
-                let velocity = solution.velocity;
+                let _velocity = solution.velocity;
                 // Receiver offset to preset timescale
-                let (clock_offset, timescale) = (solution.dt, solution.timescale);
+                let (_clock_offset, _timescale) = (solution.dt, solution.timescale);
                 // More infos on SVs that contributed to this solution
-                for (sv, info) in &solution.sv {
+                for (_sv, info) in &solution.sv {
                     // attitude
-                    let (el, az) = (info.azimuth, info.elevation);
+                    let (_el, _az) = (info.azimuth, info.elevation);
                     // Modeled (in this example) or simply copied ionosphere bias
                     // impacting selected signal from this spacecraft
-                    let bias_m = info.iono_bias;
+                    let _bias_m = info.iono_bias;
                     // Modeled (in this example) or simply copied troposphere bias
                     // impacting selected signal from this spacecraft
-                    let bias_m = info.tropo_bias;
+                    let _bias_m = info.tropo_bias;
                     // Dilution of Precision informs on geometric performances
-                    let (tdop, gdop, pdop) = (solution.tdop, solution.gdop, solution.pdop);
+                    let (_tdop, _gdop, _pdop) = (solution.tdop, solution.gdop, solution.pdop);
                     // Determine the Vertical DoP for these lat,lon coordinates
                     let (lat_ddeg, lon_ddeg) = (45.0, 13.0);
-                    let vdop = solution.vdop(lat_ddeg, lon_ddeg);
+                    let _vdop = solution.vdop(lat_ddeg, lon_ddeg);
                 }
             },
-            Err(Error::InvalidatedSolution) => {
-                // The current behavior will always discard the first solution,
-                // so it's OK to have one first cycle here.
-                // Otherwise, it means the conditions are degrading and
-                // do not fit the preset criteria.
-                // Or the preset criteria are stringent and we need more iterations
-                // to achieve one solution.
+            Err(Error::InvalidatedSolution(cause)) => match cause {
+                InvalidationCause::FirstSolution => {
+                    // The current behavior will always discard the first solution.
+                    // We will always wind up here on the first iteration
+                },
+                _other => {
+                    // Conditions are either degrading and no longer fit preset criteria,
+                    // or we need more iterations to finally meet preset criteria.
+                },
             },
-            Err(e) => {
+            Err(_e) => {
                 // Something went wrong, use "e" to get more info on what is wrong.
                 // The most plausible cause is the lack of observations, at this point in time.
                 // But that should not last for too long, otherwise something's wrong in your setup

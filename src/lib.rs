@@ -28,7 +28,7 @@ pub mod prelude {
     pub use crate::candidate::{Candidate, PhaseRange, PseudoRange};
     pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
-    pub use crate::navigation::{Filter, PVTSolution, PVTSolutionType};
+    pub use crate::navigation::{Filter, InvalidationCause, PVTSolution, PVTSolutionType};
     pub use crate::position::Position;
     pub use crate::solver::{Error, InterpolationResult, Solver};
     // re-export

@@ -4,13 +4,16 @@ use nyx::cosmic::SPEED_OF_LIGHT;
 use thiserror::Error;
 
 use crate::{
-    cfg::SolverOpts,
-    navigation::{Input, Output},
-    prelude::Candidate,
+    navigation::{Input, Output, PVTSolutionType},
+    prelude::{Candidate, Config},
 };
 
-#[derive(Clone, Debug, Error)]
-pub enum SolutionInvalidation {
+#[derive(Clone, Debug, PartialEq, Error)]
+/// Reason why this solution has been invalidated
+pub enum InvalidationCause {
+    /// First solution is always invalidated
+    #[error("first solution")]
+    FirstSolution,
     #[error("gdop {0}: limit exceeded")]
     GDOPOutlier(f64),
     #[error("tdop limit exceeded {0}")]
@@ -87,15 +90,18 @@ impl Validator {
     /*
      * Solution validation process
      */
-    pub fn validate(&self, opts: &SolverOpts) -> Result<(), SolutionInvalidation> {
-        if let Some(max_gdop) = opts.gdop_threshold {
-            if self.gdop > max_gdop {
-                return Err(SolutionInvalidation::GDOPOutlier(self.gdop));
+    pub fn validate(&self, cfg: &Config) -> Result<(), InvalidationCause> {
+        if cfg.sol_type != PVTSolutionType::TimeOnly {
+            // Other geometry criteria apply
+            if let Some(max_gdop) = cfg.solver.gdop_threshold {
+                if self.gdop > max_gdop {
+                    return Err(InvalidationCause::GDOPOutlier(self.gdop));
+                }
             }
-        }
-        if let Some(max_tdop) = opts.tdop_threshold {
-            if self.tdop > max_tdop {
-                return Err(SolutionInvalidation::TDOPOutlier(self.tdop));
+            if let Some(max_tdop) = cfg.solver.tdop_threshold {
+                if self.tdop > max_tdop {
+                    return Err(InvalidationCause::TDOPOutlier(self.tdop));
+                }
             }
         }
         Ok(())
