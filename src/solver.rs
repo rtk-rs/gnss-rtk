@@ -13,12 +13,13 @@ use thiserror::Error;
 use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
 
 use anise::{
+    almanac::metaload::MetaFile,
     constants::{
         frames::{EARTH_J2000, SUN_J2000},
         SPEED_OF_LIGHT_KM_S,
     },
     errors::{AlmanacError, PhysicsError},
-    prelude::{Almanac, Frame, MetaAlmanac, Orbit},
+    prelude::{Almanac, Frame, Orbit},
 };
 
 use crate::{
@@ -211,11 +212,18 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     ///   in Fixed Altitude or Time Only modes.
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
     pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
-        // Question: Should the Almanac be provided by the caller?
-        // This would allow customization of the data that's loaded.
-        // For example, I _think_ that only the planetary constants need to be loaded for all of this functionality
-        // to work, but the `latest` almanac contains planetary positions for 100 years, and much more.
-        let almanac = MetaAlmanac::latest().map_err(Error::Almanac)?;
+        // Question: Should the Almanac be provided by the caller? This would allow customization of the data that's loaded.
+        // For example, I _think_ that only the planetary constants need to be loaded for all of this functionality (hence line 219)
+        // to work, but the `latest` almanac contains planetary positions for 100 years, the latest high precision Earth rotation parameters,
+        // the high precision Moon body frame parameters, and the planetary constants.
+        // let almanac = MetaAlmanac::latest().map_err(Error::Almanac)?;
+        let almanac = Almanac::default()
+            .load_from_metafile(MetaFile {
+                uri: "http://public-data.nyxspace.com/anise/v0.4/pck08.pca".to_string(),
+                crc32: Some(3072159656), // Specifying the CRC allows only downloading the data once.
+            })
+            .map_err(Error::Almanac)?;
+        // Regularly refer to https://github.com/nyx-space/anise/blob/master/data/ci_config.dhall for the latest CRC, although it should not change between minor versions!
 
         /*
          * print more infos
