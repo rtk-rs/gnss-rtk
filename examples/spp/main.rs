@@ -81,7 +81,7 @@ pub fn main() {
         // The solver will initialize itself.
         None,
         // connect the position provider
-        |t, sv, order| position_provider(t, sv, order),
+        position_provider,
     );
 
     // The solver needs to be mutable, due to the iteration process.
@@ -108,7 +108,7 @@ pub fn main() {
                 // Receiver offset to preset timescale
                 let (_clock_offset, _timescale) = (solution.dt, solution.timescale);
                 // More infos on SVs that contributed to this solution
-                for (_sv, info) in &solution.sv {
+                for info in solution.sv.values() {
                     // attitude
                     let (_el, _az) = (info.azimuth, info.elevation);
                     // Modeled (in this example) or simply copied ionosphere bias
