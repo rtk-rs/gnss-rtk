@@ -4,6 +4,8 @@
 extern crate gnss_rs as gnss;
 extern crate nyx_space as nyx;
 
+use rust_embed::Embed;
+
 // private modules
 mod ambiguity;
 mod bancroft;
@@ -14,6 +16,10 @@ mod cfg;
 mod navigation;
 mod position;
 mod solver;
+
+#[derive(Embed)]
+#[folder = "$CARGO_MANIFEST_DIR/data/"]
+pub struct AstroData;
 
 // mod tracker;
 // pub(crate) mod utils;
@@ -32,6 +38,8 @@ pub mod prelude {
     pub use crate::position::Position;
     pub use crate::solver::{Error, InterpolationResult, Solver};
     // re-export
+    pub use anise::constants::frames::{EARTH_J2000, SUN_J2000};
+    pub use anise::naif::SPK;
     pub use anise::prelude::{Aberration, Almanac, Frame};
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};

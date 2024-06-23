@@ -20,6 +20,7 @@ use anise::{
     },
     errors::{AlmanacError, PhysicsError},
     prelude::{Almanac, Frame, Orbit},
+    structure::{planetocentric::PlanetaryData, PlanetaryDataSet},
 };
 
 use crate::{
@@ -34,6 +35,7 @@ use crate::{
     },
     position::Position,
     prelude::{Duration, Epoch, SV},
+    AstroData,
 };
 
 #[derive(Debug, PartialEq, Error)]
@@ -78,6 +80,8 @@ pub enum Error {
     Almanac(AlmanacError),
     #[error("physics issue: {0}")]
     Physics(PhysicsError),
+    #[error("issue loading Almanac: {0}")]
+    LoadingAlmanac(&'static str),
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -212,18 +216,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     ///   in Fixed Altitude or Time Only modes.
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
     pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
-        // Question: Should the Almanac be provided by the caller? This would allow customization of the data that's loaded.
-        // For example, I _think_ that only the planetary constants need to be loaded for all of this functionality (hence line 219)
-        // to work, but the `latest` almanac contains planetary positions for 100 years, the latest high precision Earth rotation parameters,
-        // the high precision Moon body frame parameters, and the planetary constants.
-        // let almanac = MetaAlmanac::latest().map_err(Error::Almanac)?;
-        let almanac = Almanac::default()
-            .load_from_metafile(MetaFile {
-                uri: "http://public-data.nyxspace.com/anise/v0.4/pck08.pca".to_string(),
-                crc32: Some(3072159656), // Specifying the CRC allows only downloading the data once.
-            })
-            .map_err(Error::Almanac)?;
         // Regularly refer to https://github.com/nyx-space/anise/blob/master/data/ci_config.dhall for the latest CRC, although it should not change between minor versions!
+        let pck08 = AstroData::get("pck08.pca").ok_or(Error::LoadingAlmanac(
+            "could not find pck08.pca in embedded files",
+        ))?;
+        let almanac = Almanac {
+            planetary_data: PlanetaryDataSet::try_from_bytes(pck08.data.as_ref()).unwrap(),
+            ..Default::default()
+        };
 
         /*
          * print more infos

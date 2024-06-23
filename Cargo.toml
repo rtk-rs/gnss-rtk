@@ -32,3 +32,4 @@ hifitime = { git = "https://github.com/nyx-space/hifitime.git", branch = "master
     "std",
 ] }
 anise = { git = "https://github.com/nyx-space/anise", branch = "master" }
+rust-embed = { version = "8.4.0", features = ["interpolate-folder-path"] }
