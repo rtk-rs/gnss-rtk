@@ -2,7 +2,7 @@
 use crate::{prelude::Candidate, solver::Error};
 
 use nalgebra::{Matrix4, Vector4};
-use nyx_space::cosmic::SPEED_OF_LIGHT;
+use nyx_space::cosmic::SPEED_OF_LIGHT_M_S;
 
 pub struct Bancroft {
     a: Vector4<f64>,
@@ -48,7 +48,7 @@ impl Bancroft {
             b[(i, 0)] = x_i;
             b[(i, 1)] = y_i;
             b[(i, 2)] = z_i;
-            let pr_i = r_i + dt_i * SPEED_OF_LIGHT - tgd_i;
+            let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
             b[(i, 3)] = pr_i;
             a[i] = 0.5 * (x_i.powi(2) + y_i.powi(2) + z_i.powi(2) - pr_i.powi(2));
         }
