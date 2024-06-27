@@ -31,5 +31,5 @@ hifitime = { git = "https://github.com/nyx-space/hifitime.git", branch = "master
     "serde",
     "std",
 ] }
-anise = { git = "https://github.com/nyx-space/anise", branch = "master" }
+anise = { git = "https://github.com/nyx-space/anise", branch = "master", features = ["embed_ephem"] }
 rust-embed = { version = "8.4.0", features = ["interpolate-folder-path"] }
