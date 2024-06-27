@@ -1,6 +1,6 @@
 use log::debug;
 use nalgebra::{DVector, Vector3};
-use nyx::cosmic::SPEED_OF_LIGHT;
+use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 use thiserror::Error;
 
 use crate::{
@@ -57,7 +57,7 @@ impl Validator {
                 apriori_ecef[0] + x[0],
                 apriori_ecef[1] + x[1],
                 apriori_ecef[2] + x[2],
-                x[3] / SPEED_OF_LIGHT,
+                x[3] / SPEED_OF_LIGHT_M_S,
             );
 
             let sv_pos = cd.state.unwrap().position;
@@ -69,7 +69,7 @@ impl Validator {
 
             residuals[idx] = pr;
             residuals[idx] -= rho;
-            residuals[idx] += dt * SPEED_OF_LIGHT;
+            residuals[idx] += dt * SPEED_OF_LIGHT_M_S;
             residuals[idx] -= sv.tropo_bias.value().unwrap_or(0.0);
             residuals[idx] -= sv.iono_bias.value().unwrap_or(0.0);
             residuals[idx] /= input.w[(idx, idx)];
