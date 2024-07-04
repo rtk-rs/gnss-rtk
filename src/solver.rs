@@ -35,7 +35,6 @@ use crate::{
     },
     position::Position,
     prelude::{Duration, Epoch, SV},
-    AstroData,
 };
 
 #[derive(Debug, PartialEq, Error)]
@@ -217,13 +216,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
     pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
         // Regularly refer to https://github.com/nyx-space/anise/blob/master/data/ci_config.dhall for the latest CRC, although it should not change between minor versions!
-        let pck08 = AstroData::get("pck08.pca").ok_or(Error::LoadingAlmanac(
-            "could not find pck08.pca in embedded files",
-        ))?;
-        let almanac = Almanac {
-            planetary_data: PlanetaryDataSet::try_from_bytes(pck08.data.as_ref()).unwrap(),
-            ..Default::default()
-        };
+        // NB: a default almanac will soon be provided by ANISE directly
+        //     this triggers a network access at least once
+        let almanac = Almanac::default()
+            .load_from_metafile(MetaFile {
+                uri: "http://public-data.nyxspace.com/anise/v0.4/pck08.pca".to_string(),
+                crc32: Some(3072159656), // Specifying the CRC allows only downloading the data once.
+            })
+            .map_err(Error::Almanac)?;
 
         /*
          * print more infos

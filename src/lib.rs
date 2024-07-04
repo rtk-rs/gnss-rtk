@@ -4,8 +4,6 @@
 extern crate gnss_rs as gnss;
 extern crate nyx_space as nyx;
 
-use rust_embed::Embed;
-
 // private modules
 mod ambiguity;
 mod bancroft;
@@ -16,10 +14,6 @@ mod cfg;
 mod navigation;
 mod position;
 mod solver;
-
-#[derive(Embed)]
-#[folder = "$CARGO_MANIFEST_DIR/data/"]
-pub struct AstroData;
 
 // mod tracker;
 // pub(crate) mod utils;
