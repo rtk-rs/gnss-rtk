@@ -20,7 +20,6 @@ use anise::{
     },
     errors::{AlmanacError, PhysicsError},
     prelude::{Almanac, Frame, Orbit},
-    structure::{planetocentric::PlanetaryData, PlanetaryDataSet},
 };
 
 use crate::{
@@ -79,8 +78,6 @@ pub enum Error {
     Almanac(AlmanacError),
     #[error("physics issue: {0}")]
     Physics(PhysicsError),
-    #[error("issue loading Almanac: {0}")]
-    LoadingAlmanac(&'static str),
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -186,7 +183,8 @@ where
     interpolator: I,
     /// Initial [Position]
     initial: Option<Position>,
-    /* Cosmic model */
+    // Almanac, is loaded when deploying.
+    // Currently requires network access (at least on 1st deployment)
     almanac: Almanac,
     // Navigator
     nav: Navigation,
