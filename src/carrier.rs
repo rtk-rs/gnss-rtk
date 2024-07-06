@@ -1,4 +1,4 @@
-use nyx::cosmic::SPEED_OF_LIGHT;
+use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum Carrier {
@@ -71,7 +71,7 @@ impl Carrier {
         }
     }
     pub fn wavelength(&self) -> f64 {
-        SPEED_OF_LIGHT / self.frequency()
+        SPEED_OF_LIGHT_M_S / self.frequency()
     }
 }
 

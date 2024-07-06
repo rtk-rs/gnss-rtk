@@ -1,6 +1,6 @@
 use crate::prelude::{Candidate, Carrier, Duration, Epoch, SV}; // Error
 use log::{debug, error, warn};
-use nyx::cosmic::SPEED_OF_LIGHT;
+use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 use polyfit_rs::polyfit_rs::polyfit;
 use std::collections::HashMap;
 
@@ -233,8 +233,8 @@ impl AmbiguitySolver {
                 }
                 if let Some(cmb) = cd.mw_combination() {
                     let (f_1, f_j) = (cmb.reference.frequency(), cmb.lhs.frequency());
-                    let lambda_w = SPEED_OF_LIGHT / (f_1 + f_j);
-                    let lamba_w = SPEED_OF_LIGHT / (f_1 - f_j);
+                    let lambda_w = SPEED_OF_LIGHT_M_S / (f_1 + f_j);
+                    let lamba_w = SPEED_OF_LIGHT_M_S / (f_1 - f_j);
                     let (n_w, sigma_n_w) = sv_tracker.mw_tracker.average(cmb.value / lambda_w, 0.0);
                     let n_w = n_w.round();
 

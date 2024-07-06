@@ -21,7 +21,7 @@ use nalgebra::{
     OMatrix, OVector,
 };
 
-use nyx::cosmic::SPEED_OF_LIGHT;
+use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 /// SV Navigation information
 #[derive(Debug, Clone, Default)]
@@ -148,10 +148,10 @@ impl Input {
             let mut models = 0.0_f64;
 
             if cfg.modeling.sv_clock_bias {
-                models -= clock_corr * SPEED_OF_LIGHT;
+                models -= clock_corr * SPEED_OF_LIGHT_M_S;
             }
             if let Some(delay) = cfg.externalref_delay {
-                models -= delay * SPEED_OF_LIGHT;
+                models -= delay * SPEED_OF_LIGHT_M_S;
             }
 
             let (pr, frequency) = match cfg.method {
@@ -172,7 +172,7 @@ impl Input {
             // frequency dependent delay
             for delay in &cfg.int_delay {
                 if delay.frequency == frequency {
-                    models += delay.delay * SPEED_OF_LIGHT;
+                    models += delay.delay * SPEED_OF_LIGHT_M_S;
                 }
             }
 
@@ -237,8 +237,10 @@ impl Input {
                     let lambda_j = cmb.lhs.wavelength();
                     let f_j = cmb.lhs.frequency();
 
-                    let (lambda_n, lambda_w) =
-                        (SPEED_OF_LIGHT / (f_1 + f_j), SPEED_OF_LIGHT / (f_1 - f_j));
+                    let (lambda_n, lambda_w) = (
+                        SPEED_OF_LIGHT_M_S / (f_1 + f_j),
+                        SPEED_OF_LIGHT_M_S / (f_1 - f_j),
+                    );
 
                     let bias =
                         if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.reference)) {

@@ -3,7 +3,7 @@ use crate::prelude::{Carrier, Config, Duration, Epoch, Error, InterpolationResul
 use hifitime::Unit;
 use itertools::Itertools;
 use log::debug;
-use nyx::cosmic::SPEED_OF_LIGHT;
+use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 use std::cmp::Ordering;
 
 /// Phase range observation to attach to each candidate
@@ -435,7 +435,7 @@ impl Candidate {
                 .prefered_pseudorange()
                 .ok_or(Error::MissingPseudoRange)?
                 .value
-                / SPEED_OF_LIGHT;
+                / SPEED_OF_LIGHT_M_S;
 
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
 

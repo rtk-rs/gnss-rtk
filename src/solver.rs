@@ -10,12 +10,16 @@ use nalgebra::{Matrix3, Vector3};
 use std::f64::consts::PI;
 use thiserror::Error;
 
-use nyx::{
-    cosmic::{
-        eclipse::{eclipse_state, EclipseState},
-        Orbit, SPEED_OF_LIGHT,
+use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
+
+use anise::{
+    almanac::metaload::MetaFile,
+    constants::{
+        frames::{EARTH_J2000, SUN_J2000},
+        SPEED_OF_LIGHT_KM_S,
     },
-    md::prelude::{Arc, Cosm, Frame},
+    errors::{AlmanacError, PhysicsError},
+    prelude::{Almanac, Frame, Orbit},
 };
 
 use crate::{
@@ -26,13 +30,13 @@ use crate::{
     cfg::{Config, Method},
     navigation::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
-        Input as NavigationInput, InstrumentBias, Navigation, PVTSolution, PVTSolutionType,
+        Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
     },
     position::Position,
     prelude::{Duration, Epoch, SV},
 };
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Debug, PartialEq, Error)]
 pub enum Error {
     #[error("not enough candidates provided")]
     NotEnoughCandidates,
@@ -70,6 +74,10 @@ pub enum Error {
     BancroftImaginarySolution,
     #[error("unresolved signal ambiguity")]
     UnresolvedAmbiguity,
+    #[error("issue with Almanac: {0}")]
+    Almanac(AlmanacError),
+    #[error("physics issue: {0}")]
+    Physics(PhysicsError),
 }
 
 /// Interpolation result (state vector) that needs to be
@@ -175,12 +183,9 @@ where
     interpolator: I,
     /// Initial [Position]
     initial: Option<Position>,
-    /* Cosmic model */
-    cosmic: Arc<Cosm>,
-    // Solid / Earth body frame.
-    earth_frame: Frame,
-    // Sun / Star body frame
-    sun_frame: Frame,
+    // Almanac, is loaded when deploying.
+    // Currently requires network access (at least on 1st deployment)
+    almanac: Almanac,
     // Navigator
     nav: Navigation,
     // Solver
@@ -208,9 +213,15 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     ///   in Fixed Altitude or Time Only modes.
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
     pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
-        let cosmic = Cosm::de438();
-        let sun_frame = cosmic.frame("Sun J2000");
-        let earth_frame = cosmic.frame("EME2000");
+        // Regularly refer to https://github.com/nyx-space/anise/blob/master/data/ci_config.dhall for the latest CRC, although it should not change between minor versions!
+        // NB: a default almanac will soon be provided by ANISE directly
+        //     this triggers a network access at least once
+        let almanac = Almanac::default()
+            .load_from_metafile(MetaFile {
+                uri: "http://public-data.nyxspace.com/anise/v0.4/pck08.pca".to_string(),
+                crc32: Some(3072159656), // Specifying the CRC allows only downloading the data once.
+            })
+            .map_err(Error::Almanac)?;
 
         /*
          * print more infos
@@ -222,9 +233,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             warn!("Relativistic path range cannot be modeled at the moment");
         }
         Ok(Self {
-            cosmic,
-            sun_frame,
-            earth_frame,
+            almanac,
             initial: {
                 if let Some(ref initial) = initial {
                     let geo = initial.geodetic();
@@ -266,7 +275,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
-        let solver_opts = &self.cfg.solver;
         let interp_order = self.cfg.interp_order;
 
         /* apply signal quality and condition filters */
@@ -376,12 +384,12 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 if state.velocity.is_some() {
                     const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
                     const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
-                    let orbit = state.orbit(cd.t_tx, self.earth_frame);
-                    let ea_rad = deg2rad(orbit.ea_deg());
+                    let orbit = state.orbit(cd.t_tx, EARTH_J2000);
+                    let ea_rad = deg2rad(orbit.ea_deg().map_err(Error::Physics)?);
                     let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
-                    let bias = -2.0_f64 * orbit.ecc() * ea_rad.sin() * gm
-                        / SPEED_OF_LIGHT
-                        / SPEED_OF_LIGHT
+                    let bias = -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
+                        / SPEED_OF_LIGHT_KM_S
+                        / SPEED_OF_LIGHT_KM_S
                         * Unit::Second;
                     debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
                     cd.clock_corr += bias;
@@ -396,8 +404,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             pool.retain(|cd| {
                 let state = cd.state.unwrap(); // infaillible
-                let orbit = state.orbit(cd.t, self.earth_frame);
-                let state = eclipse_state(&orbit, self.sun_frame, self.earth_frame, &self.cosmic);
+                let orbit = state.orbit(cd.t, EARTH_J2000);
+                let state = eclipse_state(orbit, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
                 let eclipsed = match state {
                     EclipseState::Umbra => true,
                     EclipseState::Visibilis => false,
@@ -427,7 +435,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             );
             // update attitudes
             for cd in pool.iter_mut() {
-                let mut state = cd.state.unwrap();
+                let state = cd.state.unwrap();
                 state.with_elevation_azimuth((x0, y0, z0));
             }
             // store
@@ -457,14 +465,14 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         );
         let (lat_ddeg, lon_ddeg) = (deg2rad(lat_rad), deg2rad(lon_rad));
 
-        let mut w = self.cfg.solver.weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
-                                                     // // Reduce contribution of newer (rising) vehicles (rising)
-                                                     // for (i, cd) in pool.iter().enumerate() {
-                                                     //     if !self.prev_used.contains(&cd.sv) {
-                                                     //         w[(i, i)] = 0.05;
-                                                     //         w[(2 * i, 2 * i)] = 0.05;
-                                                     //     }
-                                                     // }
+        let w = self.cfg.solver.weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
+                                                 // // Reduce contribution of newer (rising) vehicles (rising)
+                                                 // for (i, cd) in pool.iter().enumerate() {
+                                                 //     if !self.prev_used.contains(&cd.sv) {
+                                                 //         w[(i, i)] = 0.05;
+                                                 //         w[(2 * i, 2 * i)] = 0.05;
+                                                 //     }
+                                                 // }
 
         let input = match NavigationInput::new(
             (x0, y0, z0),
@@ -504,7 +512,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         };
 
         // Bias
-        let mut bias = InstrumentBias::new();
+        // let mut bias = InstrumentBias::new();
         //if method == Method::PPP {
         //    for i in 0..x.ncols() - 4 {
         //        let b_i = x[i + 4];
@@ -530,7 +538,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             q: output.q_covar4x4(),
             timescale: self.cfg.timescale,
             velocity: Vector3::<f64>::default(),
-            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT),
+            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT_KM_S),
         };
 
         // First solution
@@ -562,7 +570,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             //} else {
             //    let kf_estim = KfEstimate::from_diag(
             //        State3D {
-            //            t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT),
+            //            t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT_KM_S),
             //            inner: Vector3::new(x[0], x[1], x[2]),
             //        },
             //        OVector::<f64, U3>::new(1.0, 1.0, 1.0),

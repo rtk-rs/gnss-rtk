@@ -32,8 +32,11 @@ pub mod prelude {
     pub use crate::position::Position;
     pub use crate::solver::{Error, InterpolationResult, Solver};
     // re-export
+    pub use anise::constants::frames::{EARTH_J2000, SUN_J2000};
+    pub use anise::naif::SPK;
+    pub use anise::prelude::{Aberration, Almanac, Frame};
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};
     pub use nalgebra::Vector3;
-    pub use nyx::md::prelude::{Arc, Bodies, Cosm, Frame, LightTimeCalc};
+    pub use std::sync::Arc;
 }
