@@ -13,7 +13,6 @@ use thiserror::Error;
 use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
 
 use anise::{
-    almanac::metaload::MetaFile,
     constants::{
         frames::{EARTH_J2000, SUN_J2000},
         SPEED_OF_LIGHT_KM_S,
@@ -216,12 +215,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         // Regularly refer to https://github.com/nyx-space/anise/blob/master/data/ci_config.dhall for the latest CRC, although it should not change between minor versions!
         // NB: a default almanac will soon be provided by ANISE directly
         //     this triggers a network access at least once
-        let almanac = Almanac::default()
-            .load_from_metafile(MetaFile {
-                uri: "http://public-data.nyxspace.com/anise/v0.4/pck08.pca".to_string(),
-                crc32: Some(3072159656), // Specifying the CRC allows only downloading the data once.
-            })
-            .map_err(Error::Almanac)?;
+        let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
 
         /*
          * print more infos
@@ -315,6 +309,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             })
             .collect();
 
+        let earth_j2000 = self.almanac.frame_from_uid(EARTH_J2000).unwrap();
+
         /* interpolate positions */
         let mut pool: Vec<Candidate> = pool
             .iter()
@@ -384,7 +380,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 if state.velocity.is_some() {
                     const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
                     const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
-                    let orbit = state.orbit(cd.t_tx, EARTH_J2000);
+                    let orbit = state.orbit(cd.t_tx, earth_j2000);
                     let ea_rad = deg2rad(orbit.ea_deg().map_err(Error::Physics)?);
                     let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
                     let bias = -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
@@ -404,7 +400,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             pool.retain(|cd| {
                 let state = cd.state.unwrap(); // infaillible
-                let orbit = state.orbit(cd.t, EARTH_J2000);
+                let orbit = state.orbit(cd.t, earth_j2000);
                 let state = eclipse_state(orbit, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
                 let eclipsed = match state {
                     EclipseState::Umbra => true,
