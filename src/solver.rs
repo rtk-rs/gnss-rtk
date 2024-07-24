@@ -10,7 +10,10 @@ use nalgebra::{Matrix3, Vector3};
 use std::f64::consts::PI;
 use thiserror::Error;
 
-use nyx::cosmic::eclipse::{eclipse_state, EclipseState};
+use nyx::cosmic::{
+    eclipse::{eclipse_state, EclipseState},
+    SPEED_OF_LIGHT_M_S,
+};
 
 use anise::{
     constants::{
@@ -212,11 +215,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     ///   in Fixed Altitude or Time Only modes.
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
     pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
-        // Regularly refer to https://github.com/nyx-space/anise/blob/master/data/ci_config.dhall for the latest CRC, although it should not change between minor versions!
-        // NB: a default almanac will soon be provided by ANISE directly
-        //     this triggers a network access at least once
+        // Default Alamanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
-
         /*
          * print more infos
          */
@@ -384,8 +384,8 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     let ea_rad = deg2rad(orbit.ea_deg().map_err(Error::Physics)?);
                     let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
                     let bias = -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
-                        / SPEED_OF_LIGHT_KM_S
-                        / SPEED_OF_LIGHT_KM_S
+                        / SPEED_OF_LIGHT_M_S
+                        / SPEED_OF_LIGHT_M_S
                         * Unit::Second;
                     debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
                     cd.clock_corr += bias;
@@ -534,7 +534,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             q: output.q_covar4x4(),
             timescale: self.cfg.timescale,
             velocity: Vector3::<f64>::default(),
-            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT_KM_S),
+            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT_M_S),
         };
 
         // First solution
