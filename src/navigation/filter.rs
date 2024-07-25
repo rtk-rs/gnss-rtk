@@ -20,6 +20,16 @@ pub enum Filter {
     Kalman,
 }
 
+impl std::fmt::Display for Filter {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::LSQ => write!(f, "Least-Square"),
+            Self::Kalman => write!(f, "Kalman"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct LSQState {
     pub p: OMatrix<f64, U8, U8>,
