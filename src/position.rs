@@ -25,13 +25,26 @@ impl Position {
     /// - latitude [rad]
     /// - longitude [rad]
     /// - altitude above sea level [m]
-    pub fn from_geo(geodetic: Vector3<f64>) -> Self {
+    pub fn from_geo_rad(geodetic: Vector3<f64>) -> Self {
         let (lat, lon, alt) = (geodetic[0], geodetic[1], geodetic[2]);
         let (x, y, z) = geodetic2ecef(lat, lon, alt, Ellipsoid::WGS84);
         Self {
             geodetic,
             ecef: Vector3::new(x, y, z),
         }
+    }
+    /// Builds new [Position] from Geodetic coordinates
+    /// - latitude [ddeg]
+    /// - longitude [ddeg]
+    /// - altitude above sea level [m]
+    pub fn from_geo_ddeg(geodetic: Vector3<f64>) -> Self {
+        Self::from_geo_rad(
+            Vector3::new(
+                geodetic[0].to_radians(),
+                geodetic[1].to_radians(),
+                geodetic[2].to_radians(),
+            )
+        )
     }
     /// Returns ECEF coordinates.
     pub fn ecef(&self) -> Vector3<f64> {

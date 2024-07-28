@@ -1,5 +1,5 @@
 pub mod solutions;
-pub use solutions::{InstrumentBias, InvalidationCause, PVTSolution, PVTSolutionType};
+pub use solutions::{InvalidationCause, PVTSolution, PVTSolutionType};
 
 mod filter;
 

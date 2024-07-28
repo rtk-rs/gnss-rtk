@@ -2,7 +2,6 @@ use crate::bancroft::Bancroft;
 use crate::prelude::{
     Candidate, Carrier, Constellation, Duration, Epoch, InterpolationResult, PseudoRange, SV,
 };
-use nalgebra::Vector4;
 
 #[test]
 fn test() {

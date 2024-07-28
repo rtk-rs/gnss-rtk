@@ -1,7 +1,5 @@
 use crate::prelude::{Candidate, Carrier, Duration, Epoch, PseudoRange, SV};
 
-use crate::candidate::PseudoRangeCombination;
-
 #[test]
 fn prefered_pseudorange() {
     for (observations, prefered) in [
