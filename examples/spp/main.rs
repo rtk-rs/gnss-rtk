@@ -1,26 +1,25 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    Candidate, Carrier, Config, Duration, Epoch, Error, InterpolationResult, InvalidationCause,
-    IonosphereBias, Method, PseudoRange, Solver, TroposphereBias, SV,
+    Arc, Candidate, Carrier, Config, Duration, Epoch, Error, InvalidationCause, IonosphereBias,
+    Method, OrbitalState, OrbitalStateProvider, PseudoRange, Solver, TroposphereBias, SV,
 };
 
-// Define your SV position provider.
-fn position_provider(_t: Epoch, _sv: SV, _order: usize) -> Option<InterpolationResult> {
-    // For each requested "t" and "sv",
-    // you should design an InterpolationResult,
-    // ideally using recommended "order" in case interpolation is involved in your workflow,
-    // For example by browsing a database.
-    // When you're not in position to provide such information, simply return None.
-    // If the minimum required of SV is not gathered at this point in time,
-    // no solutions will be generated for this epoch, and the solver will move on
-    // to the next.
+// Orbit source example
+struct MyOrbitSource {}
 
-    // dummy example
-    let x = 0.0_f64;
-    let y = 0.0_f64;
-    let z = 0.0_f64;
-    Some(InterpolationResult::from_position((x, y, z)))
+impl OrbitalStateProvider for MyOrbitSource {
+    // For each requested "t" and "sv",
+    // if we can, we should resolve the SV [OrbitalState].
+    // If interpolation is to be used (depending on your apps), you can
+    // use the interpolation order that we recommend here, or decide to ignore it.
+    // If you're not in position to determine [OrbitalState], simply return None.
+    // If None is returned for too long, this [Epoch] will eventually be dropped out,
+    // and we will move on to the next
+    fn next_at_ecef(&self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
+        let (x, y, z) = (0.0_f64, 0.0_f64, 0.0_f64);
+        Some(OrbitalState::from_position((x, y, z)))
+    }
 }
 
 // Data source example
@@ -69,6 +68,8 @@ impl MyDataSource {
 }
 
 pub fn main() {
+    let orbits = Arc::new(MyOrbitSource {});
+
     // The preset API is useful to quickly deploy depending on your application.
     // Static presets target static positioning.
     let cfg = Config::static_preset(Method::SPP); // Single Freq. Pseudo Range based
@@ -79,9 +80,7 @@ pub fn main() {
         &cfg,
         // We deploy without apriori knowledge.
         // The solver will initialize itself.
-        None,
-        // connect the position provider
-        position_provider,
+        None, orbits,
     );
 
     // The solver needs to be mutable, due to the iteration process.

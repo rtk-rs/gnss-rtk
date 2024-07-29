@@ -1,6 +1,6 @@
 use crate::bancroft::Bancroft;
 use crate::prelude::{
-    Candidate, Carrier, Constellation, Duration, Epoch, InterpolationResult, PseudoRange, SV,
+    Candidate, Carrier, Constellation, Duration, Epoch, OrbitalState, PseudoRange, SV,
 };
 
 #[test]
@@ -21,11 +21,8 @@ fn test() {
         vec![pr],
         vec![],
     );
-    let st = InterpolationResult::from_position((
-        24170352.34904016,
-        -16029029.85873581,
-        -5905924.153143198,
-    ));
+    let st =
+        OrbitalState::from_position((24170352.34904016, -16029029.85873581, -5905924.153143198));
     cd0.set_state(st);
 
     let pr = PseudoRange {
@@ -42,11 +39,8 @@ fn test() {
         vec![pr],
         vec![],
     );
-    let st = InterpolationResult::from_position((
-        16069642.946692571,
-        -8992001.827692423,
-        23184746.654093638,
-    ));
+    let st =
+        OrbitalState::from_position((16069642.946692571, -8992001.827692423, 23184746.654093638));
     cd1.set_state(st);
 
     let pr = PseudoRange {
@@ -63,11 +57,8 @@ fn test() {
         vec![pr],
         vec![],
     );
-    let st = InterpolationResult::from_position((
-        26119621.94656989,
-        7791422.617964384,
-        11558902.718228433,
-    ));
+    let st =
+        OrbitalState::from_position((26119621.94656989, 7791422.617964384, 11558902.718228433));
     cd2.set_state(st);
 
     let pr = PseudoRange {
@@ -84,11 +75,8 @@ fn test() {
         vec![pr],
         vec![],
     );
-    let st = InterpolationResult::from_position((
-        -3601205.0295727667,
-        -20311399.087870672,
-        21230831.216778148,
-    ));
+    let st =
+        OrbitalState::from_position((-3601205.0295727667, -20311399.087870672, 21230831.216778148));
     cd3.set_state(st);
 
     let pool = vec![cd0, cd1, cd2, cd3];

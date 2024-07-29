@@ -10,9 +10,12 @@ use nalgebra::{Matrix3, Vector3};
 use std::f64::consts::PI;
 use thiserror::Error;
 
-use nyx::cosmic::{
-    eclipse::{eclipse_state, EclipseState},
-    SPEED_OF_LIGHT_M_S,
+use nyx::{
+    cosmic::{
+        eclipse::{eclipse_state, EclipseState},
+        SPEED_OF_LIGHT_M_S,
+    },
+    md::prelude::Arc,
 };
 
 use anise::{
@@ -34,6 +37,7 @@ use crate::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
         Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
     },
+    orbit::{OrbitalState, OrbitalStateProvider},
     position::Position,
     prelude::{Duration, Epoch, SV},
 };
@@ -82,116 +86,22 @@ pub enum Error {
     Physics(PhysicsError),
 }
 
-/// Interpolation result (state vector) that needs to be
-/// resolved for every single candidate.
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
-pub struct InterpolationResult {
-    /// Elevation compared to reference position and horizon in [°]
-    pub elevation: f64,
-    /// Azimuth compared to reference position and magnetic North in [°]
-    pub azimuth: f64,
-    /// APC Position vector in [m] ECEF
-    pub position: Vector3<f64>,
-    // Velocity vector in [m/s] ECEF that we calculated ourselves
-    velocity: Option<Vector3<f64>>,
-}
-
-impl InterpolationResult {
-    /// Builds InterpolationResults from Antenna Phase Center (APC) position coordinates,
-    /// expressed in ECEF [m].
-    pub fn from_position(position: (f64, f64, f64)) -> Self {
-        Self {
-            velocity: None,
-            azimuth: 0.0_f64,
-            elevation: 0.0_f64,
-            position: Vector3::<f64>::new(position.0, position.1, position.2),
-        }
-    }
-    /// Augment self to fully defined with both Elevation and Azimuth angles
-    pub(crate) fn with_elevation_azimuth(&self, position: (f64, f64, f64)) -> Self {
-        let (x, y, z) = position;
-        let (lat_rad, lon_rad, _) = ecef2geodetic(x, y, z, map_3d::Ellipsoid::WGS84);
-
-        let (sv_x, sv_y, sv_z) = (self.position[0], self.position[1], self.position[2]);
-        let a_i = (sv_x - x, sv_y - y, sv_z - z);
-        let norm = (a_i.0.powf(2.0) + a_i.1.powf(2.0) + a_i.2.powf(2.0)).sqrt();
-        let a_i = (a_i.0 / norm, a_i.1 / norm, a_i.2 / norm);
-
-        let ecef_to_ven = (
-            (
-                lat_rad.cos() * lon_rad.cos(),
-                lat_rad.cos() * lon_rad.sin(),
-                lat_rad.sin(),
-            ),
-            (-lon_rad.sin(), lon_rad.cos(), 0.0_f64),
-            (
-                -lat_rad.sin() * lon_rad.cos(),
-                -lat_rad.sin() * lon_rad.sin(),
-                lat_rad.cos(),
-            ),
-        );
-        // ECEF to VEN transform
-        let ven = (
-            (ecef_to_ven.0 .0 * a_i.0 + ecef_to_ven.0 .1 * a_i.1 + ecef_to_ven.0 .2 * a_i.2),
-            (ecef_to_ven.1 .0 * a_i.0 + ecef_to_ven.1 .1 * a_i.1 + ecef_to_ven.1 .2 * a_i.2),
-            (ecef_to_ven.2 .0 * a_i.0 + ecef_to_ven.2 .1 * a_i.1 + ecef_to_ven.2 .2 * a_i.2),
-        );
-        let elevation = rad2deg(PI / 2.0 - ven.0.acos());
-        let mut azimuth = rad2deg(ven.1.atan2(ven.2));
-        if azimuth < 0.0 {
-            azimuth += 360.0;
-        }
-        Self {
-            azimuth,
-            elevation,
-            position: self.position,
-            velocity: self.velocity,
-        }
-    }
-    pub(crate) fn velocity(&self) -> Option<Vector3<f64>> {
-        self.velocity
-    }
-    pub(crate) fn orbit(&self, dt: Epoch, frame: Frame) -> Orbit {
-        let p = self.position;
-        let v = self.velocity().unwrap_or_default();
-        Orbit::cartesian(
-            p[0] / 1.0E3,
-            p[1] / 1.0E3,
-            p[2] / 1.0E3,
-            v[0] / 1.0E3,
-            v[1] / 1.0E3,
-            v[2] / 1.0E3,
-            dt,
-            frame,
-        )
-    }
-    #[cfg(test)]
-    fn set_elevation(&mut self, elev: f64) {
-        self.elevation = elev;
-    }
-}
-
 /// PVT Solver.
-/// I: Interpolated SV APC coordinates interface.
 /// You are required to provide APC coordinates at requested ("t", "sv"),
 /// expressed in meters [ECEF], for this to proceed.
-pub struct Solver<I>
-where
-    I: Fn(Epoch, SV, usize) -> Option<InterpolationResult>,
-{
+pub struct Solver {
     /// Solver parametrization
     pub cfg: Config,
-    /// Interpolated SV state.
-    interpolator: I,
     /// Initial [Position]
     initial: Option<Position>,
-    // Almanac, is loaded when deploying.
-    // Currently requires network access (at least on 1st deployment)
+    /// [Almanac]
     almanac: Almanac,
-    // Navigator
+    /// [Navigation]
     nav: Navigation,
-    // Solver
+    /// [AmbiguitySolver]
     ambiguity: AmbiguitySolver,
+    /// [OrbitalStateProvider]
+    orbit: Arc<dyn OrbitalStateProvider>,
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
@@ -205,7 +115,7 @@ where
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
 
-impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I> {
+impl Solver {
     /// Create a new Position [Solver].
     /// - cfg: Solver [Config]
     /// - initial: possible initial [Position], used to initialize the Solver.
@@ -214,7 +124,11 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     ///   This means you need to have special initialization cycles when operating
     ///   in Fixed Altitude or Time Only modes.
     /// - interpolator: function pointer to external method to provide 3D interpolation results.
-    pub fn new(cfg: &Config, initial: Option<Position>, interpolator: I) -> Result<Self, Error> {
+    pub fn new(
+        cfg: &Config,
+        initial: Option<Position>,
+        orbit: Arc<dyn OrbitalStateProvider>,
+    ) -> Result<Self, Error> {
         // Default Alamanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
         /*
@@ -227,6 +141,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             warn!("Relativistic path range cannot be modeled at the moment");
         }
         Ok(Self {
+            orbit,
             almanac,
             initial: {
                 if let Some(ref initial) = initial {
@@ -236,7 +151,6 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                 }
                 initial
             },
-            interpolator,
             prev_vdop: None,
             prev_used: vec![],
             cfg: cfg.clone(),
@@ -317,7 +231,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    let mut interpolated = (self.interpolator)(t_tx, cd.sv, interp_order)?;
+                    let mut orbit = self.orbit.next_at_ecef(t_tx, cd.sv, interp_order)?;
                     let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
                     let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
                     let mut max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
@@ -325,39 +239,38 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
                     // provide more information after first iteration
                     if let Some(initial) = &self.initial {
                         let (x0, y0, z0) = (initial.ecef[0], initial.ecef[1], initial.ecef[2]);
-                        interpolated = interpolated.with_elevation_azimuth((x0, y0, z0));
+                        orbit = orbit.with_elevation_azimuth((x0, y0, z0));
                     } else {
                         min_elev = 0.0_f64; // cannot apply yet
                         min_azim = 0.0_f64; // cannot apply yet
                         max_azim = 360.0_f64; // cannot apply yet
                     }
 
-                    if interpolated.elevation < min_elev {
+                    if orbit.elevation < min_elev {
                         debug!(
                             "{} ({}) - {:?} rejected : below elevation mask",
-                            cd.t, cd.sv, interpolated
+                            cd.t, cd.sv, orbit
                         );
                         None
-                    } else if interpolated.azimuth < min_azim {
+                    } else if orbit.azimuth < min_azim {
                         debug!(
                             "{} ({}) - {:?} rejected : below azimuth mask",
-                            cd.t, cd.sv, interpolated
+                            cd.t, cd.sv, orbit
                         );
                         None
-                    } else if interpolated.azimuth > max_azim {
+                    } else if orbit.azimuth > max_azim {
                         debug!(
                             "{} ({}) - {:?} rejected : above azimuth mask",
-                            cd.t, cd.sv, interpolated
+                            cd.t, cd.sv, orbit
                         );
                         None
                     } else {
                         let mut cd = cd.clone();
-                        let interpolated =
-                            Self::rotate_position(modeling.earth_rotation, interpolated, dt_tx);
-                        let interpolated = self.velocities(t_tx, cd.sv, interpolated);
+                        let orbit = Self::rotate_position(modeling.earth_rotation, orbit, dt_tx);
+                        let orbit = self.velocities(t_tx, cd.sv, orbit);
                         cd.t_tx = t_tx;
-                        debug!("{} ({}) : {:?}", cd.t, cd.sv, interpolated);
-                        cd.state = Some(interpolated);
+                        debug!("{} ({}) : {:?}", cd.t, cd.sv, orbit);
+                        cd.state = Some(orbit);
                         Some(cd)
                     }
                 },
@@ -605,11 +518,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
         }
     }
     /* rotate interpolated position */
-    fn rotate_position(
-        rotate: bool,
-        interpolated: InterpolationResult,
-        dt_tx: Duration,
-    ) -> InterpolationResult {
+    fn rotate_position(rotate: bool, interpolated: OrbitalState, dt_tx: Duration) -> OrbitalState {
         let mut reworked = interpolated;
         let rot = if rotate {
             const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
@@ -630,12 +539,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
     /*
      * Determine velocities
      */
-    fn velocities(
-        &self,
-        t_tx: Epoch,
-        sv: SV,
-        interpolated: InterpolationResult,
-    ) -> InterpolationResult {
+    fn velocities(&self, t_tx: Epoch, sv: SV, interpolated: OrbitalState) -> OrbitalState {
         let mut reworked = interpolated;
         if let Some((p_ttx, p_pos)) = self.prev_sv_state.get(&sv) {
             let dt = (t_tx - *p_ttx).to_seconds();
@@ -683,7 +587,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 
 // #[cfg(test)]
 // mod test {
-//     use crate::prelude::{Solver, Candidate, Duration, Epoch, Observation, SV, InterpolationResult};
+//     use crate::prelude::{Solver, Candidate, Duration, Epoch, Observation, SV, OrbitalState};
 //     #[test]
 //     fn retain_best_elev() {
 //         let mut pool = Vec::<Candidate>::new();
@@ -696,7 +600,7 @@ impl<I: std::ops::Fn(Epoch, SV, usize) -> Option<InterpolationResult>> Solver<I>
 //                 vec![],
 //                 vec![],
 //             );
-//             let mut state = InterpolationResult::from_position((0.0, 0.0, 0.0));
+//             let mut state = OrbitalState::from_position((0.0, 0.0, 0.0));
 //             state.set_elevation(elev);
 //             cd.set_state(state);
 //             pool.push(cd);

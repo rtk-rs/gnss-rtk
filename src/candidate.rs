@@ -1,5 +1,5 @@
 //! Position solving candidate
-use crate::prelude::{Carrier, Config, Duration, Epoch, Error, InterpolationResult, Vector3, SV};
+use crate::prelude::{Carrier, Config, Duration, Epoch, Error, OrbitalState, Vector3, SV};
 use hifitime::Unit;
 use itertools::Itertools;
 use log::debug;
@@ -65,7 +65,7 @@ pub struct Candidate {
     /// Tx Epoch
     pub t_tx: Epoch,
     /// State that needs to be resolved
-    pub state: Option<InterpolationResult>,
+    pub state: Option<OrbitalState>,
     // SV group delay expressed as a [Duration]
     pub(crate) tgd: Option<Duration>,
     // Windup term in cycles
@@ -469,7 +469,7 @@ impl Candidate {
         Ok((e_tx, dt))
     }
     #[cfg(test)]
-    pub fn set_state(&mut self, state: InterpolationResult) {
+    pub fn set_state(&mut self, state: OrbitalState) {
         self.state = Some(state);
     }
 }
