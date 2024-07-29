@@ -39,8 +39,18 @@ use crate::{
     },
     orbit::{OrbitalState, OrbitalStateProvider},
     position::Position,
-    prelude::{Duration, Epoch, SV},
+    prelude::{Duration, Epoch, PhaseRange, PseudoRange, SV},
 };
+
+/// [BaseReference]
+pub trait BaseReference {
+    /// Remote [PseudoRange] observator, return observation at `t` for `SV`
+    /// if you can.
+    fn pseudo_range(&self, t: Epoch, sv: SV) -> Option<PseudoRange>;
+    /// Remote [PhaseRange] observator, return observation at `t` for `SV`
+    /// if you can.
+    fn phase_range(&self, t: Epoch, sv: SV) -> Option<PhaseRange>;
+}
 
 #[derive(Debug, PartialEq, Error)]
 pub enum Error {
@@ -102,6 +112,8 @@ pub struct Solver {
     ambiguity: AmbiguitySolver,
     /// [OrbitalStateProvider]
     orbit: Arc<dyn OrbitalStateProvider>,
+    /// [BaseReference]
+    base: Arc<dyn BaseReference>,
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
@@ -117,17 +129,20 @@ pub struct Solver {
 
 impl Solver {
     /// Create a new Position [Solver].
+    /// ## Inputs
     /// - cfg: Solver [Config]
     /// - initial: possible initial [Position], used to initialize the Solver.
     ///   When not provided (no apriori knowledge), the solver will initialize itself autonomously.
     ///   Note that we need at least one set of 4 valid SV observations to initiliaze ourselves.
     ///   This means you need to have special initialization cycles when operating
     ///   in Fixed Altitude or Time Only modes.
-    /// - interpolator: function pointer to external method to provide 3D interpolation results.
+    /// - orbit: [OrbitalStateProvider]
+    /// - base: static [BaseReference] for differential positioning.
     pub fn new(
         cfg: &Config,
         initial: Option<Position>,
         orbit: Arc<dyn OrbitalStateProvider>,
+        base: Arc<dyn BaseReference>,
     ) -> Result<Self, Error> {
         // Default Alamanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
@@ -141,6 +156,7 @@ impl Solver {
             warn!("Relativistic path range cannot be modeled at the moment");
         }
         Ok(Self {
+            base,
             orbit,
             almanac,
             initial: {
