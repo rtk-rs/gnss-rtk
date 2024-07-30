@@ -42,16 +42,6 @@ use crate::{
     prelude::{Duration, Epoch, PhaseRange, PseudoRange, SV},
 };
 
-/// [RemoteBase]
-pub trait RemoteBase {
-    /// Remote [PseudoRange] observator, return observation at `t` for `SV`
-    /// if you can.
-    fn pseudo_range(&self, t: Epoch, sv: SV) -> Option<PseudoRange>;
-    /// Remote [PhaseRange] observator, return observation at `t` for `SV`
-    /// if you can.
-    fn phase_range(&self, t: Epoch, sv: SV) -> Option<PhaseRange>;
-}
-
 #[derive(Debug, PartialEq, Error)]
 pub enum Error {
     #[error("not enough candidates provided")]
@@ -109,9 +99,7 @@ pub struct Solver {
     /// [AmbiguitySolver]
     ambiguity: AmbiguitySolver,
     /// [OrbitalStateProvider]
-    orbit: Option<Arc<dyn OrbitalStateProvider>>,
-    /// [RemoteBase]
-    base: Option<Arc<dyn RemoteBase>>,
+    orbit: Option<Box<dyn OrbitalStateProvider>>,
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
@@ -126,26 +114,6 @@ pub struct Solver {
 }
 
 impl Solver {
-    /// Creates a new Position [Solver] for PPP positioning specifically.
-    /// It will not attempt any differential positioning algorithm,
-    /// like connection to a [RemoteBase]. Refer to [Self::new] for more information.
-    pub fn ppp(
-        cfg: &Config,
-        initial: Option<Position>,
-        orbit: Arc<dyn OrbitalStateProvider>,
-    ) -> Result<Self, Error> {
-        Self::new(cfg, initial, Some(orbit), None)
-    }
-    /// Creates a new Position [Solver] for RTK positioning specifically.
-    /// It will solely use differential positioning using [RemoteBase].
-    /// Refer to [Self::new] for more information
-    pub fn rtk(
-        cfg: &Config,
-        initial: Option<Position>,
-        base: Arc<dyn RemoteBase>,
-    ) -> Result<Self, Error> {
-        Self::new(cfg, initial, None, Some(base))
-    }
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
     /// - cfg: Solver [Config]
@@ -156,12 +124,10 @@ impl Solver {
     ///   You have to take that into account, especially when operating in Fixed Altitude
     ///   or Time Only modes.
     /// - orbit: [OrbitalStateProvider] must be provided for Direct (1D) PPP
-    /// - base: [RemoteBase] must be provided for RTK
     pub fn new(
         cfg: &Config,
         initial: Option<Position>,
-        orbit: Option<Arc<dyn OrbitalStateProvider>>,
-        base: Option<Arc<dyn RemoteBase>>,
+        orbit: Option<Box<dyn OrbitalStateProvider>>,
     ) -> Result<Self, Error> {
         // Default Alamanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
@@ -173,11 +139,7 @@ impl Solver {
         if cfg.modeling.relativistic_path_range {
             warn!("Relativistic path range cannot be modeled at the moment");
         }
-        if base.is_some() {
-            info!("rtk positioning");
-        }
         Ok(Self {
-            base,
             orbit,
             almanac,
             initial: {
@@ -203,8 +165,8 @@ impl Solver {
     /// ## Inputs
     /// - t: desired [Epoch]
     /// - pool: list of [Candidate]
-    /// - iono_bias: TODO/Rework
-    /// - tropo_bias: TODO/Rework
+    /// - iono_bias: needs rework - set this to null until then
+    /// - tropo_bias: needs rework - set this to null until then
     pub fn resolve(
         &mut self,
         t: Epoch,
