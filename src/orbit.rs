@@ -1,6 +1,6 @@
 use anise::prelude::{Frame, Orbit};
 
-use crate::prelude::{Duration, Epoch, Vector3, SV};
+use crate::prelude::{Epoch, Vector3, SV};
 use map_3d::ecef2geodetic;
 use std::f64::consts::PI;
 

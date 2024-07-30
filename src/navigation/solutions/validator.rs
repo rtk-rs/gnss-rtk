@@ -49,7 +49,10 @@ impl Validator {
                 .reduce(|k, _| k)
                 .unwrap();
 
-            let pr = cd.prefered_pseudorange().unwrap().value;
+            let pr = cd.prefered_pseudorange()
+                .unwrap()
+                .pseudo
+                .unwrap();
 
             let x = output.state.estimate();
 

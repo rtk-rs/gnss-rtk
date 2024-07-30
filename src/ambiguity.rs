@@ -213,7 +213,7 @@ impl AmbiguitySolver {
                         let predicted = a2 * t.powi(2) + a1 * t + a0;
                         let err = (cmb.value - predicted).abs();
                         // let t0 = 60.0;
-                        // let a0 = (cmb.lhs.wavelength() - cmb.reference.wavelength()) * 3.0 / 2.0;
+                        // let a0 = (cmb.lhs.wavelength() - cmb.rhs.wavelength()) * 3.0 / 2.0;
                         // let threshold = a0 - a0 / 2.0 * (-dt / t0).exp();
                         let threshold = 5.0;
                         if err > threshold {
@@ -232,7 +232,7 @@ impl AmbiguitySolver {
                     );
                 }
                 if let Some(cmb) = cd.mw_combination() {
-                    let (f_1, f_j) = (cmb.reference.frequency(), cmb.lhs.frequency());
+                    let (f_1, f_j) = (cmb.rhs.frequency(), cmb.lhs.frequency());
                     let lambda_w = SPEED_OF_LIGHT_M_S / (f_1 + f_j);
                     let lamba_w = SPEED_OF_LIGHT_M_S / (f_1 - f_j);
                     let (n_w, sigma_n_w) = sv_tracker.mw_tracker.average(cmb.value / lambda_w, 0.0);
@@ -242,7 +242,7 @@ impl AmbiguitySolver {
                         (cd.l1_phaserange().unwrap(), cd.lj_phaserange().unwrap());
                     let (lambda_1, lambda_2) = (l_1.wavelength(), l_j.wavelength());
                     let (n_1, sigma_n_1) = sv_tracker.n1_tracker.average(
-                        (ph_1.value - ph_j.value - lambda_2 * n_w) / (lambda_1 - lambda_2),
+                        (ph_1 - ph_j - lambda_2 * n_w) / (lambda_1 - lambda_2),
                         0.0,
                     );
 
@@ -256,7 +256,7 @@ impl AmbiguitySolver {
                         );
 
                         let ambiguity = Ambiguity { n_1, n_2, n_w };
-                        ambiguities.insert((cd.sv, l_1.carrier), ambiguity);
+                        ambiguities.insert((cd.sv, l_1), ambiguity);
                     }
                 } else {
                     error!("{}({}): fail to form mw comb (missing signal)", cd.t, cd.sv);

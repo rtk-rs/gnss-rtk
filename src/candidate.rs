@@ -18,21 +18,26 @@ pub struct Observation {
     pub doppler: Option<f64>,
     /// SNR
     pub snr: Option<f64>,
+    /// For navigation methods that use PhaseRange like [Method::PPP], phase range ambiguities
+    /// need to be fixed at some point, otherwise, you end up with similar performances as
+    /// [PseudoRange] based navigation methods.
+    /// If you resolved the ambiguities yourself, set this value ahead of time, otherwise we will take care of it.
+    pub ambiguity: Option<f64>,
 }
 
 impl Observation {
-    /// set [Carrier]
+    /// Set [Carrier]
     pub fn set_carrier(&mut self, c: Carrier) {
         self.carrier = c;
     }
-    /// Creates [Self] with given [PhaseRange] observation
-    pub fn with_phase_range(&self, ph: PhaseRange) -> Self {
+    /// Creates [Self] with given phase range [m] observation
+    pub fn with_phase_range(&self, ph: f64) -> Self {
         let mut s = self.clone();
         s.phase = Some(ph);
         s
     }
-    /// Creates [Self] with given [PseudoRange] observation
-    pub fn with_pseudo_range(&self, pr: PseudoRange) -> Self {
+    /// Creates [Self] with given pseudo range [m] observation
+    pub fn with_pseudo_range(&self, pr: f64) -> Self {
         let mut s = self.clone();
         s.pseudo = Some(pr);
         s
@@ -45,40 +50,33 @@ impl Observation {
     }
 }
 
-/// Phase range observation to attach to each candidate
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct PhaseRange {
-    /// Phase Range in [m]
-    pub value: f64,
-    /// For navigation methods that use PhaseRange like [Method::PPP], phase range ambiguities
-    /// need to be fixed at some point, otherwise, you end up with similar performances as
-    /// [PseudoRange] based navigation methods.
-    /// If you resolved the ambiguities yourself, set this value ahead of time, otherwise we will take care of it.
-    pub ambiguity: Option<f64>,
-    /// Optional (but recommended) SNR in [dB]
-    pub snr: Option<f64>,
-}
-
-/// Combination of observations
-pub struct PhaseCombination {
-    /// LHS signal
+/// Signal combination
+#[derive(Debug, Copy, Clone, Default)]
+pub(crate) struct Combination {
+    /// Lhs signal
     pub lhs: Carrier,
-    /// RHS reference signal
-    pub reference: Carrier,
+    /// Rhs reference signal
+    pub rhs: Carrier,
     /// Value
     pub value: f64,
-    /// Ambiguity
+    /// Phase combination ambiguity 
     pub ambiguity: Option<f64>,
 }
 
-/// Combination of observations
-pub struct PseudoRangeCombination {
-    /// LHS signal
-    pub lhs: Carrier,
-    /// RHS reference signal
-    pub reference: Carrier,
-    /// Pseudo Range in [m]
-    pub value: f64,
+impl Combination {
+    pub fn new(lhs: Carrier, rhs: Carrier, value: f64) -> Self {
+        Self {
+            lhs,
+            rhs,
+            value,
+            ambiguity: None,
+        }
+    }
+    pub fn with_ambiguity(&self, ambiguity: f64) -> Self {
+        let mut s = self.clone();
+        s.ambiguity = Some(ambiguity);
+        s
+    }
 }
 
 /// Position solving candidate
@@ -137,21 +135,32 @@ impl Candidate {
             state: None,
             observations,
             wind_up: 0.0_f64,
+            remote: Vec::new(),
         }
+    }
+    /// Provide remote [Observation]s observed on [RemoteSite]
+    pub fn with_remote(&self, remote: Vec<Observation>) -> Self {
+        let mut s = self.clone();
+        s.remote = remote.clone();
+        s
+    }
+    /// Set remote [Observation]s as observed on [RemoteSite]
+    pub fn set_remote(&mut self, remote: Vec<Observation>) {
+        self.remote = remote.clone();
     }
 }
 
 // private
 impl Candidate {
     // Pseudo range iterator
-    fn pseudo_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, PseudoRange)> + '_> {
+    fn pseudo_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
         Box::new(self.observations.iter().filter_map(|ob| {
             let pseudo = ob.pseudo?;
             Some((ob.carrier, pseudo))
         }))
     }
     // Phase Range iterator
-    fn phase_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, PhaseRange)> + '_> {
+    fn phase_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
         Box::new(self.observations.iter().filter_map(|ob| {
             let phase = ob.phase?;
             Some((ob.carrier, phase))
@@ -161,10 +170,11 @@ impl Candidate {
      * Returns best observed SNR, whatever the signal
      */
     pub(crate) fn pseudorange_best_snr(&self) -> Option<f64> {
-        self.pseudo_range_iter()
-            .max_by(|(_, a), (_, b)| {
-                if let Some(snr_a) = a.snr {
-                    if let Some(snr_b) = b.snr {
+        self.observations
+            .iter()
+            .max_by(|ob_a, ob_b| {
+                if let Some(snr_a) = ob_a.snr {
+                    if let Some(snr_b) = ob_b.snr {
                         snr_a.partial_cmp(&snr_b).unwrap()
                     } else {
                         Ordering::Greater
@@ -179,26 +189,15 @@ impl Candidate {
      * Returns one pseudo range observation [m], whatever the frequency.
      * Best SNR is preferred though (if such information was provided).
      */
-    pub fn prefered_pseudorange(&self) -> Option<PseudoRange> {
-        let mut pseudo_r = Option::<PseudoRange>::None;
-        for (cr, pr) in self.pseudo_range_iter() {
-            // prefer L1
-            if matches!(
-                cr,
-                Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-            ) {
-                pseudo_r = Some(pr.clone());
-            } else if let Some(snr) = pr.snr {
-                if let Some(pseudo_snr) = pseudo_r.snr {
-                    if snr > pseudo_snr {
-                        pseudo_r = Some(pr.clone());
-                    }
-                } else {
-                    pseudo_r = Some(pr.clone());
-                }
-            }
-        }
-        pr
+    pub fn prefered_pseudorange(&self) -> Option<Observation> {
+        self.observations
+            .filter(|ob| {
+                matches!(
+                    ob.cr,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                ) && ob.pseudo.is_some()
+            })
+            .reduce(|k, _| k)
     }
     // True if Self is Method::CPP compatible
     pub(crate) fn cpp_compatible(&self) -> bool {
@@ -225,7 +224,7 @@ impl Candidate {
             > 1
     }
     // Returns the L1 Pseudo Range observation [m] if it exists
-    pub(crate) fn l1_pseudorange(&self) -> Option<(Carrier, PseudoRange)> {
+    pub(crate) fn l1_pseudorange(&self) -> Option<(Carrier, f64)> {
         self.pseudo_range_iter()
             .filter(|(signal, _)| {
                 matches!(
@@ -236,7 +235,7 @@ impl Candidate {
             .reduce(|k, _| k)
     }
     // Returns the L1 Phase Range observation [m] if it exists
-    pub(crate) fn l1_phaserange(&self) -> Option<(Carrier, PhaseRange)> {
+    pub(crate) fn l1_phaserange(&self) -> Option<(Carrier, f64)> {
         self.phase_range_iter()
             .filter(|(signal, _)| {
                 matches!(
@@ -247,7 +246,7 @@ impl Candidate {
             .reduce(|k, _| k)
     }
     // Returns the Lj Pseudo Range observation [m] if it exists
-    pub(crate) fn lj_pseudorange(&self) -> Option<(Carrier, PseudoRange)> {
+    pub(crate) fn lj_pseudorange(&self) -> Option<(Carrier, f64)> {
         self.pseudo_range_iter()
             .filter(|(signal, _)| {
                 !matches!(
@@ -258,7 +257,7 @@ impl Candidate {
             .reduce(|k, _| k)
     }
     // Returns the Lj Phase Range observation [m] if it exists
-    pub(crate) fn lj_phaserange(&self) -> Option<(Carrier, PhaseRange)> {
+    pub(crate) fn lj_phaserange(&self) -> Option<(Carrier, f64)> {
         self.phase_range_iter()
             .filter(|(signal, _)| {
                 !matches!(
@@ -269,33 +268,27 @@ impl Candidate {
             .reduce(|k, _| k)
     }
     /// Returns IF code range combination
-    pub(crate) fn code_if_combination(&self) -> Option<PseudoRangeCombination> {
-        let l1_pr = self.l1_pseudorange()?;
-        let (c_l1, l1_signal) = (l1_pr.value, l1_pr.carrier);
-        let freq_l1 = l1_signal.frequency();
+    pub(crate) fn code_if_combination(&self) -> Option<Combination> {
+        let (c_l1, l1_pr) = self.l1_pseudorange()?;
+        let freq_l1 = c_l1.frequency();
 
-        let lx_pr = self
+        let (c_lx, lx_pr) = self
             .pseudo_range
             .phase_range_iter()
             .filter(|(c, _)| c != c_l1)
             .reduce(|k, _| k)?;
 
-        let (c_lx, lx_signal) = (lx_pr.value, lx_pr.carrier);
-        let freq_lx = lx_signal.frequency();
+        let freq_lx = c_lx.frequency();
 
         let alpha = 1.0 / (freq_l1.powi(2) - freq_lx.powi(2));
         let beta = freq_l1.powi(2);
         let gamma = freq_lx.powi(2);
-        Some({
-            PseudoRangeCombination {
-                lhs: lx_signal,
-                reference: l1_signal,
-                value: alpha * (beta * c_l1 - gamma * c_lx),
-            }
-        })
+        Some(
+            Combination::new(c_lx, c_l1, alpha * (beta * l1_pr - gamma * lx_pr))
+        )
     }
     /// Returns IF phase range combination
-    pub(crate) fn phase_if_combination(&self) -> Option<PhaseCombination> {
+    pub(crate) fn phase_if_combination(&self) -> Option<Combination> {
         let (c_l1, l1_ph) = self.l1_phaserange()?;
         let f_l1 = c_l1.frequency();
 
@@ -309,15 +302,10 @@ impl Candidate {
         let alpha = 1.0 / (f_l1.powi(2) - f_lx.powi(2));
         let beta = f_l1.powi(2);
         let gamma = f_lx.powi(2);
-        Some(PhaseCombination {
-            lhs: lx_signal,
-            ambiguity: None,
-            reference: l1_signal,
-            value: alpha * (beta * c_l1 - gamma * c_lx),
-        })
+        Some(Combination::new(c_lx, c_l1, alpha * (beta * l1_ph - gamma * lx_ph)))
     }
     /// Returns phase wide lane combination
-    pub(crate) fn phase_wl_combination(&self) -> Option<PhaseCombination> {
+    pub(crate) fn phase_wl_combination(&self) -> Option<Combination> {
         let (c_l1, l_1) = self.l1_phaserange()?;
         let (c_lj, l_j) = self
             .phase_range_iter()
@@ -326,17 +314,13 @@ impl Candidate {
             .reduce(|k, _| k)?;
 
         let (f_1, f_j) = (l_1.frequency(), l_j.frequency());
-        Some(PhaseCombination {
-            lhs: c_lj,
-            ambiguity: None,
-            reference: c_l1,
-            value: (f_1 * l_1.value - f_j * l_j.value) / (f_1 - f_j),
-        })
+        Some(Combination::new(c_lj, c_l1,
+            (f_1 * l_1.value - f_j * l_j.value) / (f_1 - f_j)))
     }
     /// Returns code narrow lane combination
-    pub(crate) fn code_nl_combination(&self) -> Option<PseudoRangeCombination> {
+    pub(crate) fn code_nl_combination(&self) -> Option<Combination> {
         let (c_1, l_1) = self.l1_pseudorange()?;
-        let c_j = self
+        let (c_j, l_j) = self
             .pseudo_range
             .iter()
             .filter(|p| p.carrier != c_1.carrier)
@@ -344,24 +328,20 @@ impl Candidate {
 
         let (f_1, f_j) = (c_1.frequency(), c_j.frequency());
 
-        Some(PseudoRangeCombination {
-            lhs: c_j,
-            reference: c_1,
-            value: (f_1 * l_1.value + f_j * l_j.value) / (f_1 + f_j),
-        })
+        Some(Combination::new(c_j, c_1, 
+            (f_1 * l_1 + f_j * l_j) / (f_1 + f_j)
+        ))
     }
-    pub(crate) fn mw_combination(&self) -> Option<PhaseCombination> {
+    pub(crate) fn mw_combination(&self) -> Option<Combination> {
         let ph_w = self.phase_wl_combination()?;
         let pr_n = self.code_nl_combination()?;
-        Some(PhaseCombination {
-            lhs: ph_w.lhs,
-            ambiguity: None,
-            reference: ph_w.reference,
-            value: ph_w.value - pr_n.value,
-        })
+        Some(Combination::new(
+            ph_w.lhs,
+            ph_w.rhs,
+            ph_w.value - pr_n.value))
     }
     // Form GF combination
-    pub(crate) fn phase_gf_combination(&self) -> Option<PhaseCombination> {
+    pub(crate) fn phase_gf_combination(&self) -> Option<Combination> {
         let c_1 = self
             .phase_range
             .iter()
@@ -374,15 +354,13 @@ impl Candidate {
             .filter(|p| p.carrier != c_1.carrier)
             .reduce(|k, _| k)?;
 
-        Some(PhaseCombination {
-            lhs: c_j.carrier,
-            reference: c_1.carrier,
-            ambiguity: None,
-            value: c_1.value - c_j.value,
-        })
+        Some(Combination::new(
+            c_j.carrier,
+            c_1.carrier,
+            c_1.value - c_j.value))
     }
     // Form GF combination
-    pub(crate) fn code_gf_combination(&self) -> Option<PseudoRangeCombination> {
+    pub(crate) fn code_gf_combination(&self) -> Option<Combination> {
         let (c_1, pr_1) = self
             .pseudo_range_iter()
             .filter(|p| matches!(p.carrier, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
@@ -393,11 +371,10 @@ impl Candidate {
             .filter(|p| p.carrier != c_1)
             .reduce(|k, _| k)?;
 
-        Some(PseudoRangeCombination {
-            lhs: c_j.carrier,
-            reference: c_1.carrier,
-            value: pr_j.value - pr_1.value,
-        })
+        Some(Combination::new(
+            c_j.carrier,
+            c_1.carrier,
+            pr_j.value - pr_1.value))
     }
     // Computes phase windup term. Self should be fully resolved, otherwse
     // will panic.
@@ -465,7 +442,8 @@ impl Candidate {
             - self
                 .prefered_pseudorange()
                 .ok_or(Error::MissingPseudoRange)?
-                .value
+                .pseudo
+                .unwrap()
                 / SPEED_OF_LIGHT_M_S;
 
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
@@ -499,10 +477,6 @@ impl Candidate {
         );
         Ok((e_tx, dt))
     }
-    /// Provide observations from remote site
-    pub(crate) fn with_remote(&mut self, remote: Vec<Observation>) {
-        self.remote = remote.clone();
-    }
     #[cfg(test)]
     pub fn set_state(&mut self, state: OrbitalState) {
         self.state = Some(state);
@@ -511,7 +485,7 @@ impl Candidate {
 
 #[cfg(test)]
 mod test {
-    use super::{PhaseCombination, PseudoRangeCombination};
+    use super::Combination;
     use crate::prelude::{Candidate, Carrier, Duration, Epoch, PhaseRange, PseudoRange, SV};
     #[test]
     fn cpp_compatibility() {
