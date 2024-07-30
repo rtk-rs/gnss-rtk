@@ -9,17 +9,13 @@ use nalgebra::{Matrix3, Vector3};
 // use std::cmp::Ordering;
 use thiserror::Error;
 
-use nyx::{
-    cosmic::{
-        eclipse::{eclipse_state, EclipseState},
-        SPEED_OF_LIGHT_M_S,
-    },
+use nyx::cosmic::{
+    eclipse::{eclipse_state, EclipseState},
+    SPEED_OF_LIGHT_M_S,
 };
 
 use anise::{
-    constants::{
-        frames::{EARTH_J2000, SUN_J2000},
-    },
+    constants::frames::{EARTH_J2000, SUN_J2000},
     errors::{AlmanacError, PhysicsError},
     prelude::Almanac,
 };
@@ -112,66 +108,40 @@ pub struct Solver {
 
 /// Apply signal condition criteria
 fn signal_condition_filter(method: Method, pool: &mut Vec<Candidate>) {
-    pool
-        .retain(|cd| match method {
-            Method::SPP => {
-                if cd.prefered_pseudorange().is_some() {
-                    true
-                } else {
-                    error!("{} ({}) missing pseudo range observation", cd.t, cd.sv);
-                    false
-                }
-            },
-            Method::CPP => {
-                if cd.cpp_compatible() {
-                    true
-                } else {
-                    debug!("{} ({}) missing secondary frequency", cd.t, cd.sv);
-                    false
-                }
-            },
-            Method::PPP => {
-                if cd.ppp_compatible() {
-                    true
-                } else {
-                    debug!("{} ({}) missing phase or phase combination", cd.t, cd.sv);
-                    false
-                }
-            },
-        })
+    pool.retain(|cd| match method {
+        Method::SPP => {
+            if cd.prefered_pseudorange().is_some() {
+                true
+            } else {
+                error!("{} ({}) missing pseudo range observation", cd.t, cd.sv);
+                false
+            }
+        },
+        Method::CPP => {
+            if cd.cpp_compatible() {
+                true
+            } else {
+                debug!("{} ({}) missing secondary frequency", cd.t, cd.sv);
+                false
+            }
+        },
+        Method::PPP => {
+            if cd.ppp_compatible() {
+                true
+            } else {
+                debug!("{} ({}) missing phase or phase combination", cd.t, cd.sv);
+                false
+            }
+        },
+    })
 }
 
 /// Apply signal quality criteria
 fn signal_quality_filter(method: Method, min_snr: f64, pool: &mut Vec<Candidate>) {
-    pool
-        .retain(|cd| match method {
-            Method::SPP => {
-                if let Some(pr) = cd.prefered_pseudorange() {
-                    true // TODO
-                    //if let Some(snr) = cd.snr {
-                    //    // snr >= min_snr
-                    //    true
-                    //} else { 
-                    //    /* 
-                    //     no SNR information: we decide to retain
-                    //     For example, old or exotic software may not have such information
-                    //     being too strict would prohibit from obtaining solutions
-                    //    */
-                    //    true
-                    //}
-                } else {
-                    true
-                }
-            },
-            Method::CPP => {
-                // TODO: apply min_snr mask too
-                true
-            },
-            Method::PPP => {
-                // TODO: apply min_snr mask too
-                true
-            },
-        })
+    pool.retain_mut(|cd| {
+        cd.min_snr_mask(min_snr);
+        !cd.observations.is_empty()
+    })
 }
 
 impl Solver {

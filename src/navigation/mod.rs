@@ -242,22 +242,21 @@ impl Input {
                         SPEED_OF_LIGHT_M_S / (f_1 - f_j),
                     );
 
-                    let bias =
-                        if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
-                            let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
-                            let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
-                            debug!(
-                                "{} ({}/{}) b_c: {}",
-                                cd[index].t, cd[index].sv, cmb.rhs, b_c
-                            );
-                            b_c
-                        } else {
-                            error!(
-                                "{} ({}/{}): unresolved ambiguity",
-                                cd[index].t, cd[index].sv, cmb.rhs
-                            );
-                            return Err(Error::UnresolvedAmbiguity);
-                        };
+                    let bias = if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
+                        let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
+                        let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
+                        debug!(
+                            "{} ({}/{}) b_c: {}",
+                            cd[index].t, cd[index].sv, cmb.rhs, b_c
+                        );
+                        b_c
+                    } else {
+                        error!(
+                            "{} ({}/{}): unresolved ambiguity",
+                            cd[index].t, cd[index].sv, cmb.rhs
+                        );
+                        return Err(Error::UnresolvedAmbiguity);
+                    };
 
                     // TODO: conclude windup
                     let windup = 0.0_f64;

@@ -241,10 +241,9 @@ impl AmbiguitySolver {
                     let ((l_1, ph_1), (l_j, ph_j)) =
                         (cd.l1_phaserange().unwrap(), cd.lj_phaserange().unwrap());
                     let (lambda_1, lambda_2) = (l_1.wavelength(), l_j.wavelength());
-                    let (n_1, sigma_n_1) = sv_tracker.n1_tracker.average(
-                        (ph_1 - ph_j - lambda_2 * n_w) / (lambda_1 - lambda_2),
-                        0.0,
-                    );
+                    let (n_1, sigma_n_1) = sv_tracker
+                        .n1_tracker
+                        .average((ph_1 - ph_j - lambda_2 * n_w) / (lambda_1 - lambda_2), 0.0);
 
                     let n_1 = n_1.round();
                     let n_2 = (n_1 - n_w).round();

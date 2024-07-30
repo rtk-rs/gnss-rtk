@@ -59,7 +59,7 @@ pub(crate) struct Combination {
     pub rhs: Carrier,
     /// Value
     pub value: f64,
-    /// Phase combination ambiguity 
+    /// Phase combination ambiguity
     pub ambiguity: Option<f64>,
 }
 
@@ -191,13 +191,15 @@ impl Candidate {
      */
     pub fn prefered_pseudorange(&self) -> Option<Observation> {
         self.observations
+            .iter()
             .filter(|ob| {
                 matches!(
-                    ob.cr,
+                    ob.carrier,
                     Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
                 ) && ob.pseudo.is_some()
             })
             .reduce(|k, _| k)
+            .cloned()
     }
     // True if Self is Method::CPP compatible
     pub(crate) fn cpp_compatible(&self) -> bool {
@@ -273,9 +275,8 @@ impl Candidate {
         let freq_l1 = c_l1.frequency();
 
         let (c_lx, lx_pr) = self
-            .pseudo_range
             .phase_range_iter()
-            .filter(|(c, _)| c != c_l1)
+            .filter(|(c, _)| *c != c_l1)
             .reduce(|k, _| k)?;
 
         let freq_lx = c_lx.frequency();
@@ -283,18 +284,20 @@ impl Candidate {
         let alpha = 1.0 / (freq_l1.powi(2) - freq_lx.powi(2));
         let beta = freq_l1.powi(2);
         let gamma = freq_lx.powi(2);
-        Some(
-            Combination::new(c_lx, c_l1, alpha * (beta * l1_pr - gamma * lx_pr))
-        )
+        Some(Combination::new(
+            c_lx,
+            c_l1,
+            alpha * (beta * l1_pr - gamma * lx_pr),
+        ))
     }
     /// Returns IF phase range combination
     pub(crate) fn phase_if_combination(&self) -> Option<Combination> {
-        let (c_l1, l1_ph) = self.l1_phaserange()?;
-        let f_l1 = c_l1.frequency();
+        let (c_1, l1_ph) = self.l1_phaserange()?;
+        let f_l1 = c_1.frequency();
 
         let (c_lx, lx_ph) = self
             .phase_range_iter()
-            .filter(|(c, _)| c != c_l1)
+            .filter(|(c, _)| *c != c_1)
             .reduce(|k, _| k)?;
 
         let f_lx = c_lx.frequency();
@@ -302,34 +305,41 @@ impl Candidate {
         let alpha = 1.0 / (f_l1.powi(2) - f_lx.powi(2));
         let beta = f_l1.powi(2);
         let gamma = f_lx.powi(2);
-        Some(Combination::new(c_lx, c_l1, alpha * (beta * l1_ph - gamma * lx_ph)))
+        Some(Combination::new(
+            c_lx,
+            c_1,
+            alpha * (beta * l1_ph - gamma * lx_ph),
+        ))
     }
     /// Returns phase wide lane combination
     pub(crate) fn phase_wl_combination(&self) -> Option<Combination> {
-        let (c_l1, l_1) = self.l1_phaserange()?;
-        let (c_lj, l_j) = self
+        let (c_1, l_1) = self.l1_phaserange()?;
+        let (c_j, l_j) = self
             .phase_range_iter()
-            .iter()
-            .filter(|(c, _)| c != c_l1)
+            .filter(|(c, _)| *c != c_1)
             .reduce(|k, _| k)?;
 
-        let (f_1, f_j) = (l_1.frequency(), l_j.frequency());
-        Some(Combination::new(c_lj, c_l1,
-            (f_1 * l_1.value - f_j * l_j.value) / (f_1 - f_j)))
+        let (f_1, f_j) = (c_1.frequency(), c_j.frequency());
+        Some(Combination::new(
+            c_j,
+            c_1,
+            (f_1 * l_1 - f_j * l_j) / (f_1 - f_j),
+        ))
     }
     /// Returns code narrow lane combination
     pub(crate) fn code_nl_combination(&self) -> Option<Combination> {
         let (c_1, l_1) = self.l1_pseudorange()?;
         let (c_j, l_j) = self
-            .pseudo_range
-            .iter()
-            .filter(|p| p.carrier != c_1.carrier)
+            .pseudo_range_iter()
+            .filter(|(c, _)| *c != c_1)
             .reduce(|k, _| k)?;
 
         let (f_1, f_j) = (c_1.frequency(), c_j.frequency());
 
-        Some(Combination::new(c_j, c_1, 
-            (f_1 * l_1 + f_j * l_j) / (f_1 + f_j)
+        Some(Combination::new(
+            c_j,
+            c_1,
+            (f_1 * l_1 + f_j * l_j) / (f_1 + f_j),
         ))
     }
     pub(crate) fn mw_combination(&self) -> Option<Combination> {
@@ -338,43 +348,36 @@ impl Candidate {
         Some(Combination::new(
             ph_w.lhs,
             ph_w.rhs,
-            ph_w.value - pr_n.value))
+            ph_w.value - pr_n.value,
+        ))
     }
     // Form GF combination
     pub(crate) fn phase_gf_combination(&self) -> Option<Combination> {
-        let c_1 = self
-            .phase_range
-            .iter()
-            .filter(|p| matches!(p.carrier, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
+        let (c_1, l_1) = self
+            .phase_range_iter()
+            .filter(|(c, _)| matches!(c, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
             .reduce(|k, _| k)?;
 
-        let c_j = self
-            .phase_range
-            .iter()
-            .filter(|p| p.carrier != c_1.carrier)
+        let (c_j, l_j) = self
+            .phase_range_iter()
+            .filter(|(c, _)| *c != c_1)
             .reduce(|k, _| k)?;
 
-        Some(Combination::new(
-            c_j.carrier,
-            c_1.carrier,
-            c_1.value - c_j.value))
+        Some(Combination::new(c_j, c_1, l_1 - l_j))
     }
     // Form GF combination
     pub(crate) fn code_gf_combination(&self) -> Option<Combination> {
         let (c_1, pr_1) = self
             .pseudo_range_iter()
-            .filter(|p| matches!(p.carrier, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
+            .filter(|(c, _)| matches!(c, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
             .reduce(|k, _| k)?;
 
         let (c_j, pr_j) = self
             .phase_range_iter()
-            .filter(|p| p.carrier != c_1)
+            .filter(|(c, _)| *c != c_1)
             .reduce(|k, _| k)?;
 
-        Some(Combination::new(
-            c_j.carrier,
-            c_1.carrier,
-            pr_j.value - pr_1.value))
+        Some(Combination::new(c_j, c_1, pr_j - pr_1))
     }
     // Computes phase windup term. Self should be fully resolved, otherwse
     // will panic.
@@ -406,27 +409,16 @@ impl Candidate {
     }
     // Retains only observations with SNR >= min_snr
     pub(crate) fn min_snr_mask(&mut self, min_snr: f64) {
-        self.pseudo_range.retain(|c| {
-            if let Some(snr) = c.snr {
+        self.observations.retain(|ob| {
+            if let Some(snr) = ob.snr {
                 snr >= min_snr
             } else {
-                false
+                // no SNR information: we decide to still retain
+                // because old or exotic software might not provide SNR information
+                // and this would prohibit using the solver
+                true
             }
-        });
-        self.phase_range.retain(|p| {
-            if let Some(snr) = p.snr {
-                snr >= min_snr
-            } else {
-                false
-            }
-        });
-        // self.doppler.retain(|d| {
-        //     if let Some(snr) = d.snr {
-        //         snr >= min_snr
-        //     } else {
-        //         false
-        //     }
-        // });
+        })
     }
     ///
     /// Computes signal transmission time, expressed as [Epoch]
