@@ -8,6 +8,24 @@ GNSS-RTK
 
 Precise positioning calculations, in Rust
 
+PPP / RTK
+=========
+
+GNSS-RTK is an easy and efficient navigation solver that supports both PPP and RTK navigation. 
+This makes it the ideal solution for most navigation applications.  
+It is easy to deploy, the configuration is simple and even the default setup will exhibit good results
+(no tweaking involved!).
+
+GNSS-RTK is flexible and efficient:
+
+* you can navigate with a single signal in sight
+* you don't have to sample L1 and can navigate with modern signals
+* it supports navigation without phase range
+* a special CPP method for dual frequency pseudo range (no phase range)
+which is pretty much a slow converging PPP method
+* it can operate without apriori knowledge and is a true surveying tool
+* it can fulfill the challenging task of RTK / Geodetic reference station calibration
+
 Applications
 ============
 
@@ -20,7 +38,8 @@ GNSS-RTK is used by the following applications
 Examples and more information
 =============================
 
-* Some examples are shipped with this repo, they teach how to deploy the solver
+* Some examples are shipped with this repo, they will teach you how to deploy the solver,
+at least in basic setups
 * [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework, at a high level
 
 Ecosystem
@@ -33,19 +52,6 @@ GNSS-RTK includes itself within and is closely tied to the following libraries:
 * [Hifitime](https://github.com/nyx-space/hifitime) for timing
 * [GNSS-rs](https://github.com/rtk-rs/gnss) for basic GNSS definitions
 * Nalgebra for all calculations
-
-PPP / RTK
-=========
-
-GNSS-RTK is an easy and efficient navigation solver that supports both PPP and RTK navigation. This gives the ideal solution for most navigation application. 
-It is easy to deploy, the configuration is easy without performance compromises.
-
-That means
-
-* you can perform static surveying by using the PPP algorithm,
-for example remote RTK stations setup and surveying prior deployment
-* navigate using PPP algorithm
-* navigate using RTK algorithm (dedicated to rovers linked to a reference site, by an external connection).
 
 Work in Progress
 ================

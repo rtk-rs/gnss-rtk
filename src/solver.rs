@@ -145,6 +145,22 @@ fn signal_quality_filter(method: Method, min_snr: f64, pool: &mut Vec<Candidate>
 }
 
 impl Solver {
+    /// Create new Position [Solver] dedicated to PPP positioning
+    pub fn ppp(
+        cfg: &Config,
+        initial: Option<Position>,
+        orbit: Box<dyn OrbitalStateProvider>,
+    ) -> Result<Self, Error> {
+        Self::new(cfg, initial, Some(orbit))
+    }
+    /// Create new Position [Solver] dedicated to RTK positioning
+    pub fn rtk(
+        cfg: &Config,
+        initial: Option<Position>,
+        orbit: Box<dyn OrbitalStateProvider>,
+    ) -> Result<Self, Error> {
+        Self::new(cfg, initial, Some(orbit))
+    }
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
     /// - cfg: Solver [Config]
@@ -201,7 +217,7 @@ impl Solver {
     pub fn resolve(
         &mut self,
         t: Epoch,
-        pool: &mut Vec<Candidate>,
+        pool: &[Candidate],
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
@@ -211,16 +227,18 @@ impl Solver {
             return Err(Error::NotEnoughCandidates);
         }
 
+        let mut pool = pool.to_vec();
+
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let interp_order = self.cfg.interp_order;
 
         // signal condition filter
-        signal_condition_filter(method, pool);
+        signal_condition_filter(method, &mut pool);
 
         // signal quality filter
         if let Some(min_snr) = self.cfg.min_snr {
-            signal_quality_filter(method, min_snr, pool);
+            signal_quality_filter(method, min_snr, &mut pool);
         }
 
         let earth_j2000 = self.almanac.frame_from_uid(EARTH_J2000).unwrap();

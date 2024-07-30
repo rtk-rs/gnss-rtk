@@ -10,7 +10,7 @@ use data::{gps::test_data as gps_test_data, interp::interp_data};
 struct Orbits {}
 
 impl OrbitalStateProvider for Orbits {
-    fn next_at_ecef(&self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
+    fn next_at(&self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
         Some(
             interp_data()
                 .iter()
@@ -97,22 +97,22 @@ impl Tester {
         }
     }
     fn deploy_without_apriori(&self, cfg: &Config) {
-        let orbits = Arc::new(Orbits {});
-        let mut solver = Solver::new(&cfg, None, orbits)
+        let orbits = Box::new(Orbits {});
+        let mut solver = Solver::ppp(&cfg, None, orbits)
             .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
     fn deploy_with_apriori(&self, cfg: &Config) {
-        let orbits = Arc::new(Orbits {});
-        let mut solver = Solver::new(&cfg, self.reference.clone(), orbits)
+        let orbits = Box::new(Orbits {});
+        let mut solver = Solver::ppp(&cfg, self.reference.clone(), orbits)
             .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
     fn run(&self, solver: &mut Solver, cfg: &Config) {
-        for (data_index, data) in gps_test_data().iter().enumerate() {
-            match solver.resolve(data.t_rx, &data.pool, &data.iono_bias, &data.tropo_bias) {
+        for (data_index, data) in gps_test_data().iter_mut().enumerate() {
+            match solver.resolve(data.t_rx, &mut data.pool, &data.iono_bias, &data.tropo_bias) {
                 Ok((t, solution)) => {
                     println!(
                         "iter={}, 3d={:?} vel={:?}",

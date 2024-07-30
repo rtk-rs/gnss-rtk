@@ -18,7 +18,7 @@ pub struct Observation {
     pub doppler: Option<f64>,
     /// SNR
     pub snr: Option<f64>,
-    /// For navigation methods that use PhaseRange like [Method::PPP], phase range ambiguities
+    /// For navigation methods that use phase range like [Method::PPP], phase range ambiguities
     /// need to be fixed at some point, otherwise, you end up with similar performances as
     /// [PseudoRange] based navigation methods.
     /// If you resolved the ambiguities yourself, set this value ahead of time, otherwise we will take care of it.
@@ -478,43 +478,36 @@ impl Candidate {
 #[cfg(test)]
 mod test {
     use super::Combination;
-    use crate::prelude::{Candidate, Carrier, Duration, Epoch, PhaseRange, PseudoRange, SV};
+    use crate::prelude::{Candidate, Carrier, Duration, Epoch, Observation, SV};
     #[test]
     fn cpp_compatibility() {
-        for (pr_observations, phase_observations, cpp_compatible) in [
-            (
-                vec![PseudoRange {
-                    value: 1.0,
+        for (observations, cpp_compatible) in [(
+            vec![
+                Observation {
                     snr: Some(1.0),
+                    pseudo: Some(1.0),
+                    phase: Some(2.0),
+                    ambiguity: None,
+                    doppler: None,
                     carrier: Carrier::L1,
-                }],
-                vec![],
-                false,
-            ),
-            (
-                vec![
-                    PseudoRange {
-                        value: 1.0,
-                        snr: Some(1.0),
-                        carrier: Carrier::L1,
-                    },
-                    PseudoRange {
-                        value: 2.0,
-                        snr: Some(2.0),
-                        carrier: Carrier::L2,
-                    },
-                ],
-                vec![],
-                true,
-            ),
-        ] {
+                },
+                Observation {
+                    snr: Some(1.0),
+                    pseudo: Some(2.0),
+                    phase: Some(2.0),
+                    ambiguity: None,
+                    doppler: None,
+                    carrier: Carrier::L5,
+                },
+            ],
+            true,
+        )] {
             let cd = Candidate::new(
                 SV::default(),
                 Epoch::default(),
                 Duration::default(),
                 None,
-                pr_observations,
-                phase_observations,
+                observations,
             );
             assert_eq!(cd.cpp_compatible(), cpp_compatible);
         }

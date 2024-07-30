@@ -1,64 +1,49 @@
-use crate::prelude::{Candidate, Carrier, Duration, Epoch, PseudoRange, SV};
+use crate::prelude::{Candidate, Carrier, Duration, Epoch, Observation, SV};
 
 #[test]
 fn prefered_pseudorange() {
-    for (observations, prefered) in [
-        (
-            vec![
-                PseudoRange {
-                    value: 1.0,
-                    snr: None,
-                    carrier: Carrier::L1,
-                },
-                PseudoRange {
-                    value: 2.0,
-                    snr: None,
-                    carrier: Carrier::L2,
-                },
-                PseudoRange {
-                    value: 3.0,
-                    snr: None,
-                    carrier: Carrier::L5,
-                },
-            ],
-            PseudoRange {
-                value: 1.0,
+    for (observations, prefered) in [(
+        vec![
+            Observation {
                 snr: None,
+                phase: None,
+                pseudo: Some(1.0),
+                ambiguity: None,
+                doppler: None,
                 carrier: Carrier::L1,
             },
-        ),
-        (
-            vec![
-                PseudoRange {
-                    value: 1.0,
-                    snr: None,
-                    carrier: Carrier::L1,
-                },
-                PseudoRange {
-                    value: 2.0,
-                    snr: Some(2.0),
-                    carrier: Carrier::L2,
-                },
-                PseudoRange {
-                    value: 3.0,
-                    snr: None,
-                    carrier: Carrier::L5,
-                },
-            ],
-            PseudoRange {
-                value: 2.0,
-                snr: Some(2.0),
+            Observation {
+                snr: None,
+                phase: None,
+                pseudo: Some(2.0),
+                ambiguity: None,
+                doppler: None,
                 carrier: Carrier::L2,
             },
-        ),
-    ] {
+            Observation {
+                snr: None,
+                phase: None,
+                pseudo: Some(3.0),
+                ambiguity: None,
+                doppler: None,
+                carrier: Carrier::L2,
+            },
+        ],
+        Observation {
+            snr: None,
+            phase: None,
+            doppler: None,
+            ambiguity: None,
+            pseudo: Some(1.0),
+            carrier: Carrier::L1,
+        },
+    )] {
         let cd = Candidate::new(
             SV::default(),
             Epoch::default(),
             Duration::default(),
             None,
             observations,
-            vec![],
         );
         assert_eq!(cd.prefered_pseudorange(), Some(prefered),);
     }
@@ -67,14 +52,20 @@ fn prefered_pseudorange() {
 #[test]
 fn l1_l2_narrowlane() {
     let codes = vec![
-        PseudoRange {
+        Observation {
             snr: None,
-            value: 64.0,
+            pseudo: Some(64.0),
+            phase: None,
+            doppler: None,
+            ambiguity: None,
             carrier: Carrier::L1,
         },
-        PseudoRange {
+        Observation {
             snr: None,
-            value: 128.0,
+            phase: None,
+            doppler: None,
+            ambiguity: None,
+            pseudo: Some(128.0),
             carrier: Carrier::L2,
         },
     ];
@@ -84,21 +75,23 @@ fn l1_l2_narrowlane() {
         Duration::default(),
         None,
         codes,
-        vec![],
     );
     let cn = cd.code_nl_combination();
     assert!(cn.is_some(), "failed to form Cn_narrow combination");
     let cn = cn.unwrap();
-    assert_eq!(cn.reference, Carrier::L1);
+    assert_eq!(cn.rhs, Carrier::L1);
     assert_eq!(
         cn.value,
         (Carrier::L1.frequency() * 64.0 + Carrier::L2.frequency() * 128.0)
             / (Carrier::L1.frequency() + Carrier::L2.frequency())
     );
 
-    let codes = vec![PseudoRange {
+    let codes = vec![Observation {
         snr: None,
-        value: 64.0,
+        phase: None,
+        doppler: None,
+        ambiguity: None,
+        pseudo: Some(64.0),
         carrier: Carrier::L1,
     }];
     let cd = Candidate::new(
@@ -107,7 +100,6 @@ fn l1_l2_narrowlane() {
         Duration::default(),
         None,
         codes,
-        vec![],
     );
 
     assert!(
@@ -118,15 +110,21 @@ fn l1_l2_narrowlane() {
 
 #[test]
 fn e1_e5_narrowlane() {
-    let codes = vec![
-        PseudoRange {
+    let obs = vec![
+        Observation {
             snr: None,
-            value: 64.0,
+            phase: None,
+            doppler: None,
+            pseudo: Some(64.0),
+            ambiguity: None,
             carrier: Carrier::E1,
         },
-        PseudoRange {
+        Observation {
             snr: None,
-            value: 128.0,
+            phase: None,
+            doppler: None,
+            pseudo: Some(128.0),
+            ambiguity: None,
             carrier: Carrier::E5,
         },
     ];
@@ -135,13 +133,12 @@ fn e1_e5_narrowlane() {
         Epoch::default(),
         Duration::default(),
         None,
-        codes,
-        vec![],
+        obs,
     );
     let cn = cd.code_nl_combination();
     assert!(cn.is_some(), "failed to form Cn_narrow combination");
     let cn = cn.unwrap();
-    assert_eq!(cn.reference, Carrier::E1);
+    assert_eq!(cn.rhs, Carrier::E1);
     assert_eq!(
         cn.value,
         (Carrier::E1.frequency() * 64.0 + Carrier::E5.frequency() * 128.0)

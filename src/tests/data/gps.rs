@@ -1,7 +1,7 @@
 use crate::{
     prelude::{
-        Candidate, Carrier, Constellation, Duration, Epoch, IonosphereBias, PhaseRange,
-        PseudoRange, TroposphereBias, SV,
+        Candidate, Carrier, Constellation, Duration, Epoch, IonosphereBias, Observation,
+        TroposphereBias, SV,
     },
     tests::SolverInput,
 };
@@ -21,172 +21,42 @@ pub fn test_data() -> [SolverInput; 2] {
                     Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
                     Duration::from_seconds(0.162520179759E-04),
                     Some(Duration::from_nanoseconds(10.0)),
-                    vec![
-                        PseudoRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                    ],
-                    vec![
-                        PhaseRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                    ],
+                    vec![Observation {
+                        carrier: Carrier::L1,
+                        pseudo: Some(1.0E6_f64),
+                        snr: None,
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
+                    }],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 2),
                     Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
                     Duration::from_seconds(-0.477580320500E-03),
                     Some(Duration::from_nanoseconds(10.0)),
-                    vec![
-                        PseudoRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                    ],
-                    vec![
-                        PhaseRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                    ],
+                    vec![Observation {
+                        carrier: Carrier::L1,
+                        pseudo: Some(1.0E6_f64),
+                        snr: None,
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
+                    }],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 3),
                     Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
                     Duration::from_seconds(-0.220043185257E-03),
                     Some(Duration::from_nanoseconds(10.0)),
-                    vec![
-                        PseudoRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                    ],
-                    vec![
-                        PhaseRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                    ],
-                ),
-                Candidate::new(
-                    SV::new(Constellation::GPS, 5),
-                    Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
-                    Duration::from_seconds(-0.153530275954E-04),
-                    Some(Duration::from_nanoseconds(10.0)),
-                    vec![
-                        PseudoRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                    ],
-                    vec![
-                        PhaseRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                    ],
+                    vec![Observation {
+                        carrier: Carrier::L1,
+                        pseudo: Some(1.0E6_f64),
+                        snr: None,
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
+                    }],
                 ),
             ],
             iono_bias: IonosphereBias {
@@ -208,172 +78,56 @@ pub fn test_data() -> [SolverInput; 2] {
                     Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
                     Duration::from_seconds(0.162520179759E-04),
                     Some(Duration::from_nanoseconds(10.0)),
-                    vec![
-                        PseudoRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                    ],
-                    vec![
-                        PhaseRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            ambiguity: None,
-                            snr: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            ambiguity: None,
-                            snr: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                    ],
+                    vec![Observation {
+                        carrier: Carrier::L1,
+                        pseudo: Some(1.0E6_f64),
+                        snr: None,
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
+                    }],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 2),
                     Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
                     Duration::from_seconds(-0.477580320500E-03),
                     Some(Duration::from_nanoseconds(10.0)),
-                    vec![
-                        PseudoRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                    ],
-                    vec![
-                        PhaseRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            ambiguity: None,
-                            snr: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                    ],
+                    vec![Observation {
+                        carrier: Carrier::L1,
+                        pseudo: Some(1.0E6_f64),
+                        snr: None,
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
+                    }],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 3),
                     Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
                     Duration::from_seconds(-0.220043185257E-03),
                     Some(Duration::from_nanoseconds(10.0)),
-                    vec![
-                        PseudoRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                    ],
-                    vec![
-                        PhaseRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                    ],
+                    vec![Observation {
+                        snr: None,
+                        carrier: Carrier::L1,
+                        pseudo: Some(1.0E6_f64),
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
+                    }],
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 5),
                     Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
                     Duration::from_seconds(-0.153530275954E-04),
                     Some(Duration::from_nanoseconds(10.0)),
-                    vec![
-                        PseudoRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                        PseudoRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                        },
-                    ],
-                    vec![
-                        PhaseRange {
-                            carrier: Carrier::L1,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L2,
-                            value: 1.0E6_f64,
-                            ambiguity: None,
-                            snr: None,
-                        },
-                        PhaseRange {
-                            carrier: Carrier::L5,
-                            value: 1.0E6_f64,
-                            snr: None,
-                            ambiguity: None,
-                        },
-                    ],
+                    vec![Observation {
+                        carrier: Carrier::L1,
+                        pseudo: Some(1.0E6_f64),
+                        snr: None,
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
+                    }],
                 ),
             ],
             iono_bias: IonosphereBias {

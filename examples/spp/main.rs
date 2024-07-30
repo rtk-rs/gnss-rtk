@@ -1,8 +1,8 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    Arc, Candidate, Carrier, Config, Duration, Epoch, Error, InvalidationCause, IonosphereBias,
-    Method, OrbitalState, OrbitalStateProvider, PseudoRange, Solver, TroposphereBias, SV,
+    Candidate, Carrier, Config, Duration, Epoch, Error, InvalidationCause, IonosphereBias, Method,
+    Observation, OrbitalState, OrbitalStateProvider, Solver, TroposphereBias, SV,
 };
 
 // Orbit source example
@@ -16,7 +16,7 @@ impl OrbitalStateProvider for MyOrbitSource {
     // If you're not in position to determine [OrbitalState], simply return None.
     // If None is returned for too long, this [Epoch] will eventually be dropped out,
     // and we will move on to the next
-    fn next_at_ecef(&self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
+    fn next_at(&self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
         let (x, y, z) = (0.0_f64, 0.0_f64, 0.0_f64);
         Some(OrbitalState::from_position((x, y, z)))
     }
@@ -49,16 +49,17 @@ impl MyDataSource {
                     Duration::default(),
                     // If you know the total group day for this Candidate, specify it here
                     None,
-                    // List of Pseudo Range observations, we only need one in this scenario
-                    vec![PseudoRange {
+                    // List of observations
+                    vec![Observation {
                         carrier: Carrier::L1, // example
-                        value: 3.0E6,         // example, this is raw observation
+                        pseudo: Some(3.0E6),  // example, this is raw observation
                         // Note that if you apply a min_snr preset,
                         // we might drop candidates that do not have this info
                         snr: None, // unknown
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
                     }],
-                    // List of Phase Range observations: not needed in this scenario
-                    vec![],
                 ),
                 // Create all as many candidates as possible.
                 // It's better to have more than needed, it leaves us more possibility in the election process.
@@ -68,7 +69,7 @@ impl MyDataSource {
 }
 
 pub fn main() {
-    let orbits = Arc::new(MyOrbitSource {});
+    let orbits = MyOrbitSource {};
 
     // The preset API is useful to quickly deploy depending on your application.
     // Static presets target static positioning.
@@ -76,11 +77,12 @@ pub fn main() {
 
     // The API is pretty straightforward, it requires the Configuration preset to be
     // built ahead of time. The only difficulty is the design your data source and SV state provider. We interact with the SV state provider by means of a function pointer.
-    let solver = Solver::new(
+    let solver = Solver::ppp(
         &cfg,
         // We deploy without apriori knowledge.
         // The solver will initialize itself.
-        None, orbits,
+        None,
+        Box::new(orbits),
     );
 
     // The solver needs to be mutable, due to the iteration process.
