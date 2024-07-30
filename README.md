@@ -8,29 +8,71 @@ GNSS-RTK
 
 Precise positioning calculations, in Rust
 
-Notes on this ecosystem
-=======================
+Applications
+============
 
-- `Nalgebra` is used for anything related to linear algebra
-- `Nyx-space` provides required features in orbital calculations
-- `Hifitime` provides timing and timescale definitions
-- `Gnss-rs` provides basic GNSS definitions
+GNSS-RTK is used by the following applications
 
-[The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework (at a high level).  
+* [Post processed PPP with RINEX-Cli (app)](https://github.com/georust/rinex) 
+* [Post processed Common View Timing with RINEX-Cli (app)](https://github.com/georust/rinex) 
+* [Real Time PPP with RT-NAVI (app)](https://github.com/rtk-rs/rt-navi)
 
-Solver
-======
+Examples and more information
+=============================
 
-We only support 1D direct positioning, a subsidary data source required for RTK is not supported and will be developed very soon.   
-That means the only differential technique you can currently used is SBAS (Ground/Space differential technique). 
+* Some examples are shipped with this repo, they teach how to deploy the solver
+* [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework, at a high level
+
+Ecosystem
+=========
+
+GNSS-RTK includes itself within and is closely tied to the following libraries:
+
+* [ANISE](https://github.com/nyx-space/anise) for orbital calculations
+* [Nyx-space](https://github.com/nyx-space/nyx) for advanced navigation
+* [Hifitime](https://github.com/nyx-space/hifitime) for timing
+* [GNSS-rs](https://github.com/rtk-rs/gnss) for basic GNSS definitions
+* Nalgebra for all calculations
+
+PPP / RTK
+=========
+
+GNSS-RTK is an easy and efficient navigation solver that supports both PPP and RTK navigation. This gives the ideal solution for most navigation application. 
+It is easy to deploy, the configuration is easy without performance compromises.
+
+That means
+
+* you can perform static surveying by using the PPP algorithm,
+for example remote RTK stations setup and surveying prior deployment
+* navigate using PPP algorithm
+* navigate using RTK algorithm (dedicated to rovers linked to a reference site, by an external connection).
+
+Work in Progress
+================
+
+This framework is in active development. Most features have been stabilized
+and exhibit very good performances, some are still unavailable or needs to be improved.
+
+The following topics needs to be addressed (also, refer to the active Github Issues):
+
+* `ppp` phase navigation is not fully completed yet. 
+We achieve very good performance by performing long survey. 
+PPP will allow much faster convergence.
+* `rtk-ppp` is not fully possible yet, only basic RTK exists. 
+
+Refer to this portal (Wiki pages, Discussions..) and the RINEX Wiki to understand what this tool is capable of.
 
 PVT Solutions
 =============
 
-The objective is to resolve PVT solutions, which requires a minimum of SV in sights:
-- 4 SV required, in default mode
-- 3 SV required, in fixed altitude mode
-- 1 SV required, in time only mode
+The Solver's objective is to resolve precise PVT solutions.
+A minimum of 4 SV must be observed in standard navigation.  
+When navigating in Fixed Altitude mode, only 3 SV must be observed.   
+When navigating in Time Only mode, a single SV needs to be observed.   
+
+When performing a survey (read dedicated paragraph), 4 SV needs to be observed until
+the solver fully initializes itself. Use the returned object (PVTSolution or Error) to determine
+whether you can relax the constraint on sky observations (yet) or not.
 
 The preset criteria are manually set in the configuration file (or config script).
 At the moment, refer to the RINEX Wiki or RINEX scripts database, for meaningful examples.
