@@ -269,7 +269,7 @@ impl Solver {
                 Ok((t_tx, dt_tx)) => {
                     let orbits = self.orbit.as_ref()?;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    let mut orbit = orbits.next_at_ecef(t_tx, cd.sv, interp_order)?;
+                    let mut orbit = orbits.next_at(t_tx, cd.sv, interp_order)?;
                     let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
                     let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
                     let mut max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
