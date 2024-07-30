@@ -159,13 +159,13 @@ impl Input {
                     let pr = cd[index]
                         .prefered_pseudorange()
                         .ok_or(Error::MissingPseudoRange)?;
-                    (pr.value, pr.carrier.frequency())
+                    (pr.pseudo.unwrap(), pr.carrier.frequency())
                 },
                 Method::CPP | Method::PPP => {
                     let pr = cd[index]
                         .code_if_combination()
                         .ok_or(Error::PseudoRangeCombination)?;
-                    (pr.value, pr.reference.frequency())
+                    (pr.value, pr.rhs.frequency())
                 },
             };
 
@@ -233,7 +233,7 @@ impl Input {
                         .phase_if_combination()
                         .ok_or(Error::PseudoRangeCombination)?;
 
-                    let f_1 = cmb.reference.frequency();
+                    let f_1 = cmb.rhs.frequency();
                     let lambda_j = cmb.lhs.wavelength();
                     let f_j = cmb.lhs.frequency();
 
@@ -243,18 +243,18 @@ impl Input {
                     );
 
                     let bias =
-                        if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.reference)) {
+                        if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
                             let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
                             let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
                             debug!(
                                 "{} ({}/{}) b_c: {}",
-                                cd[index].t, cd[index].sv, cmb.reference, b_c
+                                cd[index].t, cd[index].sv, cmb.rhs, b_c
                             );
                             b_c
                         } else {
                             error!(
                                 "{} ({}/{}): unresolved ambiguity",
-                                cd[index].t, cd[index].sv, cmb.reference
+                                cd[index].t, cd[index].sv, cmb.rhs
                             );
                             return Err(Error::UnresolvedAmbiguity);
                         };
