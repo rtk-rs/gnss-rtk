@@ -4,10 +4,9 @@ use std::collections::HashMap;
 use hifitime::Unit;
 // use itertools::Itertools;
 use log::{debug, error, info, warn};
-use map_3d::{deg2rad, ecef2geodetic, rad2deg};
+use map_3d::{deg2rad, rad2deg};
 use nalgebra::{Matrix3, Vector3};
 // use std::cmp::Ordering;
-use std::f64::consts::PI;
 use thiserror::Error;
 
 use nyx::{
@@ -15,16 +14,14 @@ use nyx::{
         eclipse::{eclipse_state, EclipseState},
         SPEED_OF_LIGHT_M_S,
     },
-    md::prelude::Arc,
 };
 
 use anise::{
     constants::{
         frames::{EARTH_J2000, SUN_J2000},
-        SPEED_OF_LIGHT_KM_S,
     },
     errors::{AlmanacError, PhysicsError},
-    prelude::{Almanac, Frame, Orbit},
+    prelude::Almanac,
 };
 
 use crate::{
@@ -39,7 +36,7 @@ use crate::{
     },
     orbit::{OrbitalState, OrbitalStateProvider},
     position::Position,
-    prelude::{Duration, Epoch, PhaseRange, PseudoRange, SV},
+    prelude::{Duration, Epoch, SV},
 };
 
 #[derive(Debug, PartialEq, Error)]
@@ -113,6 +110,70 @@ pub struct Solver {
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
 
+/// Apply signal condition criteria
+fn signal_condition_filter(method: Method, pool: &mut Vec<Candidate>) {
+    pool
+        .retain(|cd| match method {
+            Method::SPP => {
+                if cd.prefered_pseudorange().is_some() {
+                    true
+                } else {
+                    error!("{} ({}) missing pseudo range observation", cd.t, cd.sv);
+                    false
+                }
+            },
+            Method::CPP => {
+                if cd.cpp_compatible() {
+                    true
+                } else {
+                    debug!("{} ({}) missing secondary frequency", cd.t, cd.sv);
+                    false
+                }
+            },
+            Method::PPP => {
+                if cd.ppp_compatible() {
+                    true
+                } else {
+                    debug!("{} ({}) missing phase or phase combination", cd.t, cd.sv);
+                    false
+                }
+            },
+        })
+}
+
+/// Apply signal quality criteria
+fn signal_quality_filter(method: Method, min_snr: f64, pool: &mut Vec<Candidate>) {
+    pool
+        .retain(|cd| match method {
+            Method::SPP => {
+                if let Some(pr) = cd.prefered_pseudorange() {
+                    true // TODO
+                    //if let Some(snr) = cd.snr {
+                    //    // snr >= min_snr
+                    //    true
+                    //} else { 
+                    //    /* 
+                    //     no SNR information: we decide to retain
+                    //     For example, old or exotic software may not have such information
+                    //     being too strict would prohibit from obtaining solutions
+                    //    */
+                    //    true
+                    //}
+                } else {
+                    true
+                }
+            },
+            Method::CPP => {
+                // TODO: apply min_snr mask too
+                true
+            },
+            Method::PPP => {
+                // TODO: apply min_snr mask too
+                true
+            },
+        })
+}
+
 impl Solver {
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
@@ -170,7 +231,7 @@ impl Solver {
     pub fn resolve(
         &mut self,
         t: Epoch,
-        pool: &[Candidate],
+        pool: &mut Vec<Candidate>,
         iono_bias: &IonosphereBias,
         tropo_bias: &TroposphereBias,
     ) -> Result<(Epoch, PVTSolution), Error> {
@@ -184,43 +245,13 @@ impl Solver {
         let modeling = self.cfg.modeling;
         let interp_order = self.cfg.interp_order;
 
-        /* apply signal quality and condition filters */
-        let pool: Vec<Candidate> = pool
-            .iter()
-            .filter_map(|cd| match method {
-                Method::SPP => {
-                    let pr = cd.prefered_pseudorange()?;
-                    if let Some(min_snr) = self.cfg.min_snr {
-                        let snr = pr.snr?;
-                        if snr < min_snr {
-                            None
-                        } else {
-                            Some(cd.clone())
-                        }
-                    } else {
-                        Some(cd.clone())
-                    }
-                },
-                Method::CPP => {
-                    if cd.cpp_compatible() {
-                        // TODO: apply MIN SNR too, (when desired)
-                        Some(cd.clone())
-                    } else {
-                        debug!("{} ({}) missing secondary frequency", cd.t, cd.sv);
-                        None
-                    }
-                },
-                Method::PPP => {
-                    if cd.ppp_compatible() {
-                        // TODO: apply MIN SNR too, (when desired)
-                        Some(cd.clone())
-                    } else {
-                        debug!("{} ({}) missing secondary phase", cd.t, cd.sv);
-                        None
-                    }
-                },
-            })
-            .collect();
+        // signal condition filter
+        signal_condition_filter(method, pool);
+
+        // signal quality filter
+        if let Some(min_snr) = self.cfg.min_snr {
+            signal_quality_filter(method, min_snr, pool);
+        }
 
         let earth_j2000 = self.almanac.frame_from_uid(EARTH_J2000).unwrap();
 
