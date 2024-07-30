@@ -42,8 +42,8 @@ use crate::{
     prelude::{Duration, Epoch, PhaseRange, PseudoRange, SV},
 };
 
-/// [BaseReference]
-pub trait BaseReference {
+/// [RemoteBase]
+pub trait RemoteBase {
     /// Remote [PseudoRange] observator, return observation at `t` for `SV`
     /// if you can.
     fn pseudo_range(&self, t: Epoch, sv: SV) -> Option<PseudoRange>;
@@ -96,9 +96,7 @@ pub enum Error {
     Physics(PhysicsError),
 }
 
-/// PVT Solver.
-/// You are required to provide APC coordinates at requested ("t", "sv"),
-/// expressed in meters [ECEF], for this to proceed.
+/// [Solver] aims at solving [PVTSolution]s.
 pub struct Solver {
     /// Solver parametrization
     pub cfg: Config,
@@ -111,49 +109,72 @@ pub struct Solver {
     /// [AmbiguitySolver]
     ambiguity: AmbiguitySolver,
     /// [OrbitalStateProvider]
-    orbit: Arc<dyn OrbitalStateProvider>,
-    /// [BaseReference]
-    base: Arc<dyn BaseReference>,
+    orbit: Option<Arc<dyn OrbitalStateProvider>>,
+    /// [RemoteBase]
+    base: Option<Arc<dyn RemoteBase>>,
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
-    /// Previous solution
+    /// Previous solution (internal logic)
     prev_solution: Option<(Epoch, PVTSolution)>,
-    /// Previous VDOP
+    /// Previous VDOP (internal logic)
     prev_vdop: Option<f64>,
-    /// Previously used
+    /// Previously used (internal logic)
     prev_used: Vec<SV>,
-    /// Stored previous SV state
+    /// Stored previous SV state (internal logic)
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
 }
 
 impl Solver {
-    /// Create a new Position [Solver].
-    /// ## Inputs
-    /// - cfg: Solver [Config]
-    /// - initial: possible initial [Position], used to initialize the Solver.
-    ///   When not provided (no apriori knowledge), the solver will initialize itself autonomously.
-    ///   Note that we need at least one set of 4 valid SV observations to initiliaze ourselves.
-    ///   This means you need to have special initialization cycles when operating
-    ///   in Fixed Altitude or Time Only modes.
-    /// - orbit: [OrbitalStateProvider]
-    /// - base: static [BaseReference] for differential positioning.
-    pub fn new(
+    /// Creates a new Position [Solver] for PPP positioning specifically.
+    /// It will not attempt any differential positioning algorithm,
+    /// like connection to a [RemoteBase]. Refer to [Self::new] for more information.
+    pub fn ppp(
         cfg: &Config,
         initial: Option<Position>,
         orbit: Arc<dyn OrbitalStateProvider>,
-        base: Arc<dyn BaseReference>,
+    ) -> Result<Self, Error> {
+        Self::new(cfg, initial, Some(orbit), None)
+    }
+    /// Creates a new Position [Solver] for RTK positioning specifically.
+    /// It will solely use differential positioning using [RemoteBase].
+    /// Refer to [Self::new] for more information
+    pub fn rtk(
+        cfg: &Config,
+        initial: Option<Position>,
+        base: Arc<dyn RemoteBase>,
+    ) -> Result<Self, Error> {
+        Self::new(cfg, initial, None, Some(base))
+    }
+    /// Create a new Position [Solver] that may support any positioning technique..
+    /// ## Inputs
+    /// - cfg: Solver [Config]
+    /// - initial: possible initial [Position] knowledge, can then be used
+    ///   to initialize [Self]. When not provided (None), the solver will initialize itself
+    ///   autonomously by consuming at least one [Epoch].
+    ///   Note that we need at least 4 valid SV observations to initiliaze the [Solver].
+    ///   You have to take that into account, especially when operating in Fixed Altitude
+    ///   or Time Only modes.
+    /// - orbit: [OrbitalStateProvider] must be provided for Direct (1D) PPP
+    /// - base: [RemoteBase] must be provided for RTK
+    pub fn new(
+        cfg: &Config,
+        initial: Option<Position>,
+        orbit: Option<Arc<dyn OrbitalStateProvider>>,
+        base: Option<Arc<dyn RemoteBase>>,
     ) -> Result<Self, Error> {
         // Default Alamanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
-        /*
-         * print more infos
-         */
+
+        // Print more information
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("Eclipse filter is not meaningful in SPP mode");
         }
         if cfg.modeling.relativistic_path_range {
             warn!("Relativistic path range cannot be modeled at the moment");
+        }
+        if base.is_some() {
+            info!("rtk positioning");
         }
         Ok(Self {
             base,
@@ -241,13 +262,14 @@ impl Solver {
 
         let earth_j2000 = self.almanac.frame_from_uid(EARTH_J2000).unwrap();
 
-        /* interpolate positions */
+        /* Orbits */
         let mut pool: Vec<Candidate> = pool
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
+                    let orbits = self.orbit.as_ref()?;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    let mut orbit = self.orbit.next_at_ecef(t_tx, cd.sv, interp_order)?;
+                    let mut orbit = orbits.next_at_ecef(t_tx, cd.sv, interp_order)?;
                     let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
                     let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
                     let mut max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
