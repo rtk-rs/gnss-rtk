@@ -26,7 +26,7 @@ pub trait OrbitalStateProvider {
     /// If you can't provide (missing data?): simply return None.
     /// If None is returned for too long, this [Epoch] will eventually get dropped out
     /// and we will proceed to the next.
-    fn next_at(&self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState>;
+    fn next_at(&mut self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState>;
 }
 
 impl OrbitalState {

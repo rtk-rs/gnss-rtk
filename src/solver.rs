@@ -80,7 +80,9 @@ pub enum Error {
 }
 
 /// [Solver] aims at solving [PVTSolution]s.
-pub struct Solver {
+pub struct Solver<O: OrbitalStateProvider> {
+    /// [OrbitalStateProvider]
+    orbit: O,
     /// Solver parametrization
     pub cfg: Config,
     /// Initial [Position]
@@ -91,8 +93,6 @@ pub struct Solver {
     nav: Navigation,
     /// [AmbiguitySolver]
     ambiguity: AmbiguitySolver,
-    /// [OrbitalStateProvider]
-    orbit: Option<Box<dyn OrbitalStateProvider>>,
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
@@ -144,22 +144,14 @@ fn signal_quality_filter(method: Method, min_snr: f64, pool: &mut Vec<Candidate>
     })
 }
 
-impl Solver {
+impl<O: OrbitalStateProvider> Solver<O> {
     /// Create new Position [Solver] dedicated to PPP positioning
-    pub fn ppp(
-        cfg: &Config,
-        initial: Option<Position>,
-        orbit: Box<dyn OrbitalStateProvider>,
-    ) -> Result<Self, Error> {
-        Self::new(cfg, initial, Some(orbit))
+    pub fn ppp(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
+        Self::new(cfg, initial, orbit)
     }
     /// Create new Position [Solver] dedicated to RTK positioning
-    pub fn rtk(
-        cfg: &Config,
-        initial: Option<Position>,
-        orbit: Box<dyn OrbitalStateProvider>,
-    ) -> Result<Self, Error> {
-        Self::new(cfg, initial, Some(orbit))
+    pub fn rtk(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
+        Self::new(cfg, initial, orbit)
     }
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
@@ -171,11 +163,7 @@ impl Solver {
     ///   You have to take that into account, especially when operating in Fixed Altitude
     ///   or Time Only modes.
     /// - orbit: [OrbitalStateProvider] must be provided for Direct (1D) PPP
-    pub fn new(
-        cfg: &Config,
-        initial: Option<Position>,
-        orbit: Option<Box<dyn OrbitalStateProvider>>,
-    ) -> Result<Self, Error> {
+    pub fn new(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
         // Default Alamanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
 
@@ -248,7 +236,7 @@ impl Solver {
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
-                    let orbits = self.orbit.as_ref()?;
+                    let mut orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
                     let mut orbit = orbits.next_at(t_tx, cd.sv, interp_order)?;
                     let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
