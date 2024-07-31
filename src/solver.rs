@@ -245,10 +245,8 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         let modeling = self.cfg.modeling;
         let interp_order = self.cfg.interp_order;
 
-        debug!("{:#?}", pool);
         // signal condition filter
         signal_condition_filter(method, &mut pool);
-        debug!("{:#?}", pool);
 
         // signal quality filter
         if let Some(min_snr) = self.cfg.min_snr {
