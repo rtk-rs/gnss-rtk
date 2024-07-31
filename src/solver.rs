@@ -17,14 +17,14 @@ use nyx::cosmic::{
 use anise::{
     constants::frames::{EARTH_J2000, SUN_J2000},
     errors::{AlmanacError, PhysicsError},
-    prelude::Almanac,
+    prelude::{Almanac, Frame},
 };
 
 use crate::{
     ambiguity::AmbiguitySolver,
     bancroft::Bancroft,
     bias::{IonosphereBias, TroposphereBias},
-    candidate::Candidate,
+    candidate::{Candidate, RemoteSite},
     cfg::{Config, Method},
     navigation::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
@@ -75,20 +75,26 @@ pub enum Error {
     UnresolvedAmbiguity,
     #[error("issue with Almanac: {0}")]
     Almanac(AlmanacError),
+    #[error("failed to retrieve Earth reference Frame")]
+    EarthFrame,
     #[error("physics issue: {0}")]
     Physics(PhysicsError),
 }
 
-/// [Solver] aims at solving [PVTSolution]s.
-pub struct Solver<O: OrbitalStateProvider> {
+/// [Solver] to resolve [PVTSolution]s.
+pub struct Solver<O: OrbitalStateProvider, R: RemoteSite> {
     /// [OrbitalStateProvider]
     orbit: O,
+    /// [RemoteSite]
+    remote_site: Option<R>,
     /// Solver parametrization
     pub cfg: Config,
     /// Initial [Position]
     initial: Option<Position>,
     /// [Almanac]
     almanac: Almanac,
+    /// [Frame]
+    earth_j2000: Frame,
     /// [Navigation]
     nav: Navigation,
     /// [AmbiguitySolver]
@@ -144,14 +150,19 @@ fn signal_quality_filter(method: Method, min_snr: f64, pool: &mut Vec<Candidate>
     })
 }
 
-impl<O: OrbitalStateProvider> Solver<O> {
+impl<O: OrbitalStateProvider, R: RemoteSite> Solver<O, R> {
     /// Create new Position [Solver] dedicated to PPP positioning
     pub fn ppp(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
-        Self::new(cfg, initial, orbit)
+        Self::new(cfg, initial, orbit, None)
     }
     /// Create new Position [Solver] dedicated to RTK positioning
-    pub fn rtk(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
-        Self::new(cfg, initial, orbit)
+    pub fn rtk(
+        cfg: &Config,
+        initial: Option<Position>,
+        orbit: O,
+        remote_site: R,
+    ) -> Result<Self, Error> {
+        Self::new(cfg, initial, orbit, Some(remote_site))
     }
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
@@ -163,9 +174,19 @@ impl<O: OrbitalStateProvider> Solver<O> {
     ///   You have to take that into account, especially when operating in Fixed Altitude
     ///   or Time Only modes.
     /// - orbit: [OrbitalStateProvider] must be provided for Direct (1D) PPP
-    pub fn new(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
-        // Default Alamanac, valid until 2035
+    /// - remote: single static [RemoteSite] for RTK
+    pub fn new(
+        cfg: &Config,
+        initial: Option<Position>,
+        orbit: O,
+        remote_site: Option<R>,
+    ) -> Result<Self, Error> {
+        // Default Almanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
+
+        let earth_j2000 = almanac
+            .frame_from_uid(EARTH_J2000)
+            .map_err(|_| Error::EarthFrame)?;
 
         // Print more information
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
@@ -177,6 +198,8 @@ impl<O: OrbitalStateProvider> Solver<O> {
         Ok(Self {
             orbit,
             almanac,
+            earth_j2000,
+            remote_site,
             initial: {
                 if let Some(ref initial) = initial {
                     let geo = initial.geodetic();
@@ -229,9 +252,7 @@ impl<O: OrbitalStateProvider> Solver<O> {
             signal_quality_filter(method, min_snr, &mut pool);
         }
 
-        let earth_j2000 = self.almanac.frame_from_uid(EARTH_J2000).unwrap();
-
-        /* Orbits */
+        // orits
         let mut pool: Vec<Candidate> = pool
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
@@ -288,19 +309,15 @@ impl<O: OrbitalStateProvider> Solver<O> {
             })
             .collect();
 
-        /*
-         * Update internal state
-         */
+        // relativistic clock bias
         for cd in pool.iter_mut() {
             if modeling.relativistic_clock_bias {
-                /*
-                 * following calculations need inst. velocity
-                 */
+                // requires instant. velocity
                 let state = cd.state.unwrap();
                 if state.velocity.is_some() {
                     const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
                     const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
-                    let orbit = state.orbit(cd.t_tx, earth_j2000);
+                    let orbit = state.orbit(cd.t_tx, self.earth_j2000);
                     let ea_rad = deg2rad(orbit.ea_deg().map_err(Error::Physics)?);
                     let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
                     let bias = -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
@@ -311,16 +328,15 @@ impl<O: OrbitalStateProvider> Solver<O> {
                     cd.clock_corr += bias;
                 }
             }
-
             self.prev_sv_state
                 .insert(cd.sv, (cd.t_tx, cd.state.unwrap().position));
         }
 
-        /* apply eclipse filter (if need be) */
+        // apply eclipse filter (if need be)
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             pool.retain(|cd| {
                 let state = cd.state.unwrap(); // infaillible
-                let orbit = state.orbit(cd.t, earth_j2000);
+                let orbit = state.orbit(cd.t, self.earth_j2000);
                 let state = eclipse_state(orbit, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
                 let eclipsed = match state {
                     EclipseState::Umbra => true,
