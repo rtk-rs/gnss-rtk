@@ -268,7 +268,7 @@ impl Candidate {
         let freq_l1 = c_l1.frequency();
 
         let (c_lx, lx_pr) = self
-            .phase_range_iter()
+            .pseudo_range_iter()
             .filter(|(c, _)| *c != c_l1)
             .reduce(|k, _| k)?;
 
