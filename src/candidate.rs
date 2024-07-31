@@ -132,14 +132,12 @@ impl Candidate {
         }
     }
     /// Provide remote [Observation]s observed by [BaseStation]
-    pub fn with_remote_observations(&self, remote: Vec<Observation>) -> Self {
-        let mut s = self.clone();
-        s.remote = remote.clone();
-        s
-    }
-    /// Set remote [Observation]s as observed on [RemoteSite]
-    pub fn set_remote(&mut self, remote: Vec<Observation>) {
+    pub(crate) fn set_remote_observations(&mut self, remote: Vec<Observation>) {
         self.remote = remote.clone();
+    }
+    /// Add one [Observation] observed on [BaseStation]
+    pub(crate) fn add_remote(&mut self, remote: Observation) {
+        self.remote.push(remote);
     }
 }
 

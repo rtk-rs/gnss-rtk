@@ -32,7 +32,7 @@ use crate::{
     },
     orbit::{OrbitalState, OrbitalStateProvider},
     position::Position,
-    prelude::{Duration, Epoch, SV},
+    prelude::{Duration, Epoch, Observation, SV},
     rtk::BaseStation,
 };
 
@@ -111,6 +111,8 @@ pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
     prev_used: Vec<SV>,
     /// Stored previous SV state (internal logic)
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
+    /// Base station observations (single malloc)
+    base_observations: HashMap<SV, Vec<Observation>>,
 }
 
 /// Apply signal condition criteria
@@ -200,7 +202,6 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             orbit,
             almanac,
             earth_j2000,
-            base_station,
             initial: {
                 if let Some(ref initial) = initial {
                     let geo = initial.geodetic();
@@ -218,6 +219,9 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
+            // base station
+            base_station,
+            base_observations: HashMap::with_capacity(16),
         })
     }
     /// [PVTSolution] resolution attempt.
@@ -253,54 +257,80 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             signal_quality_filter(method, min_snr, &mut pool);
         }
 
-        // orits
+        // gather (matching) observations on remote site
+        if let Some(ref mut base_station) = self.base_station {
+            for cd in pool.iter() {
+                for obs in cd.observations.iter() {
+                    if let Some(ob) = base_station.observe(cd.t, cd.sv, obs.carrier) {
+                        if let Some(base) = self.base_observations.get_mut(&cd.sv) {
+                            base.push(obs.clone());
+                        } else {
+                            self.base_observations.insert(cd.sv, vec![obs.clone()]);
+                        }
+                    }
+                }
+            }
+        }
+        for (sv, remote) in self.base_observations.iter() {
+            if let Some(cd) = pool.iter_mut().filter(|cd| cd.sv == *sv).reduce(|k, _| k) {
+                cd.set_remote_observations(remote.to_vec());
+            }
+        }
+        self.base_observations.clear();
+
+        // orbits
         let mut pool: Vec<Candidate> = pool
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
                     let mut orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    let mut orbit = orbits.next_at(t_tx, cd.sv, interp_order)?;
-                    let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
-                    let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
-                    let mut max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
+                    // determine orbital state: will fail on pure RTK scenario
+                    if let Some(mut orbit) = orbits.next_at(t_tx, cd.sv, interp_order) {
+                        let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
+                        let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
+                        let mut max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
 
-                    // provide more information after first iteration
-                    if let Some(initial) = &self.initial {
-                        let (x0, y0, z0) = (initial.ecef[0], initial.ecef[1], initial.ecef[2]);
-                        orbit = orbit.with_elevation_azimuth((x0, y0, z0));
-                    } else {
-                        min_elev = 0.0_f64; // cannot apply yet
-                        min_azim = 0.0_f64; // cannot apply yet
-                        max_azim = 360.0_f64; // cannot apply yet
-                    }
+                        // fix orbital state after first iteration
+                        if let Some(initial) = &self.initial {
+                            let (x0, y0, z0) = (initial.ecef[0], initial.ecef[1], initial.ecef[2]);
+                            orbit = orbit.with_elevation_azimuth((x0, y0, z0));
+                        } else {
+                            min_elev = 0.0_f64; // cannot apply yet
+                            min_azim = 0.0_f64; // cannot apply yet
+                            max_azim = 360.0_f64; // cannot apply yet
+                        }
 
-                    if orbit.elevation < min_elev {
-                        debug!(
-                            "{} ({}) - {:?} rejected : below elevation mask",
-                            cd.t, cd.sv, orbit
-                        );
-                        None
-                    } else if orbit.azimuth < min_azim {
-                        debug!(
-                            "{} ({}) - {:?} rejected : below azimuth mask",
-                            cd.t, cd.sv, orbit
-                        );
-                        None
-                    } else if orbit.azimuth > max_azim {
-                        debug!(
-                            "{} ({}) - {:?} rejected : above azimuth mask",
-                            cd.t, cd.sv, orbit
-                        );
-                        None
+                        if orbit.elevation < min_elev {
+                            debug!(
+                                "{} ({}) - {:?} rejected : below elevation mask",
+                                cd.t, cd.sv, orbit
+                            );
+                            None
+                        } else if orbit.azimuth < min_azim {
+                            debug!(
+                                "{} ({}) - {:?} rejected : below azimuth mask",
+                                cd.t, cd.sv, orbit
+                            );
+                            None
+                        } else if orbit.azimuth > max_azim {
+                            debug!(
+                                "{} ({}) - {:?} rejected : above azimuth mask",
+                                cd.t, cd.sv, orbit
+                            );
+                            None
+                        } else {
+                            let mut cd = cd.clone();
+                            let orbit =
+                                Self::rotate_position(modeling.earth_rotation, orbit, dt_tx);
+                            let orbit = self.velocities(t_tx, cd.sv, orbit);
+                            cd.t_tx = t_tx;
+                            debug!("{} ({}) : {:?}", cd.t, cd.sv, orbit);
+                            cd.state = Some(orbit);
+                            Some(cd)
+                        }
                     } else {
-                        let mut cd = cd.clone();
-                        let orbit = Self::rotate_position(modeling.earth_rotation, orbit, dt_tx);
-                        let orbit = self.velocities(t_tx, cd.sv, orbit);
-                        cd.t_tx = t_tx;
-                        debug!("{} ({}) : {:?}", cd.t, cd.sv, orbit);
-                        cd.state = Some(orbit);
-                        Some(cd)
+                        Some(cd.clone()) // preseve, for pure RTK scenario
                     }
                 },
                 Err(e) => {
@@ -313,41 +343,46 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         // relativistic clock bias
         for cd in pool.iter_mut() {
             if modeling.relativistic_clock_bias {
-                // requires instant. velocity
-                let state = cd.state.unwrap();
-                if state.velocity.is_some() {
-                    const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
-                    const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
-                    let orbit = state.orbit(cd.t_tx, self.earth_j2000);
-                    let ea_rad = deg2rad(orbit.ea_deg().map_err(Error::Physics)?);
-                    let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
-                    let bias = -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
-                        / SPEED_OF_LIGHT_M_S
-                        / SPEED_OF_LIGHT_M_S
-                        * Unit::Second;
-                    debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
-                    cd.clock_corr += bias;
+                if let Some(ref mut state) = cd.state {
+                    if state.velocity.is_some() {
+                        const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
+                        const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
+                        let orbit = state.orbit(cd.t_tx, self.earth_j2000);
+                        let ea_rad = deg2rad(orbit.ea_deg().map_err(Error::Physics)?);
+                        let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
+                        let bias =
+                            -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
+                                / SPEED_OF_LIGHT_M_S
+                                / SPEED_OF_LIGHT_M_S
+                                * Unit::Second;
+                        debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                        cd.clock_corr += bias;
+                    }
+                    // update for next time
+                    self.prev_sv_state.insert(cd.sv, (cd.t_tx, state.position));
                 }
             }
-            self.prev_sv_state
-                .insert(cd.sv, (cd.t_tx, cd.state.unwrap().position));
         }
 
         // apply eclipse filter (if need be)
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             pool.retain(|cd| {
-                let state = cd.state.unwrap(); // infaillible
-                let orbit = state.orbit(cd.t, self.earth_j2000);
-                let state = eclipse_state(orbit, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
-                let eclipsed = match state {
-                    EclipseState::Umbra => true,
-                    EclipseState::Visibilis => false,
-                    EclipseState::Penumbra(r) => r < min_rate,
-                };
-                if eclipsed {
-                    debug!("{} ({}): eclipsed", cd.t, cd.sv);
+                if let Some(state) = cd.state {
+                    let orbit = state.orbit(cd.t, self.earth_j2000);
+                    let state =
+                        eclipse_state(orbit, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
+                    let eclipsed = match state {
+                        EclipseState::Umbra => true,
+                        EclipseState::Visibilis => false,
+                        EclipseState::Penumbra(r) => r < min_rate,
+                    };
+                    if eclipsed {
+                        debug!("{} ({}): eclipsed", cd.t, cd.sv);
+                    }
+                    !eclipsed
+                } else {
+                    true // preserve, for pure RTK
                 }
-                !eclipsed
             });
         }
 
@@ -386,6 +421,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
 
         // Prepare for NAV:
         Self::retain_best_elevation(&mut pool, min_required);
+
         // Sort by PRN to form consistant matrix
         pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
 
