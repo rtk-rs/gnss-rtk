@@ -231,7 +231,7 @@ impl Input {
                 if cfg.method == Method::PPP {
                     let cmb = cd[index]
                         .phase_if_combination()
-                        .ok_or(Error::PseudoRangeCombination)?;
+                        .ok_or(Error::PhaseRangeCombination)?;
 
                     let f_1 = cmb.rhs.frequency();
                     let lambda_j = cmb.lhs.wavelength();
