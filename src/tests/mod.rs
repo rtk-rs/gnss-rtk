@@ -1,4 +1,8 @@
-use crate::prelude::*;
+use crate::prelude::{
+    BaseStation as RTKBaseStation, Candidate, Carrier, Config, Epoch, Error, InvalidationCause,
+    IonosphereBias, Observation, OrbitalState, OrbitalStateProvider, PVTSolution, Position, Solver,
+    TimeScale, TroposphereBias, Vector3, SV,
+};
 
 mod bancroft;
 mod data;
@@ -10,7 +14,7 @@ use data::{gps::test_data as gps_test_data, interp::interp_data};
 struct Orbits {}
 
 impl OrbitalStateProvider for Orbits {
-    fn next_at(&self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
+    fn next_at(&mut self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
         Some(
             interp_data()
                 .iter()
@@ -18,6 +22,14 @@ impl OrbitalStateProvider for Orbits {
                 .min_by_key(|k| (k.0 - t).abs())?
                 .2,
         )
+    }
+}
+
+struct BaseStation {}
+
+impl RTKBaseStation for BaseStation {
+    fn observe(&mut self, t: Epoch, sv: SV, carrier: Carrier) -> Option<Observation> {
+        None
     }
 }
 
@@ -97,20 +109,25 @@ impl Tester {
         }
     }
     fn deploy_without_apriori(&self, cfg: &Config) {
-        let orbits = Box::new(Orbits {});
-        let mut solver = Solver::ppp(&cfg, None, orbits)
+        let orbits = Orbits {};
+        let mut solver: Solver<Orbits, BaseStation> = Solver::ppp(&cfg, None, orbits)
             .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
     fn deploy_with_apriori(&self, cfg: &Config) {
-        let orbits = Box::new(Orbits {});
-        let mut solver = Solver::ppp(&cfg, self.reference.clone(), orbits)
-            .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
+        let orbits = Orbits {};
+        let mut solver: Solver<Orbits, BaseStation> =
+            Solver::ppp(&cfg, self.reference.clone(), orbits)
+                .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
-    fn run(&self, solver: &mut Solver, cfg: &Config) {
+    fn run<O: OrbitalStateProvider, B: RTKBaseStation>(
+        &self,
+        solver: &mut Solver<O, B>,
+        cfg: &Config,
+    ) {
         for (data_index, data) in gps_test_data().iter_mut().enumerate() {
             match solver.resolve(data.t_rx, &mut data.pool, &data.iono_bias, &data.tropo_bias) {
                 Ok((t, solution)) => {
@@ -161,6 +178,9 @@ impl Tester {
                     },
                     Error::Almanac(e) => {
                         panic!("almanac determination error: {}", e);
+                    },
+                    Error::EarthFrame => {
+                        panic!("earth frame error");
                     },
                 },
             }

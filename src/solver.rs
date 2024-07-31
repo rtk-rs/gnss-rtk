@@ -24,7 +24,7 @@ use crate::{
     ambiguity::AmbiguitySolver,
     bancroft::Bancroft,
     bias::{IonosphereBias, TroposphereBias},
-    candidate::{Candidate, RemoteSite},
+    candidate::Candidate,
     cfg::{Config, Method},
     navigation::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
@@ -33,6 +33,7 @@ use crate::{
     orbit::{OrbitalState, OrbitalStateProvider},
     position::Position,
     prelude::{Duration, Epoch, SV},
+    rtk::BaseStation,
 };
 
 #[derive(Debug, PartialEq, Error)]
@@ -82,11 +83,11 @@ pub enum Error {
 }
 
 /// [Solver] to resolve [PVTSolution]s.
-pub struct Solver<O: OrbitalStateProvider, R: RemoteSite> {
+pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
     /// [OrbitalStateProvider]
     orbit: O,
-    /// [RemoteSite]
-    remote_site: Option<R>,
+    /// [BaseStation]
+    base_station: Option<B>,
     /// Solver parametrization
     pub cfg: Config,
     /// Initial [Position]
@@ -150,7 +151,7 @@ fn signal_quality_filter(method: Method, min_snr: f64, pool: &mut Vec<Candidate>
     })
 }
 
-impl<O: OrbitalStateProvider, R: RemoteSite> Solver<O, R> {
+impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
     /// Create new Position [Solver] dedicated to PPP positioning
     pub fn ppp(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
         Self::new(cfg, initial, orbit, None)
@@ -160,9 +161,9 @@ impl<O: OrbitalStateProvider, R: RemoteSite> Solver<O, R> {
         cfg: &Config,
         initial: Option<Position>,
         orbit: O,
-        remote_site: R,
+        base_station: B,
     ) -> Result<Self, Error> {
-        Self::new(cfg, initial, orbit, Some(remote_site))
+        Self::new(cfg, initial, orbit, Some(base_station))
     }
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
@@ -179,7 +180,7 @@ impl<O: OrbitalStateProvider, R: RemoteSite> Solver<O, R> {
         cfg: &Config,
         initial: Option<Position>,
         orbit: O,
-        remote_site: Option<R>,
+        base_station: Option<B>,
     ) -> Result<Self, Error> {
         // Default Almanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
@@ -199,7 +200,7 @@ impl<O: OrbitalStateProvider, R: RemoteSite> Solver<O, R> {
             orbit,
             almanac,
             earth_j2000,
-            remote_site,
+            base_station,
             initial: {
                 if let Some(ref initial) = initial {
                     let geo = initial.geodetic();
@@ -244,8 +245,10 @@ impl<O: OrbitalStateProvider, R: RemoteSite> Solver<O, R> {
         let modeling = self.cfg.modeling;
         let interp_order = self.cfg.interp_order;
 
+        debug!("{:#?}", pool);
         // signal condition filter
         signal_condition_filter(method, &mut pool);
+        debug!("{:#?}", pool);
 
         // signal quality filter
         if let Some(min_snr) = self.cfg.min_snr {

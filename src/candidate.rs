@@ -102,13 +102,6 @@ pub struct Candidate {
     pub(crate) observations: Vec<Observation>,
 }
 
-/// [RemoteSite] trait must be implemented by static reference Remote Sites.
-pub trait RemoteSite {
-    /// Provide [Observation] for specified [SV] [Carrier] at [Epoch] (sampling instant).
-    /// If you can't, simply return None, but this [SV] will be dropped from current navigation.
-    fn observe(&self, t: Epoch, sv: SV, carrier: Carrier) -> Option<Observation>;
-}
-
 // public
 impl Candidate {
     /// Creates a new candidate, to inject in the solver pool.
@@ -138,8 +131,8 @@ impl Candidate {
             remote: Vec::new(),
         }
     }
-    /// Provide remote [Observation]s observed on [RemoteSite]
-    pub fn with_remote(&self, remote: Vec<Observation>) -> Self {
+    /// Provide remote [Observation]s observed by [BaseStation]
+    pub fn with_remote_observations(&self, remote: Vec<Observation>) -> Self {
         let mut s = self.clone();
         s.remote = remote.clone();
         s

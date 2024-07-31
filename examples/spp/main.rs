@@ -1,14 +1,15 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    Candidate, Carrier, Config, Duration, Epoch, Error, InvalidationCause, IonosphereBias, Method,
-    Observation, OrbitalState, OrbitalStateProvider, Solver, TroposphereBias, SV,
+    BaseStation as RTKBaseStation, Candidate, Carrier, Config, Duration, Epoch, Error,
+    InvalidationCause, IonosphereBias, Method, Observation, OrbitalState, OrbitalStateProvider,
+    Solver, TroposphereBias, SV,
 };
 
 // Orbit source example
-struct MyOrbitSource {}
+struct Orbits {}
 
-impl OrbitalStateProvider for MyOrbitSource {
+impl OrbitalStateProvider for Orbits {
     // For each requested "t" and "sv",
     // if we can, we should resolve the SV [OrbitalState].
     // If interpolation is to be used (depending on your apps), you can
@@ -16,9 +17,19 @@ impl OrbitalStateProvider for MyOrbitSource {
     // If you're not in position to determine [OrbitalState], simply return None.
     // If None is returned for too long, this [Epoch] will eventually be dropped out,
     // and we will move on to the next
-    fn next_at(&self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
+    fn next_at(&mut self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
         let (x, y, z) = (0.0_f64, 0.0_f64, 0.0_f64);
         Some(OrbitalState::from_position((x, y, z)))
+    }
+}
+
+// This example is direct positioning (not RTK), therefore
+// the BaseStation returns Null all the time (== non existant)
+struct BaseStation {}
+
+impl RTKBaseStation for BaseStation {
+    fn observe(&mut self, t: Epoch, sv: SV, carrier: Carrier) -> Option<Observation> {
+        None // no differential positioning
     }
 }
 
@@ -69,7 +80,11 @@ impl MyDataSource {
 }
 
 pub fn main() {
-    let orbits = MyOrbitSource {};
+    // Build the Orbit source
+    let orbits = Orbits {};
+
+    // Build the Base station
+    let base_station = BaseStation {};
 
     // The preset API is useful to quickly deploy depending on your application.
     // Static presets target static positioning.
@@ -77,12 +92,15 @@ pub fn main() {
 
     // The API is pretty straightforward, it requires the Configuration preset to be
     // built ahead of time. The only difficulty is the design your data source and SV state provider. We interact with the SV state provider by means of a function pointer.
-    let solver = Solver::ppp(
+    let solver = Solver::new(
         &cfg,
         // We deploy without apriori knowledge.
         // The solver will initialize itself.
         None,
-        Box::new(orbits),
+        // Tie the Orbit source
+        orbits,
+        // Tie the Base station
+        Some(base_station),
     );
 
     // The solver needs to be mutable, due to the iteration process.
