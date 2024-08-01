@@ -446,14 +446,14 @@ impl Candidate {
         let dt_secs = (t - e_tx).to_seconds();
         let dt = Duration::from_seconds(dt_secs);
         assert!(
-            dt_secs >= 0.0,
-            "physical non sense - RX {:?} prior TX {:?}",
+            dt_secs.is_positive(),
+            "Physical non sense - RX {:?} prior TX {:?}",
             t,
             e_tx
         );
         assert!(
             dt_secs <= 0.2,
-            "{}({}): {} propagation delay (to Earth) is unrealistic: invalid input",
+            "{}({}): {} Space/Earth propagation delay is unrealistic: invalid input",
             t,
             self.sv,
             dt
