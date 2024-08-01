@@ -1,13 +1,13 @@
 //! PVT solver
-use std::collections::HashMap;
+
+use std::{cmp::Ordering, collections::HashMap};
 
 use hifitime::Unit;
-// use itertools::Itertools;
+use thiserror::Error;
+
 use log::{debug, error, info, warn};
 use map_3d::{deg2rad, rad2deg};
 use nalgebra::{Matrix3, Vector3};
-// use std::cmp::Ordering;
-use thiserror::Error;
 
 use nyx::cosmic::{
     eclipse::{eclipse_state, EclipseState},
@@ -621,11 +621,20 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         }
     }
     fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
-        //   1. Retain best elevation
         pool.sort_by(|cd_a, cd_b| {
-            let state_a = cd_a.state.unwrap();
-            let state_b = cd_b.state.unwrap();
-            state_a.elevation.partial_cmp(&state_b.elevation).unwrap()
+            if let Some(state_a) = cd_a.state {
+                if let Some(state_b) = cd_b.state {
+                    state_a.elevation.partial_cmp(&state_b.elevation).unwrap()
+                } else {
+                    Ordering::Greater
+                }
+            } else {
+                if cd_b.state.is_some() {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
         });
 
         let mut index = 0;
