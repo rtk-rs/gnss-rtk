@@ -176,12 +176,10 @@ impl Candidate {
             })
             .map(|c| c.snr)?
     }
-    /*
-     * Returns one pseudo range observation [m], whatever the frequency.
-     * Best SNR is preferred though (if such information was provided).
-     */
-    pub fn prefered_pseudorange(&self) -> Option<Observation> {
-        self.observations
+    /// Returns one pseudo range observation [m], whatever the frequency.
+    pub(crate) fn prefered_pseudorange(&self) -> Option<Observation> {
+        if let Some(c1) = self
+            .observations
             .iter()
             .filter(|ob| {
                 matches!(
@@ -190,7 +188,21 @@ impl Candidate {
                 ) && ob.pseudo.is_some()
             })
             .reduce(|k, _| k)
-            .cloned()
+        {
+            Some(c1.clone())
+        } else {
+            self.observations
+                .iter()
+                .filter(|ob| {
+                    ob.pseudo.is_some()
+                        && !matches!(
+                            ob.carrier,
+                            Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                        )
+                })
+                .reduce(|k, _| k)
+                .cloned()
+        }
     }
     // True if Self is Method::CPP compatible
     pub(crate) fn cpp_compatible(&self) -> bool {
