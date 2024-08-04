@@ -94,12 +94,36 @@ pub struct Candidate {
     pub(crate) tgd: Option<Duration>,
     // Windup term in cycles
     pub(crate) wind_up: f64,
-    // SV clock correction
-    pub(crate) clock_corr: Duration,
-    // Observations
+    /// [ClockCorrection]
+    pub(crate) clock_corr: ClockCorrection,
+    /// Remote [Observation]s
     pub(crate) remote: Vec<Observation>,
-    // Observations
+    /// Local [Observation]s
     pub(crate) observations: Vec<Observation>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ClockCorrection {
+    /// Correction to associated timescale, expressed as [Duration]
+    pub duration: Duration,
+    pub(crate) needs_relativistic_correction: bool,
+}
+
+impl ClockCorrection {
+    /// Define a new [ClockCorrection] that already integrates relativistic corrections
+    pub fn with_relativistic_correction(duration: Duration) -> Self {
+        Self {
+            duration,
+            needs_relativistic_correction: false,
+        }
+    }
+    /// Define a new [ClockCorrection] that does not integrate relativistic corrections
+    pub fn without_relativistic_correction(duration: Duration) -> Self {
+        Self {
+            duration,
+            needs_relativistic_correction: true,
+        }
+    }
 }
 
 // public
@@ -115,7 +139,7 @@ impl Candidate {
     pub fn new(
         sv: SV,
         t: Epoch,
-        clock_corr: Duration,
+        clock_corr: ClockCorrection,
         tgd: Option<Duration>,
         observations: Vec<Observation>,
     ) -> Self {
@@ -444,8 +468,11 @@ impl Candidate {
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
 
         if cfg.modeling.sv_clock_bias {
-            debug!("{} ({}) clock correction: {}", t, self.sv, self.clock_corr);
-            e_tx -= self.clock_corr;
+            debug!(
+                "{} ({}) clock correction: {}",
+                t, self.sv, self.clock_corr.duration
+            );
+            e_tx -= self.clock_corr.duration;
         }
 
         if cfg.modeling.sv_total_group_delay {

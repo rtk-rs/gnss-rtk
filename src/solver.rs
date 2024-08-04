@@ -6,7 +6,6 @@ use hifitime::Unit;
 use thiserror::Error;
 
 use log::{debug, error, info, warn};
-use map_3d::{deg2rad, rad2deg};
 use nalgebra::{Matrix3, Vector3};
 
 use nyx::cosmic::{
@@ -15,7 +14,7 @@ use nyx::cosmic::{
 };
 
 use anise::{
-    constants::frames::{EARTH_J2000, SUN_J2000, EARTH_ITRF93},
+    constants::frames::{EARTH_ITRF93, EARTH_J2000, SUN_J2000},
     errors::{AlmanacError, PhysicsError},
     prelude::{Almanac, Frame},
 };
@@ -206,7 +205,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             initial: {
                 if let Some(ref initial) = initial {
                     let geo = initial.geodetic();
-                    let (lat, lon) = (rad2deg(geo[0]), rad2deg(geo[1]));
+                    let (lat, lon) = (geo[0].to_degrees(), geo[1].to_degrees());
                     info!("initial position lat={:.3E}°, lon={:.3E}°", lat, lon);
                 }
                 initial
@@ -345,11 +344,12 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         for cd in pool.iter_mut() {
             if modeling.relativistic_clock_bias {
                 if let Some(ref mut state) = cd.state {
-                    if state.velocity.is_some() {
+                    if state.velocity.is_some() && cd.clock_corr.needs_relativistic_correction {
                         const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
                         const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
                         let orbit = state.orbit(cd.t_tx, self.earth_j2000);
-                        let ea_rad = deg2rad(orbit.ea_deg().map_err(Error::Physics)?);
+                        let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
+                        let ea_rad = ea_deg.to_radians();
                         let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
                         let bias =
                             -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
@@ -357,7 +357,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                                 / SPEED_OF_LIGHT_M_S
                                 * Unit::Second;
                         debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
-                        cd.clock_corr += bias;
+                        cd.clock_corr.duration += bias;
                     }
                     // update for next time
                     self.prev_sv_state.insert(cd.sv, (cd.t_tx, state.position));
@@ -397,7 +397,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             let (x0, y0, z0) = (output[0], output[1], output[2]);
             let position = Position::from_ecef(Vector3::<f64>::new(x0, y0, z0));
             let geo = position.geodetic();
-            let (lat, lon) = (rad2deg(geo[0]), rad2deg(geo[1]));
+            let (lat, lon) = (geo[0].to_degrees(), geo[1].to_degrees());
             info!(
                 "{} - estimated initial position lat={:.3E}°, lon={:.3E}°",
                 pool[0].t, lat, lon
@@ -434,7 +434,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             initial.geodetic()[1],
             initial.geodetic()[2],
         );
-        let (lat_ddeg, lon_ddeg) = (deg2rad(lat_rad), deg2rad(lon_rad));
+        let (lat_ddeg, lon_ddeg) = (lat_rad.to_degrees(), lon_rad.to_degrees());
 
         let w = self.cfg.solver.weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
                                                  // // Reduce contribution of newer (rising) vehicles (rising)
@@ -510,6 +510,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             timescale: self.cfg.timescale,
             velocity: Vector3::<f64>::default(),
             dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT_M_S),
+            d_dt: 0.0_f64,
         };
 
         // First solution
@@ -553,8 +554,9 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         }
 
         if let Some((prev_t, prev_solution)) = &self.prev_solution {
-            solution.velocity =
-                (solution.position - prev_solution.position) / (t - *prev_t).to_seconds();
+            let dt_s = (t - *prev_t).to_seconds();
+            solution.velocity = (solution.position - prev_solution.position) / dt_s;
+            solution.d_dt = (prev_solution.dt - solution.dt).to_seconds() / dt_s;
         }
 
         self.prev_solution = Some((t, solution.clone()));

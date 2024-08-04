@@ -130,7 +130,7 @@ impl Input {
             };
 
             let state = cd[index].state.ok_or(Error::UnresolvedState)?;
-            let clock_corr = cd[index].clock_corr.to_seconds();
+            let clock_corr = cd[index].clock_corr.duration.to_seconds();
 
             let (azimuth, elevation) = (state.azimuth, state.elevation);
             sv_input.azimuth = azimuth;

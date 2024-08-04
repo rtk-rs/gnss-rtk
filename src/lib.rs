@@ -27,7 +27,7 @@ mod tests;
 pub mod prelude {
     pub use crate::ambiguity::Ambiguities;
     pub use crate::bias::{BdModel, IonosphereBias, KbModel, NgModel, TroposphereBias};
-    pub use crate::candidate::{Candidate, Observation};
+    pub use crate::candidate::{Candidate, ClockCorrection, Observation};
     pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, InvalidationCause, PVTSolution, PVTSolutionType};
