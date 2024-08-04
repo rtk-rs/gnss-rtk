@@ -25,6 +25,7 @@ use crate::{
     bias::{IonosphereBias, TroposphereBias},
     candidate::Candidate,
     cfg::{Config, Method},
+    constants::Constants,
     navigation::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
         Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
@@ -345,12 +346,13 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             if modeling.relativistic_clock_bias {
                 if let Some(ref mut state) = cd.state {
                     if state.velocity.is_some() && cd.clock_corr.needs_relativistic_correction {
-                        const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
-                        const EARTH_GRAVITATIONAL_CONST: f64 = 3986004.418 * 10.0E8;
+                        let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
+                        let mu = Constants::EARTH_GRAVITATION;
+
                         let orbit = state.orbit(cd.t_tx, self.earth_j2000);
                         let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
                         let ea_rad = ea_deg.to_radians();
-                        let gm = (EARTH_SEMI_MAJOR_AXIS_WGS84 * EARTH_GRAVITATIONAL_CONST).sqrt();
+                        let gm = (w_e * mu).sqrt();
                         let bias =
                             -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
                                 / SPEED_OF_LIGHT_M_S

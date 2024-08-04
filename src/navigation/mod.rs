@@ -13,6 +13,7 @@ use crate::{
     bias::{Bias, IonosphereBias, RuntimeParam as BiasRuntimeParams, TropoModel, TroposphereBias},
     candidate::Candidate,
     cfg::Config,
+    constants::Constants,
     prelude::{Error, Method, SV},
 };
 
@@ -137,7 +138,25 @@ impl Input {
             sv_input.elevation = elevation;
 
             let (sv_x, sv_y, sv_z) = (state.position[0], state.position[1], state.position[2]);
-            let rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
+            let mut rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
+
+            if cfg.modeling.relativistic_path_range {
+                let mu = Constants::EARTH_GRAVITATION;
+                let r_sat = (state.position[0].powi(2)
+                    + state.position[1].powi(2)
+                    + state.position[2].powi(2))
+                .sqrt();
+                let r_0 = (x0.powi(2) + y0.powi(2) + z0.powi(2)).sqrt();
+                let r_sat_0 = r_0 - r_sat;
+                let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+                    * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
+                // rho += dr; //TODO
+                debug!(
+                    "{}({}) relativistic path range {}",
+                    cd[index].t, cd[index].sv, dr
+                );
+            }
+
             let (x_i, y_i, z_i) = ((x0 - sv_x) / rho, (y0 - sv_y) / rho, (z0 - sv_z) / rho);
 
             g[(i, 0)] = x_i;
