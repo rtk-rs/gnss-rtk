@@ -403,8 +403,9 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             );
             // update attitudes
             for cd in pool.iter_mut() {
-                let state = cd.state.unwrap();
-                state.with_elevation_azimuth((x0, y0, z0));
+                if let Some(mut state) = cd.state {
+                    state = state.with_elevation_azimuth((x0, y0, z0));
+                }
             }
             // store
             self.initial = Some(Position::from_ecef(Vector3::new(
