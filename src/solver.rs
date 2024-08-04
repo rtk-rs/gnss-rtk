@@ -15,7 +15,7 @@ use nyx::cosmic::{
 };
 
 use anise::{
-    constants::frames::{EARTH_J2000, SUN_J2000},
+    constants::frames::{EARTH_J2000, SUN_J2000, EARTH_ITRF93},
     errors::{AlmanacError, PhysicsError},
     prelude::{Almanac, Frame},
 };
@@ -188,7 +188,8 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
 
         let earth_j2000 = almanac
-            .frame_from_uid(EARTH_J2000)
+            //.frame_from_uid(EARTH_J2000)
+            .frame_from_uid(EARTH_ITRF93)
             .map_err(|_| Error::EarthFrame)?;
 
         // Print more information
