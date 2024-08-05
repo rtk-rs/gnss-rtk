@@ -95,7 +95,7 @@ pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
     /// [Almanac]
     almanac: Almanac,
     /// [Frame]
-    earth_j2000: Frame,
+    earth_cef: Frame,
     /// [Navigation]
     nav: Navigation,
     /// [AmbiguitySolver]
@@ -187,7 +187,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         // Default Almanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
 
-        let earth_j2000 = almanac
+        let earth_cef = almanac
             //.frame_from_uid(EARTH_J2000)
             .frame_from_uid(EARTH_ITRF93)
             .map_err(|_| Error::EarthFrame)?;
@@ -196,13 +196,10 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("Eclipse filter is not meaningful in SPP mode");
         }
-        if cfg.modeling.relativistic_path_range {
-            warn!("Relativistic path range cannot be modeled at the moment");
-        }
         Ok(Self {
             orbit,
             almanac,
-            earth_j2000,
+            earth_cef,
             initial: {
                 if let Some(ref initial) = initial {
                     let geo = initial.geodetic();
@@ -286,7 +283,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                 Ok((t_tx, dt_tx)) => {
                     let mut orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    // determine orbital state: will fail on pure RTK scenario
+                    // determine orbital state
                     if let Some(mut orbit) = orbits.next_at(t_tx, cd.sv, interp_order) {
                         let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
                         let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
@@ -297,9 +294,10 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                             let (x0, y0, z0) = (initial.ecef[0], initial.ecef[1], initial.ecef[2]);
                             orbit = orbit.with_elevation_azimuth((x0, y0, z0));
                         } else {
-                            min_elev = 0.0_f64; // cannot apply yet
-                            min_azim = 0.0_f64; // cannot apply yet
-                            max_azim = 360.0_f64; // cannot apply yet
+                            // not apply criterias yet
+                            min_elev = 0.0_f64;
+                            min_azim = 0.0_f64;
+                            max_azim = 360.0_f64;
                         }
 
                         if orbit.elevation < min_elev {
@@ -349,7 +347,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                         let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
                         let mu = Constants::EARTH_GRAVITATION;
 
-                        let orbit = state.orbit(cd.t_tx, self.earth_j2000);
+                        let orbit = state.orbit(cd.t_tx, self.earth_cef);
                         let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
                         let ea_rad = ea_deg.to_radians();
                         let gm = (w_e * mu).sqrt();
@@ -371,7 +369,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             pool.retain(|cd| {
                 if let Some(state) = cd.state {
-                    let orbit = state.orbit(cd.t, self.earth_j2000);
+                    let orbit = state.orbit(cd.t, self.earth_cef);
                     let state =
                         eclipse_state(orbit, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
                     let eclipsed = match state {
@@ -406,8 +404,8 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             );
             // update attitudes
             for cd in pool.iter_mut() {
-                if let Some(mut state) = cd.state {
-                    state = state.with_elevation_azimuth((x0, y0, z0));
+                if let Some(state) = &mut cd.state {
+                    *state = state.with_elevation_azimuth((x0, y0, z0));
                 }
             }
             // store
