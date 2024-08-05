@@ -12,8 +12,12 @@ mod candidate;
 mod carrier;
 mod cfg;
 mod navigation;
+mod orbit;
 mod position;
+mod rtk;
 mod solver;
+
+pub(crate) mod constants;
 
 // mod tracker;
 // pub(crate) mod utils;
@@ -25,12 +29,14 @@ mod tests;
 pub mod prelude {
     pub use crate::ambiguity::Ambiguities;
     pub use crate::bias::{BdModel, IonosphereBias, KbModel, NgModel, TroposphereBias};
-    pub use crate::candidate::{Candidate, PhaseRange, PseudoRange};
+    pub use crate::candidate::{Candidate, ClockCorrection, Observation};
     pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, InvalidationCause, PVTSolution, PVTSolutionType};
+    pub use crate::orbit::{OrbitalState, OrbitalStateProvider};
     pub use crate::position::Position;
-    pub use crate::solver::{Error, InterpolationResult, Solver};
+    pub use crate::rtk::BaseStation;
+    pub use crate::solver::{Error, Solver};
     // re-export
     pub use anise::constants::frames::{EARTH_J2000, SUN_J2000};
     pub use anise::naif::SPK;
@@ -38,5 +44,5 @@ pub mod prelude {
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};
     pub use nalgebra::Vector3;
-    pub use std::sync::Arc;
+    pub use nyx_space::md::prelude::Arc;
 }

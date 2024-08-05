@@ -1,26 +1,36 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    Candidate, Carrier, Config, Duration, Epoch, Error, InterpolationResult, InvalidationCause,
-    IonosphereBias, Method, PseudoRange, Solver, TroposphereBias, SV,
+    BaseStation as RTKBaseStation, Candidate, Carrier, ClockCorrection, Config, Duration, Epoch,
+    Error, InvalidationCause, IonosphereBias, Method, Observation, OrbitalState,
+    OrbitalStateProvider, Solver, TroposphereBias, SV,
 };
 
-// Define your SV position provider.
-fn position_provider(_t: Epoch, _sv: SV, _order: usize) -> Option<InterpolationResult> {
-    // For each requested "t" and "sv",
-    // you should design an InterpolationResult,
-    // ideally using recommended "order" in case interpolation is involved in your workflow,
-    // For example by browsing a database.
-    // When you're not in position to provide such information, simply return None.
-    // If the minimum required of SV is not gathered at this point in time,
-    // no solutions will be generated for this epoch, and the solver will move on
-    // to the next.
+// Orbit source example
+struct Orbits {}
 
-    // dummy example
-    let x = 0.0_f64;
-    let y = 0.0_f64;
-    let z = 0.0_f64;
-    Some(InterpolationResult::from_position((x, y, z)))
+impl OrbitalStateProvider for Orbits {
+    // For each requested "t" and "sv",
+    // if we can, we should resolve the SV [OrbitalState].
+    // If interpolation is to be used (depending on your apps), you can
+    // use the interpolation order that we recommend here, or decide to ignore it.
+    // If you're not in position to determine [OrbitalState], simply return None.
+    // If None is returned for too long, this [Epoch] will eventually be dropped out,
+    // and we will move on to the next
+    fn next_at(&mut self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
+        let (x, y, z) = (0.0_f64, 0.0_f64, 0.0_f64);
+        Some(OrbitalState::from_position((x, y, z)))
+    }
+}
+
+// This example is direct positioning (not RTK), therefore
+// the BaseStation returns Null all the time (== non existant)
+struct BaseStation {}
+
+impl RTKBaseStation for BaseStation {
+    fn observe(&mut self, t: Epoch, sv: SV, carrier: Carrier) -> Option<Observation> {
+        None // no differential positioning
+    }
 }
 
 // Data source example
@@ -46,20 +56,23 @@ impl MyDataSource {
                     SV::default(),
                     // Sampling Epoch. Must be identical for this grouping of candidates
                     Epoch::default(),
-                    // For each Candidate, you must provide the ongoing clock correction we should apply
-                    Duration::default(),
+                    // You must provide a [ClockCorrection] for each candidate
+                    ClockCorrection::without_relativistic_correction(Duration::from_nanoseconds(
+                        100.0,
+                    )),
                     // If you know the total group day for this Candidate, specify it here
                     None,
-                    // List of Pseudo Range observations, we only need one in this scenario
-                    vec![PseudoRange {
+                    // List of observations
+                    vec![Observation {
                         carrier: Carrier::L1, // example
-                        value: 3.0E6,         // example, this is raw observation
+                        pseudo: Some(3.0E6),  // example, this is raw observation
                         // Note that if you apply a min_snr preset,
                         // we might drop candidates that do not have this info
                         snr: None, // unknown
+                        phase: None,
+                        doppler: None,
+                        ambiguity: None,
                     }],
-                    // List of Phase Range observations: not needed in this scenario
-                    vec![],
                 ),
                 // Create all as many candidates as possible.
                 // It's better to have more than needed, it leaves us more possibility in the election process.
@@ -69,6 +82,12 @@ impl MyDataSource {
 }
 
 pub fn main() {
+    // Build the Orbit source
+    let orbits = Orbits {};
+
+    // Build the Base station
+    let base_station = BaseStation {};
+
     // The preset API is useful to quickly deploy depending on your application.
     // Static presets target static positioning.
     let cfg = Config::static_preset(Method::SPP); // Single Freq. Pseudo Range based
@@ -80,8 +99,10 @@ pub fn main() {
         // We deploy without apriori knowledge.
         // The solver will initialize itself.
         None,
-        // connect the position provider
-        position_provider,
+        // Tie the Orbit source
+        orbits,
+        // Tie the Base station
+        Some(base_station),
     );
 
     // The solver needs to be mutable, due to the iteration process.

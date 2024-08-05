@@ -109,7 +109,7 @@ fn default_relativistic_clock_bias() -> bool {
 }
 
 fn default_relativistic_path_range() -> bool {
-    false
+    true
 }
 
 fn default_phase_windup() -> bool {

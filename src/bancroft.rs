@@ -42,8 +42,10 @@ impl Bancroft {
             let r_i = cd[i]
                 .prefered_pseudorange()
                 .ok_or(Error::MissingPseudoRange)?
-                .value;
-            let dt_i = cd[i].clock_corr.to_seconds();
+                .pseudo
+                .unwrap();
+
+            let dt_i = cd[i].clock_corr.duration.to_seconds();
             let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
             b[(i, 0)] = x_i;
             b[(i, 1)] = y_i;

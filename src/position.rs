@@ -38,13 +38,11 @@ impl Position {
     /// - longitude [ddeg]
     /// - altitude above sea level [m]
     pub fn from_geo_ddeg(geodetic: Vector3<f64>) -> Self {
-        Self::from_geo_rad(
-            Vector3::new(
-                geodetic[0].to_radians(),
-                geodetic[1].to_radians(),
-                geodetic[2].to_radians(),
-            )
-        )
+        Self::from_geo_rad(Vector3::new(
+            geodetic[0].to_radians(),
+            geodetic[1].to_radians(),
+            geodetic[2].to_radians(),
+        ))
     }
     /// Returns ECEF coordinates.
     pub fn ecef(&self) -> Vector3<f64> {

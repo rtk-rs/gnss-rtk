@@ -1,94 +1,91 @@
 use crate::bancroft::Bancroft;
 use crate::prelude::{
-    Candidate, Carrier, Constellation, Duration, Epoch, InterpolationResult, PseudoRange, SV,
+    Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, Observation, OrbitalState,
+    SV,
 };
 
 #[test]
 fn test() {
     let (x0, y0, z0) = (3582105.291, 532589.7313, 5232754.8054);
 
-    let pr = PseudoRange {
+    let pr = Observation {
         snr: None,
-        value: 28776032.260,
+        phase: None,
+        doppler: None,
+        ambiguity: None,
+        pseudo: Some(28776032.260),
         carrier: Carrier::E1,
     };
 
     let mut cd0 = Candidate::new(
         SV::new(Constellation::default(), 2),
         Epoch::default(),
-        Duration::from_seconds(142.784E-6),
+        ClockCorrection::without_relativistic_correction(Duration::from_seconds(142.784E-6)),
         None, // TGD
         vec![pr],
-        vec![],
     );
-    let st = InterpolationResult::from_position((
-        24170352.34904016,
-        -16029029.85873581,
-        -5905924.153143198,
-    ));
+    let st =
+        OrbitalState::from_position((24170352.34904016, -16029029.85873581, -5905924.153143198));
     cd0.set_state(st);
 
-    let pr = PseudoRange {
+    let pr = Observation {
         snr: None,
-        value: 24090441.364,
+        phase: None,
+        doppler: None,
+        ambiguity: None,
+        pseudo: Some(24090441.364),
         carrier: Carrier::E1,
     };
 
     let mut cd1 = Candidate::new(
         SV::new(Constellation::default(), 3),
         Epoch::default(),
-        Duration::from_seconds(-313.533E-6),
+        ClockCorrection::without_relativistic_correction(Duration::from_seconds(-313.533E-6)),
         None, // TGD
         vec![pr],
-        vec![],
     );
-    let st = InterpolationResult::from_position((
-        16069642.946692571,
-        -8992001.827692423,
-        23184746.654093638,
-    ));
+    let st =
+        OrbitalState::from_position((16069642.946692571, -8992001.827692423, 23184746.654093638));
     cd1.set_state(st);
 
-    let pr = PseudoRange {
+    let pr = Observation {
         snr: None,
-        value: 24762903.616,
+        phase: None,
+        doppler: None,
+        ambiguity: None,
+        pseudo: Some(24762903.616),
         carrier: Carrier::E1,
     };
 
     let mut cd2 = Candidate::new(
         SV::new(Constellation::default(), 5),
         Epoch::default(),
-        Duration::from_seconds(-368.749E-6),
+        ClockCorrection::without_relativistic_correction(Duration::from_seconds(-368.749E-6)),
         None, // TGD
         vec![pr],
-        vec![],
     );
-    let st = InterpolationResult::from_position((
-        26119621.94656989,
-        7791422.617964384,
-        11558902.718228433,
-    ));
+    let st =
+        OrbitalState::from_position((26119621.94656989, 7791422.617964384, 11558902.718228433));
     cd2.set_state(st);
 
-    let pr = PseudoRange {
+    let pr = Observation {
         snr: None,
-        value: 25537644.454,
+        phase: None,
+        doppler: None,
+        ambiguity: None,
+        pseudo: Some(25537644.454),
         carrier: Carrier::E1,
     };
 
     let mut cd3 = Candidate::new(
         SV::new(Constellation::default(), 8),
         Epoch::default(),
-        Duration::from_seconds(6.158955E-3),
+        ClockCorrection::without_relativistic_correction(Duration::from_seconds(6.158955E-3)),
         None, // TGD
         vec![pr],
-        vec![],
     );
-    let st = InterpolationResult::from_position((
-        -3601205.0295727667,
-        -20311399.087870672,
-        21230831.216778148,
-    ));
+    let st =
+        OrbitalState::from_position((-3601205.0295727667, -20311399.087870672, 21230831.216778148));
     cd3.set_state(st);
 
     let pool = vec![cd0, cd1, cd2, cd3];

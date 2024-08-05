@@ -54,6 +54,8 @@ pub struct PVTSolution {
     pub timescale: TimeScale,
     /// Offset to timescale
     pub dt: Duration,
+    /// Drift from timescale in [s/s]
+    pub d_dt: f64,
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV
     pub sv: HashMap<SV, SVInput>,
