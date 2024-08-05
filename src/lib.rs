@@ -11,14 +11,13 @@ mod bias;
 mod candidate;
 mod carrier;
 mod cfg;
-mod constants;
 mod navigation;
 mod orbit;
 mod position;
 mod rtk;
 mod solver;
 
-pub(crate) use constants::Constants;
+pub(crate) mod constants;
 
 // mod tracker;
 // pub(crate) mod utils;

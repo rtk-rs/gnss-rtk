@@ -1,4 +1,4 @@
-use crate::prelude::{Candidate, Carrier, Duration, Epoch, Observation, SV};
+use crate::prelude::{Candidate, Carrier, ClockCorrection, Epoch, Observation, SV};
 
 #[test]
 fn prefered_pseudorange() {
@@ -41,7 +41,7 @@ fn prefered_pseudorange() {
         let cd = Candidate::new(
             SV::default(),
             Epoch::default(),
-            Duration::default(),
+            ClockCorrection::default(),
             None,
             observations,
         );
@@ -72,7 +72,7 @@ fn l1_l2_narrowlane() {
     let cd = Candidate::new(
         SV::default(),
         Epoch::default(),
-        Duration::default(),
+        ClockCorrection::default(),
         None,
         codes,
     );
@@ -97,7 +97,7 @@ fn l1_l2_narrowlane() {
     let cd = Candidate::new(
         SV::default(),
         Epoch::default(),
-        Duration::default(),
+        ClockCorrection::default(),
         None,
         codes,
     );
@@ -131,7 +131,7 @@ fn e1_e5_narrowlane() {
     let cd = Candidate::new(
         SV::default(),
         Epoch::default(),
-        Duration::default(),
+        ClockCorrection::default(),
         None,
         obs,
     );

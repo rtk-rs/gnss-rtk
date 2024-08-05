@@ -1,9 +1,9 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    BaseStation as RTKBaseStation, Candidate, Carrier, Config, Duration, Epoch, Error,
-    InvalidationCause, IonosphereBias, Method, Observation, OrbitalState, OrbitalStateProvider,
-    Solver, TroposphereBias, SV,
+    BaseStation as RTKBaseStation, Candidate, Carrier, ClockCorrection, Config, Duration, Epoch,
+    Error, InvalidationCause, IonosphereBias, Method, Observation, OrbitalState,
+    OrbitalStateProvider, Solver, TroposphereBias, SV,
 };
 
 // Orbit source example
@@ -56,8 +56,10 @@ impl MyDataSource {
                     SV::default(),
                     // Sampling Epoch. Must be identical for this grouping of candidates
                     Epoch::default(),
-                    // For each Candidate, you must provide the ongoing clock correction we should apply
-                    Duration::default(),
+                    // You must provide a [ClockCorrection] for each candidate
+                    ClockCorrection::without_relativistic_correction(Duration::from_nanoseconds(
+                        100.0,
+                    )),
                     // If you know the total group day for this Candidate, specify it here
                     None,
                     // List of observations

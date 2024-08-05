@@ -1,6 +1,7 @@
 use crate::bancroft::Bancroft;
 use crate::prelude::{
-    Candidate, Carrier, Constellation, Duration, Epoch, Observation, OrbitalState, SV,
+    Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, Observation, OrbitalState,
+    SV,
 };
 
 #[test]
@@ -19,7 +20,7 @@ fn test() {
     let mut cd0 = Candidate::new(
         SV::new(Constellation::default(), 2),
         Epoch::default(),
-        Duration::from_seconds(142.784E-6),
+        ClockCorrection::without_relativistic_correction(Duration::from_seconds(142.784E-6)),
         None, // TGD
         vec![pr],
     );
@@ -39,7 +40,7 @@ fn test() {
     let mut cd1 = Candidate::new(
         SV::new(Constellation::default(), 3),
         Epoch::default(),
-        Duration::from_seconds(-313.533E-6),
+        ClockCorrection::without_relativistic_correction(Duration::from_seconds(-313.533E-6)),
         None, // TGD
         vec![pr],
     );
@@ -59,7 +60,7 @@ fn test() {
     let mut cd2 = Candidate::new(
         SV::new(Constellation::default(), 5),
         Epoch::default(),
-        Duration::from_seconds(-368.749E-6),
+        ClockCorrection::without_relativistic_correction(Duration::from_seconds(-368.749E-6)),
         None, // TGD
         vec![pr],
     );
@@ -79,7 +80,7 @@ fn test() {
     let mut cd3 = Candidate::new(
         SV::new(Constellation::default(), 8),
         Epoch::default(),
-        Duration::from_seconds(6.158955E-3),
+        ClockCorrection::without_relativistic_correction(Duration::from_seconds(6.158955E-3)),
         None, // TGD
         vec![pr],
     );

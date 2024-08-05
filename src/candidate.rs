@@ -102,7 +102,7 @@ pub struct Candidate {
     pub(crate) observations: Vec<Observation>,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct ClockCorrection {
     /// Correction to associated timescale, expressed as [Duration]
     pub duration: Duration,
@@ -159,10 +159,10 @@ impl Candidate {
     pub(crate) fn set_remote_observations(&mut self, remote: Vec<Observation>) {
         self.remote = remote.clone();
     }
-    /// Add one [Observation] observed on [BaseStation]
-    pub(crate) fn add_remote(&mut self, remote: Observation) {
-        self.remote.push(remote);
-    }
+    // /// Add one [Observation] observed on [BaseStation]
+    // pub(crate) fn add_remote(&mut self, remote: Observation) {
+    //     self.remote.push(remote);
+    // }
 }
 
 // private
@@ -485,7 +485,7 @@ impl Candidate {
         let dt_secs = (t - e_tx).to_seconds();
         let dt = Duration::from_seconds(dt_secs);
         assert!(
-            dt_secs.is_positive(),
+            dt_secs.is_sign_positive(),
             "Physical non sense - RX {:?} prior TX {:?}",
             t,
             e_tx
@@ -507,8 +507,7 @@ impl Candidate {
 
 #[cfg(test)]
 mod test {
-    use super::Combination;
-    use crate::prelude::{Candidate, Carrier, Duration, Epoch, Observation, SV};
+    use crate::prelude::{Candidate, Carrier, ClockCorrection, Epoch, Observation, SV};
     #[test]
     fn cpp_compatibility() {
         for (observations, cpp_compatible) in [(
@@ -535,7 +534,7 @@ mod test {
             let cd = Candidate::new(
                 SV::default(),
                 Epoch::default(),
-                Duration::default(),
+                ClockCorrection::default(),
                 None,
                 observations,
             );

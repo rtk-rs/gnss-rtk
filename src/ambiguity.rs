@@ -234,7 +234,6 @@ impl AmbiguitySolver {
                 if let Some(cmb) = cd.mw_combination() {
                     let (f_1, f_j) = (cmb.rhs.frequency(), cmb.lhs.frequency());
                     let lambda_w = SPEED_OF_LIGHT_M_S / (f_1 + f_j);
-                    let lamba_w = SPEED_OF_LIGHT_M_S / (f_1 - f_j);
                     let (n_w, sigma_n_w) = sv_tracker.mw_tracker.average(cmb.value / lambda_w, 0.0);
                     let n_w = n_w.round();
 

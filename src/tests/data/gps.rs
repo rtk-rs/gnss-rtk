@@ -1,7 +1,7 @@
 use crate::{
     prelude::{
-        Candidate, Carrier, Constellation, Duration, Epoch, IonosphereBias, Observation,
-        TroposphereBias, SV,
+        Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, IonosphereBias,
+        Observation, TroposphereBias, SV,
     },
     tests::SolverInput,
 };
@@ -19,7 +19,9 @@ pub fn test_data() -> [SolverInput; 2] {
                 Candidate::new(
                     SV::new(Constellation::GPS, 1),
                     Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
-                    Duration::from_seconds(0.162520179759E-04),
+                    ClockCorrection::without_relativistic_correction(Duration::from_seconds(
+                        0.162520179759E-04,
+                    )),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![Observation {
                         carrier: Carrier::L1,
@@ -33,7 +35,9 @@ pub fn test_data() -> [SolverInput; 2] {
                 Candidate::new(
                     SV::new(Constellation::GPS, 2),
                     Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
-                    Duration::from_seconds(-0.477580320500E-03),
+                    ClockCorrection::without_relativistic_correction(Duration::from_seconds(
+                        -0.477580320500E-03,
+                    )),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![Observation {
                         carrier: Carrier::L1,
@@ -47,7 +51,9 @@ pub fn test_data() -> [SolverInput; 2] {
                 Candidate::new(
                     SV::new(Constellation::GPS, 3),
                     Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
-                    Duration::from_seconds(-0.220043185257E-03),
+                    ClockCorrection::without_relativistic_correction(Duration::from_seconds(
+                        -0.220043185257E-03,
+                    )),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![Observation {
                         carrier: Carrier::L1,
@@ -76,7 +82,9 @@ pub fn test_data() -> [SolverInput; 2] {
                 Candidate::new(
                     SV::new(Constellation::GPS, 1),
                     Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-                    Duration::from_seconds(0.162520179759E-04),
+                    ClockCorrection::without_relativistic_correction(Duration::from_seconds(
+                        0.162520179759E-04,
+                    )),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![Observation {
                         carrier: Carrier::L1,
@@ -90,7 +98,9 @@ pub fn test_data() -> [SolverInput; 2] {
                 Candidate::new(
                     SV::new(Constellation::GPS, 2),
                     Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-                    Duration::from_seconds(-0.477580320500E-03),
+                    ClockCorrection::without_relativistic_correction(Duration::from_seconds(
+                        -0.477580320500E-03,
+                    )),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![Observation {
                         carrier: Carrier::L1,
@@ -104,7 +114,9 @@ pub fn test_data() -> [SolverInput; 2] {
                 Candidate::new(
                     SV::new(Constellation::GPS, 3),
                     Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-                    Duration::from_seconds(-0.220043185257E-03),
+                    ClockCorrection::without_relativistic_correction(Duration::from_seconds(
+                        -0.220043185257E-03,
+                    )),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![Observation {
                         snr: None,
@@ -118,7 +130,9 @@ pub fn test_data() -> [SolverInput; 2] {
                 Candidate::new(
                     SV::new(Constellation::GPS, 5),
                     Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-                    Duration::from_seconds(-0.153530275954E-04),
+                    ClockCorrection::without_relativistic_correction(Duration::from_seconds(
+                        -0.153530275954E-04,
+                    )),
                     Some(Duration::from_nanoseconds(10.0)),
                     vec![Observation {
                         carrier: Carrier::L1,

@@ -1,8 +1,6 @@
 use crate::{
-    prelude::{
-        Config, Error, Filter, Method, PVTSolutionType, Position, Solver, TimeScale, Vector3,
-    },
-    tests::{data::gps::test_data as gps_test_data, Orbits, Tester},
+    prelude::{Config, Filter, Method, PVTSolutionType, TimeScale},
+    tests::Tester,
 };
 
 #[test]

@@ -261,9 +261,9 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                 for obs in cd.observations.iter() {
                     if let Some(ob) = base_station.observe(cd.t, cd.sv, obs.carrier) {
                         if let Some(base) = self.base_observations.get_mut(&cd.sv) {
-                            base.push(obs.clone());
+                            base.push(ob.clone());
                         } else {
-                            self.base_observations.insert(cd.sv, vec![obs.clone()]);
+                            self.base_observations.insert(cd.sv, vec![ob.clone()]);
                         }
                     }
                 }
@@ -281,7 +281,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
-                    let mut orbits = &mut self.orbit;
+                    let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
                     // determine orbital state
                     if let Some(mut orbit) = orbits.next_at(t_tx, cd.sv, interp_order) {
