@@ -1,10 +1,17 @@
 //! Position solving candidate
-use crate::prelude::{Carrier, Config, Duration, Epoch, Error, OrbitalState, Vector3, SV};
 use hifitime::Unit;
 use itertools::Itertools;
 use log::debug;
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 use std::cmp::Ordering;
+
+use crate::{
+    bias::RuntimeParams as BiasRuntimeParams,
+    prelude::{
+        Carrier, Config, Duration, Epoch, Error, IonoComponents, Method, OrbitalState,
+        TropoComponents, TropoModel, Vector3, SV,
+    },
+};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Observation {
@@ -80,7 +87,7 @@ impl Combination {
 }
 
 /// Position solving candidate
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Candidate {
     /// [SV]
     pub sv: SV,
@@ -100,6 +107,14 @@ pub struct Candidate {
     pub(crate) remote: Vec<Observation>,
     /// Local [Observation]s
     pub(crate) observations: Vec<Observation>,
+    /// Resolved bias
+    pub(crate) iono_bias: f64,
+    /// Resolved bias
+    pub(crate) tropo_bias: f64,
+    /// [IonoComponents]
+    pub(crate) iono_components: IonoComponents,
+    /// [TropoComponents]
+    pub(crate) tropo_components: TropoComponents,
 }
 
 #[derive(Default, Debug, Copy, Clone)]
@@ -136,12 +151,19 @@ impl Candidate {
     /// - tgd: possible onboard group delay
     /// - observations: provide signals observations.
     ///   You have to provide observations that match your navigation method.
+    /// - iono_components: provide [IonoComponents] if you're navigating
+    ///  with a single signal and modeling.iono_delay is activated.
+    /// - tropo_components: provide [TropoComponents], if you can,
+    ///   to improve internal model. Note that this has no impact if modeling.tropo_delay
+    ///   is turned off.
     pub fn new(
         sv: SV,
         t: Epoch,
         clock_corr: ClockCorrection,
         tgd: Option<Duration>,
         observations: Vec<Observation>,
+        iono_components: IonoComponents,
+        tropo_components: TropoComponents,
     ) -> Self {
         Self {
             sv,
@@ -151,6 +173,10 @@ impl Candidate {
             tgd,
             state: None,
             observations,
+            iono_bias: 0.0,
+            iono_components,
+            tropo_bias: 0.0,
+            tropo_components,
             wind_up: 0.0_f64,
             remote: Vec::new(),
         }
@@ -167,6 +193,39 @@ impl Candidate {
 
 // private
 impl Candidate {
+    /// Applies all perturbation models to [Self]
+    pub(crate) fn apply_models(
+        &mut self,
+        method: Method,
+        tropo_modeling: bool,
+        iono_modeling: bool,
+        apriori_geo_ddeg: (f64, f64, f64),
+    ) {
+        if let Some(state) = self.state {
+            if let Some(obs) = self.prefered_pseudorange() {
+                let rtm = BiasRuntimeParams {
+                    t: self.t,
+                    elevation_deg: state.elevation,
+                    elevation_rad: state.elevation.to_radians(),
+                    azimuth_deg: state.azimuth,
+                    azimuth_rad: state.azimuth.to_radians(),
+                    frequency: obs.carrier.frequency(),
+                    apriori_geo: apriori_geo_ddeg,
+                    apriori_rad: (
+                        apriori_geo_ddeg.0.to_radians(),
+                        apriori_geo_ddeg.1.to_radians(),
+                    ),
+                };
+
+                if tropo_modeling {
+                    self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
+                }
+                if iono_modeling {
+                    self.iono_bias = self.iono_components.value(&rtm);
+                }
+            }
+        }
+    }
     // Pseudo range iterator
     fn pseudo_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
         Box::new(self.observations.iter().filter_map(|ob| {

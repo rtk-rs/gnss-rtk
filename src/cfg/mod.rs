@@ -16,8 +16,8 @@ pub use method::Method;
 /// Configuration Error
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("unknown tropo model \"{0}\"")]
-    UnknownTropoModel(String),
+    #[error("unknown tropo model")]
+    UnknownTropoModel,
 }
 
 /// Geometry strategy
@@ -129,6 +129,14 @@ fn default_weight_matrix() -> Option<WeightMatrix> {
     //        c: 10.0,
     //    },
     //))
+}
+
+fn max_tropo_bias() -> f64 {
+    35.0
+}
+
+fn max_iono_bias() -> f64 {
+    50.0
 }
 
 fn default_filter_opts() -> Option<FilterOpts> {
@@ -326,6 +334,14 @@ pub struct Config {
     /// Minimal SNR for an SV to contribute to the solution.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_snr: Option<f64>,
+    /// Maximal tropo bias that we tolerate (in [m]).
+    /// Has no effect if modeling.tropo_delay is disabled.
+    #[cfg_attr(feature = "serde", serde(default = "max_tropo_bias"))]
+    pub max_tropo_bias: f64,
+    /// Maximal iono bias that we tolerate (in [m]).
+    /// Has no effect if modeling.iono_delay is disabled.
+    #[cfg_attr(feature = "serde", serde(default = "max_iono_bias"))]
+    pub max_iono_bias: f64,
     /// Atmospherical and Physical [Modeling] used to improve the accuracy of solution.
     #[cfg_attr(feature = "serde", serde(default))]
     pub modeling: Modeling,
@@ -346,10 +362,12 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_snr: None,
-                min_sv_elev: Some(7.5),
+                min_sv_elev: Some(10.0),
                 min_sv_azim: None,
                 max_sv_azim: None,
                 min_sv_sunlight_rate: None,
+                max_tropo_bias: max_tropo_bias(),
+                max_iono_bias: max_iono_bias(),
                 modeling: Modeling::default(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
@@ -371,10 +389,12 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_snr: None,
-                min_sv_elev: Some(7.5),
+                min_sv_elev: Some(10.0),
                 min_sv_azim: None,
                 max_sv_azim: None,
                 min_sv_sunlight_rate: None,
+                max_tropo_bias: max_tropo_bias(),
+                max_iono_bias: max_iono_bias(),
                 modeling: Modeling::default(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),
@@ -396,10 +416,12 @@ impl Config {
                 interp_order: default_interp(),
                 code_smoothing: default_smoothing(),
                 min_snr: None,
-                min_sv_elev: Some(7.5),
+                min_sv_elev: Some(10.0),
                 min_sv_azim: None,
                 max_sv_azim: None,
                 min_sv_sunlight_rate: None,
+                max_tropo_bias: max_tropo_bias(),
+                max_iono_bias: max_iono_bias(),
                 modeling: Modeling::default(),
                 int_delay: Default::default(),
                 externalref_delay: Default::default(),

@@ -16,3 +16,4 @@ Cargo.lock
 *.swp
 *.swo
 *.patch
+*.rs~

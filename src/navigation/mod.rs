@@ -10,11 +10,10 @@ use std::collections::HashMap;
 
 use crate::{
     ambiguity::Ambiguities,
-    bias::{Bias, IonosphereBias, RuntimeParam as BiasRuntimeParams, TropoModel, TroposphereBias},
     candidate::Candidate,
     cfg::Config,
     constants::Constants,
-    prelude::{Error, Method, SV},
+    prelude::{Error, IonosphereBias, Method, SV},
 };
 
 use nalgebra::{
@@ -31,10 +30,10 @@ pub struct SVInput {
     pub azimuth: f64,
     /// SV elevation angle in degrees
     pub elevation: f64,
-    /// Ionospheric bias in meters of delay
-    pub iono_bias: Bias,
-    /// Tropospheric bias in meters of delay
-    pub tropo_bias: Bias,
+    /// Troposphere bias in meters of delay
+    pub tropo_bias: Option<f64>,
+    /// Ionosphere bias
+    pub iono_bias: Option<IonosphereBias>,
 }
 
 /// Navigation Input
@@ -92,13 +91,10 @@ impl Input {
     /// Forms new Navigation Input
     pub fn new(
         apriori: (f64, f64, f64),
-        apriori_geo: (f64, f64, f64),
         cfg: &Config,
         cd: &[Candidate],
         w: OMatrix<f64, U8, U8>,
         ambiguities: &Ambiguities,
-        iono_bias: &IonosphereBias,
-        tropo_bias: &TroposphereBias,
     ) -> Result<Self, Error> {
         let mut y = OVector::<f64, U8>::zeros();
         let mut g = OMatrix::<f64, U8, U8>::zeros();
@@ -196,49 +192,22 @@ impl Input {
             }
 
             /*
-             * IONO + TROPO biases
-             */
-            let rtm = BiasRuntimeParams {
-                t: cd[index].t,
-                elevation,
-                azimuth,
-                frequency,
-                apriori_geo,
-            };
-
-            /*
              * TROPO
              */
             if cfg.modeling.tropo_delay {
-                if tropo_bias.needs_modeling() {
-                    let bias = TroposphereBias::model(TropoModel::Niel, &rtm);
-                    debug!(
-                        "{}({}): modeled tropo delay {:.3E}[m]",
-                        cd[index].t, cd[index].sv, bias
-                    );
-                    models += bias;
-                    sv_input.tropo_bias = Bias::modeled(bias);
-                } else if let Some(bias) = tropo_bias.bias(&rtm) {
-                    debug!(
-                        "{}({}): measured tropo delay {:.3E}[m]",
-                        cd[index].t, cd[index].sv, bias
-                    );
-                    models += bias;
-                    sv_input.tropo_bias = Bias::measured(bias);
-                }
+                models += cd[index].tropo_bias;
+                sv_input.tropo_bias = Some(cd[index].tropo_bias);
             }
 
             /*
              * IONO
              */
-            if cfg.method == Method::SPP && cfg.modeling.iono_delay {
-                if let Some(bias) = iono_bias.bias(&rtm) {
-                    debug!(
-                        "{} : modeled iono delay (f={:.3E}Hz) {:.3E}[m]",
-                        cd[index].t, rtm.frequency, bias
-                    );
-                    models += bias;
-                    sv_input.iono_bias = Bias::modeled(bias);
+            if cfg.modeling.iono_delay {
+                models += cd[index].iono_bias;
+                if cfg.method == Method::SPP {
+                    sv_input.iono_bias = Some(IonosphereBias::modeled(cd[index].iono_bias));
+                } else {
+                    sv_input.iono_bias = Some(IonosphereBias::measured(cd[index].iono_bias));
                 }
             }
 
