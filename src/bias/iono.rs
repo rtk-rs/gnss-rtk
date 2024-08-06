@@ -42,7 +42,7 @@ impl KbModel {
         let fract = R_EARTH / (R_EARTH + self.h_km);
         let (elev_rad, azim_rad) = (rtm.elevation_rad, rtm.azimuth_rad);
 
-        let t_gps = rtm
+        let t_gpst = rtm
             .t
             .to_duration_in_time_scale(TimeScale::GPST)
             .to_seconds();
@@ -54,7 +54,7 @@ impl KbModel {
             + phi_i.cos() * PHI_P.cos() * (lambda_i - LAMBDA_P).cos())
         .asin();
 
-        let mut t_s = 43.2E3 * lambda_i / PI + t_gps;
+        let mut t_s = 43.2E3 * lambda_i / PI + t_gpst;
         if t_s > 86.4E3 {
             t_s -= 86.4E3;
         } else if t_s < 0.0 {

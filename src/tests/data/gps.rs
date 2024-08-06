@@ -1,7 +1,7 @@
 use crate::{
     prelude::{
-        Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, IonosphereBias,
-        Observation, TroposphereBias, SV,
+        Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, IonoComponents,
+        Observation, TropoComponents, SV,
     },
     tests::SolverInput,
 };
@@ -31,6 +31,8 @@ pub fn test_data() -> [SolverInput; 2] {
                         doppler: None,
                         ambiguity: None,
                     }],
+                    IonoComponents::Unknown,
+                    TropoComponents::Unknown,
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 2),
@@ -47,6 +49,8 @@ pub fn test_data() -> [SolverInput; 2] {
                         doppler: None,
                         ambiguity: None,
                     }],
+                    IonoComponents::Unknown,
+                    TropoComponents::Unknown,
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 3),
@@ -63,18 +67,10 @@ pub fn test_data() -> [SolverInput; 2] {
                         doppler: None,
                         ambiguity: None,
                     }],
+                    IonoComponents::Unknown,
+                    TropoComponents::Unknown,
                 ),
             ],
-            iono_bias: IonosphereBias {
-                kb_model: None,
-                bd_model: None,
-                ng_model: None,
-                stec_meas: None,
-            },
-            tropo_bias: TroposphereBias {
-                total: None,
-                zwd_zdd: None,
-            },
         },
         SolverInput {
             t_rx: Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
@@ -94,6 +90,8 @@ pub fn test_data() -> [SolverInput; 2] {
                         doppler: None,
                         ambiguity: None,
                     }],
+                    IonoComponents::Unknown,
+                    TropoComponents::Unknown,
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 2),
@@ -110,6 +108,8 @@ pub fn test_data() -> [SolverInput; 2] {
                         doppler: None,
                         ambiguity: None,
                     }],
+                    IonoComponents::Unknown,
+                    TropoComponents::Unknown,
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 3),
@@ -126,6 +126,8 @@ pub fn test_data() -> [SolverInput; 2] {
                         doppler: None,
                         ambiguity: None,
                     }],
+                    IonoComponents::Unknown,
+                    TropoComponents::Unknown,
                 ),
                 Candidate::new(
                     SV::new(Constellation::GPS, 5),
@@ -142,18 +144,10 @@ pub fn test_data() -> [SolverInput; 2] {
                         doppler: None,
                         ambiguity: None,
                     }],
+                    IonoComponents::Unknown,
+                    TropoComponents::Unknown,
                 ),
             ],
-            iono_bias: IonosphereBias {
-                kb_model: None,
-                bd_model: None,
-                ng_model: None,
-                stec_meas: None,
-            },
-            tropo_bias: TroposphereBias {
-                total: None,
-                zwd_zdd: None,
-            },
         },
     ]
 }

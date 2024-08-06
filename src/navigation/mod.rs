@@ -147,7 +147,7 @@ impl Input {
                 let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                     * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
                 debug!(
-                    "{}({}) relativistic path range {}",
+                    "{}({}) relativistic path range {:.3E}m",
                     cd[index].t, cd[index].sv, dr
                 );
                 rho += dr;

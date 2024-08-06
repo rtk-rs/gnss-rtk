@@ -1,7 +1,7 @@
 use crate::bancroft::Bancroft;
 use crate::prelude::{
-    Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, Observation, OrbitalState,
-    SV,
+    Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, IonoComponents,
+    Observation, OrbitalState, TropoComponents, SV,
 };
 
 #[test]
@@ -23,6 +23,8 @@ fn test() {
         ClockCorrection::without_relativistic_correction(Duration::from_seconds(142.784E-6)),
         None, // TGD
         vec![pr],
+        IonoComponents::Unknown,
+        TropoComponents::Unknown,
     );
     let st =
         OrbitalState::from_position((24170352.34904016, -16029029.85873581, -5905924.153143198));
@@ -43,6 +45,8 @@ fn test() {
         ClockCorrection::without_relativistic_correction(Duration::from_seconds(-313.533E-6)),
         None, // TGD
         vec![pr],
+        IonoComponents::Unknown,
+        TropoComponents::Unknown,
     );
     let st =
         OrbitalState::from_position((16069642.946692571, -8992001.827692423, 23184746.654093638));
@@ -63,6 +67,8 @@ fn test() {
         ClockCorrection::without_relativistic_correction(Duration::from_seconds(-368.749E-6)),
         None, // TGD
         vec![pr],
+        IonoComponents::Unknown,
+        TropoComponents::Unknown,
     );
     let st =
         OrbitalState::from_position((26119621.94656989, 7791422.617964384, 11558902.718228433));
@@ -83,6 +89,8 @@ fn test() {
         ClockCorrection::without_relativistic_correction(Duration::from_seconds(6.158955E-3)),
         None, // TGD
         vec![pr],
+        IonoComponents::Unknown,
+        TropoComponents::Unknown,
     );
     let st =
         OrbitalState::from_position((-3601205.0295727667, -20311399.087870672, 21230831.216778148));

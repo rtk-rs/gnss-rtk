@@ -132,11 +132,11 @@ fn default_weight_matrix() -> Option<WeightMatrix> {
 }
 
 fn max_tropo_bias() -> f64 {
-    35.0
+    30.0
 }
 
 fn max_iono_bias() -> f64 {
-    50.0
+    10.0
 }
 
 fn default_filter_opts() -> Option<FilterOpts> {

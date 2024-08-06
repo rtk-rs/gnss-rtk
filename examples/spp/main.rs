@@ -2,8 +2,8 @@
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
     BaseStation as RTKBaseStation, Candidate, Carrier, ClockCorrection, Config, Duration, Epoch,
-    Error, InvalidationCause, IonosphereBias, Method, Observation, OrbitalState,
-    OrbitalStateProvider, Solver, TroposphereBias, SV,
+    Error, InvalidationCause, IonoComponents, Method, Observation, OrbitalState,
+    OrbitalStateProvider, Solver, TropoComponents, SV,
 };
 
 // Orbit source example
@@ -73,6 +73,10 @@ impl MyDataSource {
                         doppler: None,
                         ambiguity: None,
                     }],
+                    // Provide more information if you can
+                    IonoComponents::Unknown,
+                    // Provide more information if you can
+                    TropoComponents::Unknown,
                 ),
                 // Create all as many candidates as possible.
                 // It's better to have more than needed, it leaves us more possibility in the election process.
@@ -112,14 +116,7 @@ pub fn main() {
 
     // Browse your data source (This is an Example)
     while let Some((epoch, candidates)) = source.next() {
-        // External bias sources are not very well supported yet.
-        // We recommend you use the internal modeling.
-        // This is done by specifying you simply have no knowledge
-        // of the external biases:
-        let ionod = IonosphereBias::default(); // Unknown
-        let tropod = TroposphereBias::default(); // Unknown
-
-        match solver.resolve(epoch, &candidates, &ionod, &tropod) {
+        match solver.resolve(epoch, &candidates) {
             Ok((_epoch, solution)) => {
                 // A solution was successfully resolved for this Epoch.
                 // The position is expressed as absolute ECEF [m].

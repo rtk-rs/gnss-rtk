@@ -216,12 +216,13 @@ impl Candidate {
                         apriori_geo_ddeg.1.to_radians(),
                     ),
                 };
-
                 if tropo_modeling {
                     self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
                 }
                 if iono_modeling {
-                    self.iono_bias = self.iono_components.value(&rtm);
+                    if method == Method::SPP {
+                        self.iono_bias = self.iono_components.value(&rtm);
+                    }
                 }
             }
         }
@@ -566,7 +567,10 @@ impl Candidate {
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::{Candidate, Carrier, ClockCorrection, Epoch, Observation, SV};
+    use crate::prelude::{
+        Candidate, Carrier, ClockCorrection, Epoch, IonoComponents, Observation, TropoComponents,
+        SV,
+    };
     #[test]
     fn cpp_compatibility() {
         for (observations, cpp_compatible) in [(
@@ -596,6 +600,8 @@ mod test {
                 ClockCorrection::default(),
                 None,
                 observations,
+                IonoComponents::default(),
+                TropoComponents::default(),
             );
             assert_eq!(cd.cpp_compatible(), cpp_compatible);
         }

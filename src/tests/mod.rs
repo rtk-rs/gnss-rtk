@@ -1,7 +1,7 @@
 use crate::prelude::{
     BaseStation as RTKBaseStation, Candidate, Carrier, Config, Epoch, Error, InvalidationCause,
-    IonosphereBias, Observation, OrbitalState, OrbitalStateProvider, PVTSolution, Position, Solver,
-    TimeScale, TroposphereBias, Vector3, SV,
+    Observation, OrbitalState, OrbitalStateProvider, PVTSolution, Position, Solver, TimeScale,
+    Vector3, SV,
 };
 
 mod bancroft;
@@ -36,8 +36,6 @@ impl RTKBaseStation for BaseStation {
 struct SolverInput {
     t_rx: Epoch,
     pool: Vec<Candidate>,
-    iono_bias: IonosphereBias,
-    tropo_bias: TroposphereBias,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -129,7 +127,7 @@ impl Tester {
         cfg: &Config,
     ) {
         for (data_index, data) in gps_test_data().iter_mut().enumerate() {
-            match solver.resolve(data.t_rx, &mut data.pool, &data.iono_bias, &data.tropo_bias) {
+            match solver.resolve(data.t_rx, &mut data.pool) {
                 Ok((t, solution)) => {
                     println!(
                         "iter={}, 3d={:?} vel={:?}",
