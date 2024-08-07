@@ -28,7 +28,9 @@ mod tests;
 // prelude
 pub mod prelude {
     pub use crate::ambiguity::Ambiguities;
-    pub use crate::bias::{BdModel, IonosphereBias, KbModel, NgModel, TroposphereBias};
+    pub use crate::bias::{
+        BdModel, IonoComponents, IonosphereBias, KbModel, NgModel, TropoComponents, TropoModel,
+    };
     pub use crate::candidate::{Candidate, ClockCorrection, Observation};
     pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
@@ -38,11 +40,13 @@ pub mod prelude {
     pub use crate::rtk::BaseStation;
     pub use crate::solver::{Error, Solver};
     // re-export
-    pub use anise::constants::frames::{EARTH_J2000, SUN_J2000};
-    pub use anise::naif::SPK;
-    pub use anise::prelude::{Aberration, Almanac, Frame};
+    pub use anise::{
+        constants::frames::{EARTH_J2000, SUN_J2000},
+        naif::SPK,
+        prelude::{Aberration, Almanac, Frame},
+    };
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};
     pub use nalgebra::Vector3;
-    pub use nyx_space::md::prelude::Arc;
+    pub use nyx_space::{cosmic::SPEED_OF_LIGHT_M_S, md::prelude::Arc};
 }

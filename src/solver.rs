@@ -22,7 +22,6 @@ use anise::{
 use crate::{
     ambiguity::AmbiguitySolver,
     bancroft::Bancroft,
-    bias::{IonosphereBias, TroposphereBias},
     candidate::Candidate,
     cfg::{Config, Method},
     constants::Constants,
@@ -226,15 +225,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
     /// ## Inputs
     /// - t: desired [Epoch]
     /// - pool: list of [Candidate]
-    /// - iono_bias: needs rework - set this to null until then
-    /// - tropo_bias: needs rework - set this to null until then
-    pub fn resolve(
-        &mut self,
-        t: Epoch,
-        pool: &[Candidate],
-        iono_bias: &IonosphereBias,
-        tropo_bias: &TroposphereBias,
-    ) -> Result<(Epoch, PVTSolution), Error> {
+    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = self.min_sv_required();
         if pool.len() < min_required {
             // no need to proceed further
@@ -246,6 +237,10 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         let method = self.cfg.method;
         let modeling = self.cfg.modeling;
         let interp_order = self.cfg.interp_order;
+        let max_iono_bias = self.cfg.max_iono_bias;
+        let max_tropo_bias = self.cfg.max_tropo_bias;
+        let iono_modeling = self.cfg.modeling.iono_delay;
+        let tropo_modeling = self.cfg.modeling.tropo_delay;
 
         // signal condition filter
         signal_condition_filter(method, &mut pool);
@@ -253,6 +248,11 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         // signal quality filter
         if let Some(min_snr) = self.cfg.min_snr {
             signal_quality_filter(method, min_snr, &mut pool);
+        }
+
+        if pool.len() < min_required {
+            // no need to proceed further
+            return Err(Error::NotEnoughMatchingCandidates);
         }
 
         // gather (matching) observations on remote site
@@ -302,19 +302,19 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
 
                         if orbit.elevation < min_elev {
                             debug!(
-                                "{} ({}) - {:?} rejected : below elevation mask",
+                                "{} ({}) - {:?} rejected (below elevation mask)",
                                 cd.t, cd.sv, orbit
                             );
                             None
                         } else if orbit.azimuth < min_azim {
                             debug!(
-                                "{} ({}) - {:?} rejected : below azimuth mask",
+                                "{} ({}) - {:?} rejected (below azimuth mask)",
                                 cd.t, cd.sv, orbit
                             );
                             None
                         } else if orbit.azimuth > max_azim {
                             debug!(
-                                "{} ({}) - {:?} rejected : above azimuth mask",
+                                "{} ({}) - {:?} rejected (above azimuth mask)",
                                 cd.t, cd.sv, orbit
                             );
                             None
@@ -414,19 +414,6 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             )));
         }
 
-        // Resolve ambiguities
-        let ambiguities = if method == Method::PPP {
-            self.ambiguity.resolve(&pool)
-        } else {
-            Default::default()
-        };
-
-        // Prepare for NAV:
-        Self::retain_best_elevation(&mut pool, min_required);
-
-        // Sort by PRN to form consistant matrix
-        pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
-
         let initial = self.initial.as_ref().unwrap();
         let (x0, y0, z0) = (initial.ecef()[0], initial.ecef()[1], initial.ecef()[2]);
         let (lat_rad, lon_rad, altitude_above_sea_m) = (
@@ -435,6 +422,52 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             initial.geodetic()[2],
         );
         let (lat_ddeg, lon_ddeg) = (lat_rad.to_degrees(), lon_rad.to_degrees());
+
+        // Apply models
+        for cd in &mut pool {
+            cd.apply_models(
+                method,
+                tropo_modeling,
+                iono_modeling,
+                (lat_ddeg, lon_ddeg, altitude_above_sea_m),
+            );
+        }
+
+        // Resolve ambiguities
+        let ambiguities = if method == Method::PPP {
+            self.ambiguity.resolve(&pool)
+        } else {
+            Default::default()
+        };
+
+        // Prepare for NAV
+        //  select best candidates, sort (coherent matrix), propose
+        pool.retain(|cd| {
+            let retained = cd.tropo_bias < max_tropo_bias;
+            if retained {
+                debug!("{}({}): tropo delay {:.3E}[m]", cd.t, cd.sv, cd.tropo_bias);
+            } else {
+                debug!("{}({}) rejected (extreme tropo delay)", cd.t, cd.sv);
+            }
+            retained
+        });
+
+        pool.retain(|cd| {
+            let retained = cd.iono_bias < max_iono_bias;
+            if retained {
+                debug!("{}({}): iono delay {:.3E}[m]", cd.t, cd.sv, cd.iono_bias);
+            } else {
+                debug!("{}({}) rejected (extreme iono delay)", cd.t, cd.sv);
+            }
+            retained
+        });
+
+        if pool.len() < min_required {
+            return Err(Error::NotEnoughMatchingCandidates);
+        }
+
+        Self::retain_best_elevation(&mut pool, min_required);
+        pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
 
         let w = self.cfg.solver.weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
                                                  // // Reduce contribution of newer (rising) vehicles (rising)
@@ -445,16 +478,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                                                  //     }
                                                  // }
 
-        let input = match NavigationInput::new(
-            (x0, y0, z0),
-            (lat_ddeg, lon_ddeg, altitude_above_sea_m),
-            &self.cfg,
-            &pool,
-            w,
-            &ambiguities,
-            iono_bias,
-            tropo_bias,
-        ) {
+        let input = match NavigationInput::new((x0, y0, z0), &self.cfg, &pool, w, &ambiguities) {
             Ok(input) => input,
             Err(e) => {
                 error!("Failed to form navigation matrix: {}", e);

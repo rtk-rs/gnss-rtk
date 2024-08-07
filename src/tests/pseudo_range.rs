@@ -1,4 +1,6 @@
-use crate::prelude::{Candidate, Carrier, ClockCorrection, Epoch, Observation, SV};
+use crate::prelude::{
+    Candidate, Carrier, ClockCorrection, Epoch, IonoComponents, Observation, TropoComponents, SV,
+};
 
 #[test]
 fn prefered_pseudorange() {
@@ -44,6 +46,8 @@ fn prefered_pseudorange() {
             ClockCorrection::default(),
             None,
             observations,
+            IonoComponents::Unknown,
+            TropoComponents::Unknown,
         );
         assert_eq!(cd.prefered_pseudorange(), Some(prefered),);
     }
@@ -75,6 +79,8 @@ fn l1_l2_narrowlane() {
         ClockCorrection::default(),
         None,
         codes,
+        IonoComponents::Unknown,
+        TropoComponents::Unknown,
     );
     let cn = cd.code_nl_combination();
     assert!(cn.is_some(), "failed to form Cn_narrow combination");
@@ -100,6 +106,8 @@ fn l1_l2_narrowlane() {
         ClockCorrection::default(),
         None,
         codes,
+        IonoComponents::Unknown,
+        TropoComponents::Unknown,
     );
 
     assert!(
@@ -134,6 +142,8 @@ fn e1_e5_narrowlane() {
         ClockCorrection::default(),
         None,
         obs,
+        IonoComponents::Unknown,
+        TropoComponents::Unknown,
     );
     let cn = cd.code_nl_combination();
     assert!(cn.is_some(), "failed to form Cn_narrow combination");
