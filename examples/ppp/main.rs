@@ -1,5 +1,7 @@
-// SPP example (pseudo range based direct positioning).
-// This is simply here to demonstrate how to operate the API, and does not generate actual results.
+// ppp.rs, as opposed to the rtk.rs example, is only dedicated to 1D (autonomous) navigation,
+// by opposition to RTK. Refer to the other example for that other technique.
+// Because the solver supports all navigation technique, the Rust language requires us to still define the RTK sides of the API even in this very case. But since we know this is totally disabled in this example, all RTK side is tied to Null.
+
 use gnss_rtk::prelude::{
     BaseStation as RTKBaseStation, Candidate, Carrier, ClockCorrection, Config, Duration, Epoch,
     Error, InvalidationCause, IonoComponents, Method, Observation, OrbitalState,
