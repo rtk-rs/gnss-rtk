@@ -35,7 +35,7 @@ impl OrbitalStateProvider for Orbits {
     // and we will move on to the next
     fn next_at(&mut self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
         if self.pos < self.len {
-            println!("orbit: {}/{}", self.pos, self.len);
+            println!("orbit: {}/{}", self.pos + 1, self.len);
             let ret = self.orbits[self.pos];
             self.pos += 1;
             Some(ret)
