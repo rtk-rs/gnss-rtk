@@ -435,4 +435,10 @@ impl Config {
             },
         }
     }
+    /// Copies and updates [Self] with fixed altitude preset in [m]
+    pub fn with_fixed_altitude(&self, alt_m: f64) -> Self {
+        let mut s = self.clone();
+        s.fixed_altitude = Some(alt_m);
+        s
+    }
 }

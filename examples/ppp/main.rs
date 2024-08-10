@@ -4,6 +4,9 @@
 
 extern crate serde;
 
+mod cli;
+use cli::Cli;
+
 mod source;
 use source::DataSource;
 
@@ -27,16 +30,20 @@ impl RTKBaseStation for BaseStation {
 }
 
 pub fn main() {
+    // The Cli is only there to help us modify the initial conditions, in CI/CD.
+    let cli = Cli::new();
+
     let orbits = Orbits::new(); // Build the Orbit source
     println!("Orbit source created: orbits");
     let mut source = DataSource::new(); // Build Data source
-    let base_station = BaseStation {}; // No Base station
 
-    println!("PPP example deployed");
-
-    // Apply a basic preset
-    let cfg = Config::static_preset(Method::SPP);
-    let apriori = None; // No apriori knowledge: survey
+    // Define custom setup
+    let mut cfg = cli.config_preset();
+    
+    // Possible apriori knowledge
+    // Defines whether this run will be a complete autonomous survey
+    // or not.
+    let apriori = cli.apriori();
 
     // The API is pretty straightforward
     //  [+] pass configuration setup
@@ -45,6 +52,8 @@ pub fn main() {
     //  [+] needs mutable access ue to iteration process
     let mut solver: Solver<Orbits, BaseStation> =
         Solver::ppp(&cfg, apriori, orbits).expect("failed to deploy solver");
+
+    println!("PPP example deployed");
 
     // Browse your data and try resolve solutions
     while let Some((epoch, candidates)) = source.next() {
