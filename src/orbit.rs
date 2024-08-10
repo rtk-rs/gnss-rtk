@@ -1,7 +1,7 @@
 use anise::prelude::{Frame, Orbit};
 
 #[cfg(feature = "serde")]
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::prelude::{Epoch, Vector3, SV};
 use map_3d::ecef2geodetic;

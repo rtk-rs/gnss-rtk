@@ -1,9 +1,9 @@
-use std::fs::read_to_string;
+use gnss_rtk::prelude::{Epoch, OrbitalState, OrbitalStateProvider, SV};
 use serde::Deserialize;
-use gnss_rtk::prelude::{SV, Epoch, OrbitalState, OrbitalStateProvider};
+use std::fs::read_to_string;
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct Orbits (Vec<OrbitalState>);
+pub struct Orbits(Vec<OrbitalState>);
 
 impl Orbits {
     pub fn new() -> Self {
@@ -12,7 +12,6 @@ impl Orbits {
         let orbits: Orbits = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("failed to parse orbits: {}", e));
         orbits
-        
     }
 }
 
