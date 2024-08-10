@@ -23,88 +23,32 @@ impl RTKBaseStation for BaseStation {
     }
 }
 
-// Data source example
-struct MyDataSource {}
-
-impl MyDataSource {
-    // Data source example
-    fn new() -> Self {
-        Self {}
-    }
-    // The objective here is to propose enough SV observations to resolve a solution.
-    // Since our example only requires PseudoRange on a single frequency
-    // we will limit ourselves to that.
-    fn next(&mut self) -> Option<(Epoch, Vec<Candidate>)> {
-        Some((
-            // This must be the Epoch of observation,
-            // ie, Sampling Instant
-            Epoch::default(),
-            vec![
-                // Create a candidate from your Pseudo Range observation
-                Candidate::new(
-                    // Candidate Identity
-                    SV::default(),
-                    // Sampling Epoch. Must be identical for this grouping of candidates
-                    Epoch::default(),
-                    // You must provide a [ClockCorrection] for each candidate
-                    ClockCorrection::without_relativistic_correction(Duration::from_nanoseconds(
-                        100.0,
-                    )),
-                    // If you know the total group day for this Candidate, specify it here
-                    None,
-                    // List of observations
-                    vec![Observation {
-                        carrier: Carrier::L1, // example
-                        pseudo: Some(3.0E6),  // example, this is raw observation
-                        // Note that if you apply a min_snr preset,
-                        // we might drop candidates that do not have this info
-                        snr: None, // unknown
-                        phase: None,
-                        doppler: None,
-                        ambiguity: None,
-                    }],
-                    // Provide more information if you can
-                    IonoComponents::Unknown,
-                    // Provide more information if you can
-                    TropoComponents::Unknown,
-                ),
-                // Create all as many candidates as possible.
-                // It's better to have more than needed, it leaves us more possibility in the election process.
-            ],
-        ))
-    }
-}
-
 pub fn main() {
-    // Build the Orbit source
-    let orbits = Orbits::new();
+    let orbits = Orbits::new(); // Build the Orbit source
+    println!("Orbit source created: orbits");
+    let source = DataSource::new(); // Build Data source
+    let base_station = BaseStation {}; // No Base station
 
-    // Build the Base station
-    let base_station = BaseStation {};
+    println!("PPP example deployed");
 
-    // The preset API is useful to quickly deploy depending on your application.
-    // Static presets target static positioning.
-    let cfg = Config::static_preset(Method::SPP); // Single Freq. Pseudo Range based
+    // Apply a basic preset
+    let cfg = Config::static_preset(Method::SPP);
+    let apriori = None; // No apriori knowledge: survey
 
-    // The API is pretty straightforward, it requires the Configuration preset to be
-    // built ahead of time. The only difficulty is the design your data source and SV state provider. We interact with the SV state provider by means of a function pointer.
-    let solver = Solver::new(
+    // The API is pretty straightforward
+    //  [+] pass configuration setup
+    //  [+] tie Orbit source
+    //  [+] tie possible Base Station
+    let solver = Solver::ppp(
         &cfg,
-        // We deploy without apriori knowledge.
-        // The solver will initialize itself.
-        None,
-        // Tie the Orbit source
+        apriori,
         orbits,
-        // Tie the Base station
-        Some(base_station),
     );
 
-    // The solver needs to be mutable, due to the iteration process.
+    // The solver needs to be mutable (iteration process)
     let mut solver = solver.unwrap();
 
-    let mut source = MyDataSource::new();
-
-    // Browse your data source (This is an Example)
+    // Browse your data and try resolve solutions
     while let Some((epoch, candidates)) = source.next() {
         match solver.resolve(epoch, &candidates) {
             Ok((_epoch, solution)) => {

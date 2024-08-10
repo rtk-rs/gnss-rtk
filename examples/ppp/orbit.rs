@@ -2,16 +2,22 @@ use gnss_rtk::prelude::{Epoch, OrbitalState, OrbitalStateProvider, SV};
 use serde::Deserialize;
 use std::fs::read_to_string;
 
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Orbits(Vec<OrbitalState>);
+// Orbit Source Example: we parse a local text file
+#[derive(Clone, Debug, Default)]
+pub struct Orbits {
+    pos: usize,
+    len: usize,
+    orbits: Vec<OrbitalState>,
+}
 
 impl Orbits {
     pub fn new() -> Self {
         let content = read_to_string("examples/data/orbits.json")
             .unwrap_or_else(|e| panic!("failed to read orbit source: {}", e));
-        let orbits: Orbits = serde_json::from_str(&content)
+        let orbits: Vec<OrbitalState> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("failed to parse orbits: {}", e));
-        orbits
+        let len = orbits.len();
+        Self { orbits, pos: 0, len }
     }
 }
 
@@ -24,7 +30,13 @@ impl OrbitalStateProvider for Orbits {
     // If None is returned for too long, this [Epoch] will eventually be dropped out,
     // and we will move on to the next
     fn next_at(&mut self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
-        let (x, y, z) = (0.0_f64, 0.0_f64, 0.0_f64);
-        Some(OrbitalState::from_position((x, y, z)))
+        if self.pos >= self.len {
+            None
+        } else {
+            println!("orbit: {}/{}", self.pos, self.len);
+            let ret = self.orbits[self.pos];
+            self.pos += 1;
+            Some(ret)
+        }
     }
 }
