@@ -1,11 +1,15 @@
 use anise::prelude::{Frame, Orbit};
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
 use crate::prelude::{Epoch, Vector3, SV};
 use map_3d::ecef2geodetic;
 use std::f64::consts::PI;
 
 /// [OrbitalState] must be provide of each candidate.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct OrbitalState {
     /// Elevation compared to reference position and horizon in [°]
     pub elevation: f64,

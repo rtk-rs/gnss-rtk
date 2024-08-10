@@ -11,12 +11,22 @@ env:
 
 jobs:
   build:
-
+    name: Build & Tests
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
     - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      run: cargo build
+    - name: Build (All features)
+      run: cargo build --all-features
+    - name: Tests
+      run: cargo test --all-features
+  ppp:
+    name: PPP
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build PPP
+      run: cargo build --example ppp --features=serde
+    - name: Run PPP
+      run: cargo run --example ppp --features=serde

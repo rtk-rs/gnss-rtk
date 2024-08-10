@@ -2,28 +2,16 @@
 // by opposition to RTK. Refer to the other example for that other technique.
 // Because the solver supports all navigation technique, the Rust language requires us to still define the RTK sides of the API even in this very case. But since we know this is totally disabled in this example, all RTK side is tied to Null.
 
+extern crate serde;
+
+mod orbit;
+use orbit::Orbits;
+
 use gnss_rtk::prelude::{
     BaseStation as RTKBaseStation, Candidate, Carrier, ClockCorrection, Config, Duration, Epoch,
     Error, InvalidationCause, IonoComponents, Method, Observation, OrbitalState,
     OrbitalStateProvider, Solver, TropoComponents, SV,
 };
-
-// Orbit source example
-struct Orbits {}
-
-impl OrbitalStateProvider for Orbits {
-    // For each requested "t" and "sv",
-    // if we can, we should resolve the SV [OrbitalState].
-    // If interpolation is to be used (depending on your apps), you can
-    // use the interpolation order that we recommend here, or decide to ignore it.
-    // If you're not in position to determine [OrbitalState], simply return None.
-    // If None is returned for too long, this [Epoch] will eventually be dropped out,
-    // and we will move on to the next
-    fn next_at(&mut self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
-        let (x, y, z) = (0.0_f64, 0.0_f64, 0.0_f64);
-        Some(OrbitalState::from_position((x, y, z)))
-    }
-}
 
 // This example is direct positioning (not RTK), therefore
 // the BaseStation returns Null all the time (== non existant)
@@ -89,7 +77,7 @@ impl MyDataSource {
 
 pub fn main() {
     // Build the Orbit source
-    let orbits = Orbits {};
+    let orbits = Orbits::new();
 
     // Build the Base station
     let base_station = BaseStation {};
