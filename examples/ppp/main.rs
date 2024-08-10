@@ -4,6 +4,9 @@
 
 extern crate serde;
 
+mod source;
+use source::DataSource;
+
 mod orbit;
 use orbit::Orbits;
 
@@ -26,7 +29,7 @@ impl RTKBaseStation for BaseStation {
 pub fn main() {
     let orbits = Orbits::new(); // Build the Orbit source
     println!("Orbit source created: orbits");
-    let source = DataSource::new(); // Build Data source
+    let mut source = DataSource::new(); // Build Data source
     let base_station = BaseStation {}; // No Base station
 
     println!("PPP example deployed");
@@ -39,14 +42,9 @@ pub fn main() {
     //  [+] pass configuration setup
     //  [+] tie Orbit source
     //  [+] tie possible Base Station
-    let solver = Solver::ppp(
-        &cfg,
-        apriori,
-        orbits,
-    );
-
-    // The solver needs to be mutable (iteration process)
-    let mut solver = solver.unwrap();
+    //  [+] needs mutable access ue to iteration process
+    let mut solver: Solver<Orbits, BaseStation> =
+        Solver::ppp(&cfg, apriori, orbits).expect("failed to deploy solver");
 
     // Browse your data and try resolve solutions
     while let Some((epoch, candidates)) = source.next() {

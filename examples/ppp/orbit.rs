@@ -17,7 +17,11 @@ impl Orbits {
         let orbits: Vec<OrbitalState> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("failed to parse orbits: {}", e));
         let len = orbits.len();
-        Self { orbits, pos: 0, len }
+        Self {
+            orbits,
+            pos: 0,
+            len,
+        }
     }
 }
 
@@ -30,13 +34,14 @@ impl OrbitalStateProvider for Orbits {
     // If None is returned for too long, this [Epoch] will eventually be dropped out,
     // and we will move on to the next
     fn next_at(&mut self, t: Epoch, sv: SV, order: usize) -> Option<OrbitalState> {
-        if self.pos >= self.len {
-            None
-        } else {
+        if self.pos < self.len {
             println!("orbit: {}/{}", self.pos, self.len);
             let ret = self.orbits[self.pos];
             self.pos += 1;
             Some(ret)
+        } else {
+            println!("consumed all orbits");
+            None
         }
     }
 }
