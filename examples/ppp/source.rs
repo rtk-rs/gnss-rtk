@@ -1,8 +1,12 @@
 use gnss_rtk::prelude::{Candidate, Epoch, Observation, SV};
 use itertools::Itertools;
 use serde::Deserialize;
+
 use std::fs::read_to_string;
+use std::fs::File;
+use std::io::Read;
 use std::str::FromStr;
+use flate2::read::GzDecoder;
 
 #[derive(Clone, Default, Deserialize)]
 pub struct ObservationData {
@@ -24,7 +28,13 @@ pub struct DataSource {
 
 impl DataSource {
     pub fn new(max_candidates: usize) -> Self {
-        let content = read_to_string("examples/data/obs.json")
+        // Data is compressed to reduce storage size
+        let mut content = String::new();
+        let f = "examples/data/obs.json.gz";
+        let fd = File::open(f)
+            .unwrap_or_else(|e| panic!("failed to read observations source: {}", e));
+        let mut decoder = GzDecoder::new(fd);
+        decoder.read_to_string(&mut content)
             .unwrap_or_else(|e| panic!("failed to read observations source: {}", e));
         let data: Vec<ObservationData> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("failed to parse observations: {}", e));

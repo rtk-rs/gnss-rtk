@@ -17,3 +17,5 @@ Cargo.lock
 *.swo
 *.patch
 *.rs~
+
+examples/data

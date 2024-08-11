@@ -1,5 +1,8 @@
 use gnss_rtk::prelude::{Epoch, OrbitalState, OrbitalStateProvider, SV};
 use std::fs::read_to_string;
+use std::fs::File;
+use std::io::Read;
+use flate2::read::GzDecoder;
 
 // Orbit Source Example: we parse a local text file
 #[derive(Clone, Debug, Default)]
@@ -11,7 +14,13 @@ pub struct Orbits {
 
 impl Orbits {
     pub fn new() -> Self {
-        let content = read_to_string("examples/data/orbits.json")
+        // Data is compressed to reduce storage size
+        let mut content = String::new();
+        let f = "examples/data/orbits.json.gz";
+        let fd = File::open(f)
+            .unwrap_or_else(|e| panic!("failed to read orbit source: {}", e));
+        let mut decoder = GzDecoder::new(fd);
+        decoder.read_to_string(&mut content)
             .unwrap_or_else(|e| panic!("failed to read orbit source: {}", e));
         let orbits: Vec<OrbitalState> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("failed to parse orbits: {}", e));
@@ -26,7 +35,7 @@ impl Orbits {
 }
 
 impl OrbitalStateProvider for Orbits {
-    // For each requested "t" and "sv",
+    // For each requested "t" and "sv"
     // if we can, we should resolve the SV [OrbitalState].
     // If interpolation is to be used (depending on your apps), you can
     // use the interpolation order that we recommend here, or decide to ignore it.
