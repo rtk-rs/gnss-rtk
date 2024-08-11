@@ -93,6 +93,11 @@ impl Iterator for DataSource {
                         Default::default(),
                     ));
                 }
+
+                if self.pending.len() == self.max_candidates {
+                    // returned snapshot
+                    proposal = Some((self.pending_epoch, self.pending.clone()));
+                }
             }
             self.pos += 1;
             if let Some(proposal) = proposal {

@@ -31,7 +31,7 @@ impl RTKBaseStation for BaseStation {
 }
 
 pub fn main() {
-    // The Cli is only there to help us modify the initial conditions, in CI/CD.
+    // Cli helps customizing the initial conditions
     let cli = Cli::new();
 
     // Deployment setup
@@ -40,31 +40,61 @@ pub fn main() {
     let test_conditions = setup.test_conditions();
     let apriori = test_conditions.apriori;
 
+    if let Some(ref apriori) = apriori {
+        println!("Deployed with initial apriori : {:?}", apriori);
+    } else {
+        println!("Deployed with first guess");
+    }
+
+    println!("{:#?}", rtk_config);
+
+    // Tests
+    let mut errors = 0;
+
+    // Deploy
     let orbits = Orbits::new(); // Build the Orbit source
     let mut source = DataSource::new(test_conditions.max_candidates); // Build Data source
 
-    // The API is pretty straightforward
+    // API is simple and straightforward
     //  [+] pass configuration setup
     //  [+] tie Orbit source
     //  [+] tie possible Base Station
-    //  [+] needs mutable access ue to iteration process
+    //  [+] (iterative) process requires mutable access
     let mut solver: Solver<Orbits, BaseStation> =
         Solver::ppp(&rtk_config, apriori, orbits).expect("failed to deploy solver");
 
     println!("PPP example deployed");
 
-    // Browse your data and try resolve solutions
+    // Browse data source and try solving
     while let Some((epoch, candidates)) = source.next() {
         match solver.resolve(epoch, &candidates) {
             Ok((_epoch, solution)) => {
-                // A solution was successfully resolved for this Epoch.
-                // The position is expressed as absolute ECEF [m].
-                let _position = solution.position;
-                // The velocity vector is expressed as variations of absolute ECEF positions [m/s]
-                let _velocity = solution.velocity;
-                // Receiver offset to preset timescale
-                let (_clock_offset, _timescale) = (solution.dt, solution.timescale);
-                // More infos on SVs that contributed to this solution
+                // Success.
+                // Position is always absolute, expressed in ECEF frame in [m].
+                // It is sometimes convenient to display those in [km]
+                let pos = solution.position;
+                let (x_km, y_km, z_km) = (pos[0] / 1.0E3, pos[1] / 1.0E3, pos[2] / 1.0E3);
+                println!(
+                    "{}: new solution x={}km, y={}km, z={}km",
+                    epoch, x_km, y_km, z_km
+                );
+
+                // Velocity is always resolved as well,
+                // we discard the first valid solution for which we would not be
+                // able to attach velocity.
+                // Velocity is instantaneous, always absolute, in same frame [m]
+                let vel = solution.velocity;
+                let (vel_x, vel_y, vel_z) = (vel[0], vel[1], vel[2]);
+                println!(
+                    "{}: velocity x={}m/s, y={}m/s, z={}m/s",
+                    epoch, vel_x, vel_y, vel_z
+                );
+
+                // Local clock state
+                let (dt, timescale) = (solution.dt, solution.timescale);
+                println!("{}: clock offset {} [{}]", epoch, dt, timescale);
+
+                // Solutions contributor
                 for info in solution.sv.values() {
                     // attitude
                     let (_el, _az) = (info.azimuth, info.elevation);
@@ -81,20 +111,44 @@ pub fn main() {
                     let _vdop = solution.vdop(lat_ddeg, lon_ddeg);
                 }
             },
-            Err(Error::InvalidatedSolution(cause)) => match cause {
-                InvalidationCause::FirstSolution => {
-                    // The current behavior will always discard the first solution.
-                    // We will always wind up here on the first iteration
-                },
-                _other => {
-                    // Conditions are either degrading and no longer fit preset criteria,
-                    // or we need more iterations to finally meet preset criteria.
-                },
-            },
-            Err(_e) => {
-                // Something went wrong, use "e" to get more info on what is wrong.
-                // The most plausible cause is the lack of observations, at this point in time.
-                // But that should not last for too long, otherwise something's wrong in your setup
+            Err(e) => {
+                errors += 1;
+                println!("{}: error: {} ({})", epoch, e, errors);
+                match e {
+                    Error::NotEnoughCandidates => {},
+                    Error::NotEnoughMatchingCandidates => {},
+                    Error::MatrixError => {},
+                    Error::NavigationError => {},
+                    Error::MatrixInversionError => {},
+                    Error::FirstGuess => {},
+                    Error::TimeIsNan => {},
+                    Error::MissingPseudoRange => {},
+                    Error::PseudoRangeCombination => {},
+                    Error::PhaseRangeCombination => {},
+                    Error::UnresolvedState => {},
+                    Error::UnresolvedAmbiguity => {},
+                    Error::PhysicalNonSenseRxPriorTx | Error::PhysicalNonSenseRxTooLate => {},
+                    Error::BancroftError => {},
+                    Error::InvalidStrategy => panic!("invalid strategy! should not happen here!"),
+                    Error::BancroftImaginarySolution => {},
+                    Error::EarthFrame => panic!("anise:: frame determination error"),
+                    Error::Almanac(e) => panic!("anise:: almanac retrieval error: {}", e),
+                    Error::Physics(e) => panic!("anise:: physical error: {}", e),
+                    Error::InvalidatedSolution(cause) => match cause {
+                        InvalidationCause::FirstSolution => {
+                            // The current behavior will always discard the first solution.
+                            // We will always wind up here on the first iteration
+                            println!(
+                                "{}: first solution invalidated, solutions are pending",
+                                epoch
+                            );
+                        },
+                        _other => {
+                            // Conditions are either degrading and no longer fit preset criteria,
+                            // or we need more iterations to finally meet preset criteria.
+                        },
+                    },
+                }
             },
         }
     }
