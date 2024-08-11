@@ -60,8 +60,25 @@ GNSS-RTK is used by the following applications
 Examples and more information
 =============================
 
-* Some examples are shipped with this repo, they will teach you how to deploy the solver,
-at least in basic setups
+* We provide two example programs with this repo. 
+  - one for PPP navigation
+  - one for RTK navigation
+They will teach you how to deploy the solver for both applications
+* The example programs are entire application, they come with a small CLI. We use them for test and verification purposes.
+
+Deploy the PPP example program by default:
+
+```bash
+cargo run --example ppp --features=serde
+```
+
+Run the PPP test with this test setup, that verifies for 1 day static navigation,
+that we converge very accurately
+
+```bash
+cargo run --example ppp --features=serde -- -c tests/static/spp_absolute_1day.json
+```
+
 * [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework, at a high level
 
 Ecosystem

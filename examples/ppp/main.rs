@@ -13,6 +13,8 @@ use source::DataSource;
 mod orbit;
 use orbit::Orbits;
 
+pub mod setup;
+
 use gnss_rtk::prelude::{
     BaseStation as RTKBaseStation, Candidate, Carrier, ClockCorrection, Config, Duration, Epoch,
     Error, InvalidationCause, IonoComponents, Method, Observation, OrbitalState,
@@ -37,13 +39,11 @@ pub fn main() {
     println!("Orbit source created: orbits");
     let mut source = DataSource::new(); // Build Data source
 
-    // Define custom setup
-    let mut cfg = cli.config_preset();
-    
-    // Possible apriori knowledge
-    // Defines whether this run will be a complete autonomous survey
-    // or not.
-    let apriori = cli.apriori();
+    // Deployment and test setup
+    let setup = cli.setup();
+    let rtk_config = setup.rtk_config();
+    let test_conditions = setup.test_conditions();
+    let apriori = test_conditions.apriori;
 
     // The API is pretty straightforward
     //  [+] pass configuration setup
@@ -51,7 +51,7 @@ pub fn main() {
     //  [+] tie possible Base Station
     //  [+] needs mutable access ue to iteration process
     let mut solver: Solver<Orbits, BaseStation> =
-        Solver::ppp(&cfg, apriori, orbits).expect("failed to deploy solver");
+        Solver::ppp(&rtk_config, apriori, orbits).expect("failed to deploy solver");
 
     println!("PPP example deployed");
 
