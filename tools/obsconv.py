@@ -88,19 +88,17 @@ class ObservationData:
         fd.write('\t\t\"sv\": \"{}\",\n'.format(self.sv))
         fd.write('\t\t\"epoch\": \"{}\",\n'.format(self.t))
         fd.write('\t\t\"observation\": {\n')
-        fd.write('\t\t\t\"carrier\": {},\n'.format(self.observation.carrier))
+        fd.write('\t\t\t\"carrier\": \"{}\",\n'.format(self.observation.carrier))
         fd.write('\t\t\t\"snr\": {},\n'.format(self.observation.snr))
-        if self.observation.pseudo_range is None:
-            fd.write('\t\t\t\"pseudo\": \"None\",\n')
-        else:
-            fd.write('\t\t\t\"pseudo\": {},\n'.format(self.observation.pseudo_range))
-        if self.observation.phase_range is None:
-            fd.write('\t\t\t\"phase\": \"None\",\n')
-        else:
-            fd.write('\t\t\t\"phase\": {},\n'.format(self.observation.phase_range))
-        if self.observation.doppler is None:
-            fd.write('\t\t\t\"doppler\": \"None\",\n')
-        else:
+        if self.observation.pseudo_range is not None:
+            fd.write('\t\t\t\"pseudo\": {}'.format(self.observation.pseudo_range))
+        if self.observation.phase_range is not None or self.observation.doppler is not None:
+            fd.write(',\n')
+        if self.observation.phase_range is not None:
+            fd.write('\t\t\t\"phase\": {}'.format(self.observation.phase_range))
+            if self.observation.doppler is not None:
+                fd.write(',\n')
+        if self.observation.doppler is not None:
             fd.write('\t\t\t\"doppler\": {}\n'.format(self.observation.doppler))
         fd.write('\t\t}\n')
         fd.write('\t}\n')
