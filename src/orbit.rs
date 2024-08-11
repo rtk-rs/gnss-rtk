@@ -1,19 +1,26 @@
 use anise::prelude::{Frame, Orbit};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 use crate::prelude::{Epoch, Vector3, SV};
 use map_3d::ecef2geodetic;
 use std::f64::consts::PI;
 
 /// [OrbitalState] must be provide of each candidate.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct OrbitalState {
     /// Elevation compared to reference position and horizon in [°]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub elevation: f64,
     /// Azimuth compared to reference position and magnetic North in [°]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub azimuth: f64,
     /// APC Position vector in [m] ECEF
     pub position: Vector3<f64>,
     // Velocity vector in [m/s] ECEF that we calculated ourselves
+    #[cfg_attr(feature = "serde", serde(default))]
     pub(crate) velocity: Option<Vector3<f64>>,
 }
 

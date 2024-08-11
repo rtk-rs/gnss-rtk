@@ -1,6 +1,10 @@
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Carrier {
     /// L1 (GPS/QZSS/SBAS) same frequency as E1 and B1aB1c
     #[default]

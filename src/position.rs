@@ -2,8 +2,12 @@
 use crate::prelude::Vector3;
 use map_3d::{ecef2geodetic, geodetic2ecef, Ellipsoid};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 /// Position is used as the (optional) [Solver] initial point.
 #[derive(Default, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Position {
     /// ECEF coordinates in meters
     pub(crate) ecef: Vector3<f64>,

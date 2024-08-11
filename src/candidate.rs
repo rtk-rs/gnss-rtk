@@ -13,7 +13,11 @@ use crate::{
     },
 };
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Observation {
     /// [Carrier]
     pub carrier: Carrier,
@@ -181,7 +185,17 @@ impl Candidate {
             remote: Vec::new(),
         }
     }
-    /// Provide remote [Observation]s observed by [BaseStation]
+    /// Append new observation to [Self]
+    pub fn add_observation_mut(&mut self, obs: Observation) {
+        self.observations.push(obs);
+    }
+    /// Provide new observation for [Self]
+    pub fn add_observation(&self, obs: Observation) -> Self {
+        let mut s = self.clone();
+        s.observations.push(obs);
+        s
+    }
+    /// Gather remote [Observation]s observed by [BaseStation]
     pub(crate) fn set_remote_observations(&mut self, remote: Vec<Observation>) {
         self.remote = remote.clone();
     }

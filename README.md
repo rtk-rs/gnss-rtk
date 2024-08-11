@@ -11,19 +11,41 @@ Precise positioning calculations, in Rust
 PPP / RTK
 =========
 
-GNSS-RTK is an easy and efficient navigation solver that supports both PPP and RTK navigation. 
+GNSS-RTK is an easy and efficient navigation solver that supports both PPP and RTK navigation techniques.
 This makes it the ideal solution for most navigation applications.  
-It is easy to deploy, the configuration is simple and even the default setup will exhibit good results
-(no tweaking involved!).
 
-GNSS-RTK is flexible and efficient:
+This library achieves several major points and has many objectives:
 
-* you can navigate with a single signal in sight
-* you don't have to sample L1 and can navigate with modern signals
-* it supports navigation without phase range
-* a special CPP method for dual frequency pseudo range (no phase range)
-which is pretty much a slow converging PPP method
-* it can operate without apriori knowledge and is a true surveying tool
+  - Be easy to deploy in spite of the complexity of task.
+  Navigation can be complex, because GNSS-RTK is easy to deploy, it makes it reasonnable
+  to foresee creating a custom navigation application
+  - Be easy to configure. Navigation interacts with a couple of physics
+  and several phenomena. GNSS-RTK is currently limited to navigation on Earth's ground,
+  which adds the proprieties of our Atmosphere to that. In spite of all of this, and following
+  point 1., we want GNSS-RTK to be easy to work around, tweak and reconfigure. One side effect
+  being that it could serve as a teaching tool about all of these phenomena.
+  - Provide abstraction. GNSS-RTK does not care about signals or satellites identity, it cares about
+  physics and environmental phenomena. As long as you provide the minimum required, you can navigate.
+
+Navigation Flexibility
+======================
+
+Following that, GNSS-RTK should be flexible in the navigation process. To add to that,
+we can say that
+
+* GNSS-RTK can navigate with a single signal in sight, which does not have to be L1 frequency.
+Any supported [Carrier]() will work.
+* Pure pseudo range Navigation (without phase range) is feasible and is currently
+our most stable approach. Yet it will be possible to even further improve it.
+* A special dual frequency pure pseudo range method, that we call [Code Precise Positioning (CPP)]()
+exists, and can be considered as a slow converging PPP (needs more Epoch accumulation).
+* Phase Range navigation is supported but in practice not yet fully stabilized.
+This is one of our pending topics.
+* GNSS-RTK is about to support Real-Time Kinematic (RTK) differential technique, which requires
+a static Geodetic reference sight to be also in sight. It will eventually be able to combine both
+PPP and RTK technique to make it a state of the art complete tool.
+* GNSS-RTK can operate without apriori knowledge on the receiver's position.
+This is a challenging task
 * it can fulfill the challenging task of RTK / Geodetic reference station calibration
 
 Applications
@@ -38,8 +60,31 @@ GNSS-RTK is used by the following applications
 Examples and more information
 =============================
 
-* Some examples are shipped with this repo, they will teach you how to deploy the solver,
-at least in basic setups
+* We provide two example programs with this repo. 
+  - one for PPP navigation
+  - one for RTK navigation
+They will teach you how to deploy the solver for both applications
+* The example programs are entire application, they come with a small CLI. We use them for test and verification purposes.
+
+Deploy the PPP example program and run with default options
+
+```bash
+cargo build --release --example ppp
+./target/release/example/ppp
+```
+
+Or simply:
+
+```bash
+cargo run --example ppp
+```
+
+Run one of our testbench:
+
+```bash
+cargo run --exampl ppp -- -c tests/static/spp_absolute_1day.json
+```
+
 * [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework, at a high level
 
 Ecosystem
