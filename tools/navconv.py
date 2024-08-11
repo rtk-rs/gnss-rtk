@@ -38,6 +38,7 @@ def main(argv):
     t0 = ""
     tlast = ""
     total_epochs = 0
+    first = True
     svnn = []
     output = "examples/data"
 
@@ -63,7 +64,11 @@ def main(argv):
                     if tlast != t:
                         total_epochs += 1
 
-                    out.write("{\n")
+                    if first:
+                        first = False
+                        out.write("{\n")
+                    else:
+                        out.write(",{\n")
 
                     for i in range(len(RINEX.KEYS) -1):
                         key = RINEX.KEYS[i]
@@ -80,7 +85,7 @@ def main(argv):
                     if ktype == 'str':
                         out.write("\t\"{}\": \"{}\"\n".format(key, rnx[key]))
                     else:
-                        out.write("\t\"{}\": {}\n}},\n".format(key, rnx[key]))
+                        out.write("\t\"{}\": {}\n}}\n".format(key, rnx[key]))
                     if not (sv in svnn):
                         svnn.append(sv)
                     tlast = t

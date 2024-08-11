@@ -36,10 +36,9 @@ pub fn main() {
     let cli = Cli::new();
 
     let orbits = Orbits::new(); // Build the Orbit source
-    println!("Orbit source created: orbits");
     let mut source = DataSource::new(); // Build Data source
 
-    // Deployment and test setup
+    // Deployment setup
     let setup = cli.setup();
     let rtk_config = setup.rtk_config();
     let test_conditions = setup.test_conditions();

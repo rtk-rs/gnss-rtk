@@ -18,11 +18,6 @@ class RINEX:
         "LLI",
         "SNR",
     ]
-    def parse_snr(snr):
-        if snr == "DbHz18_23":
-            return -20
-        return -10
-
     def parse(content):
         ret = {}
         items=content.split(',')
@@ -33,24 +28,38 @@ class RINEX:
                     return None
             elif RINEX.KEYS[i] == "Value":
                 ret[RINEX.KEYS[i]] = float(content)
-            elif RINEX.KEYS[i] == "SNR":
-                ret["SNR"] = RINEX.parse_snr(content)
             else:
                 ret[RINEX.KEYS[i]] = content
         
         return ret
 
-class RTK:
-    KEYS = [
-        "epoch",
-        "clk_offset",
-        "sv",
-        "signal",
-        "snr",
-        "pr",
-        "ph",
-        "dop",
-    ]
+class Observation:
+    def __init__(self, rnx):
+        snr = rnx["SNR"]
+        code = rnx["RINEX Code"]
+        value = rnx["Value"]
+        self.carrier = Observation.parse_signal(code)
+        if snr == "None":
+            self.snr = None
+        else:
+            self.snr = Observation.parse_snr(snr)
+
+        if code[0] == 'C':
+            self.pseudo_range = value
+        else:
+            self.pseudo_range = None
+        if code[0] == 'L':
+            self.phase_range = value
+        else:
+            self.phase_range = None
+        if code[0] == 'D':
+            self.doppler = value
+        else:
+            self.doppler = None
+    def parse_snr(snr):
+        if snr == "DbHz18_23":
+            return -20
+        return -10
     def parse_signal(code):
         if "1" in code:
             return "L1"
@@ -58,37 +67,43 @@ class RTK:
             return "L2"
         else:
             return "L5"
-    def __get_item__(key):
-        if key == "Epoch":
-            return self.epoch
-        else:
-            None
+
+class ObservationData:
+    KEYS = [
+        "epoch",
+        "sv",
+        "observation",
+    ]
     def __init__(self, rnx):
         sv = rnx["SV"]
-        code = rnx["RINEX Code"]
         self.t = rnx["Epoch"]
-        self.sv = sv
-        self.snr = rnx["SNR"]
-        self.clk_offset = rnx["Clock Offset [s]"]
-        self.signal = RTK.parse_signal(rnx["RINEX Code"])
-        if code[0] == 'C':
-            self.pseudo_range = float(rnx["Value"])
-        elif code[0] == 'D':
-            self.doppler = float(rnx["Value"])
-        elif code[0] == 'L':
-            self.phase_range = float(rnx["Value"])
+        self.sv = rnx["SV"]
+        self.observation = Observation(rnx) 
 
-    def write(self, fd):
-        fd.write('{\n')
-        fd.write('\t\"epoch\": {},\n'.format(self.t))
-        fd.write('\t\"sv\": {},\n'.format(self.sv))
-        fd.write('\t\"snr\": {},\n'.format(self.snr))
-        fd.write('\t\"clk_offset\": {},\n'.format(self.clk_offset))
-        fd.write('\t\"signal\": {}\n'.format(self.signal))
-        fd.write('\t\"pr\": {}\n'.format(self.pseudo_range))
-        # fd.write('\t\"ph\": {}\n'.format(self.phase_range))
-        # fd.write('\t\"dop\": {}\n'.format(self.doppler))
-        fd.write('},\n')
+    def write(self, fd, is_first=True):
+        if is_first:
+            fd.write('\t{\n')
+        else:
+            fd.write('\t,{\n')
+        fd.write('\t\t\"sv\": \"{}\",\n'.format(self.sv))
+        fd.write('\t\t\"epoch\": \"{}\",\n'.format(self.t))
+        fd.write('\t\t\"observation\": {\n')
+        fd.write('\t\t\t\"carrier\": {},\n'.format(self.observation.carrier))
+        fd.write('\t\t\t\"snr\": {},\n'.format(self.observation.snr))
+        if self.observation.pseudo_range is None:
+            fd.write('\t\t\t\"pseudo\": \"None\",\n')
+        else:
+            fd.write('\t\t\t\"pseudo\": {},\n'.format(self.observation.pseudo_range))
+        if self.observation.phase_range is None:
+            fd.write('\t\t\t\"phase\": \"None\",\n')
+        else:
+            fd.write('\t\t\t\"phase\": {},\n'.format(self.observation.phase_range))
+        if self.observation.doppler is None:
+            fd.write('\t\t\t\"doppler\": \"None\",\n')
+        else:
+            fd.write('\t\t\t\"doppler\": {}\n'.format(self.observation.doppler))
+        fd.write('\t\t}\n')
+        fd.write('\t}\n')
 
 def main(argv):
     sv = ""
@@ -98,7 +113,11 @@ def main(argv):
     svnn = []
     signals = []
     rtk = {}
+    first = True
+    prev_sv = None
     output = "examples/data"
+    obsdata = None
+    pending_observation = None
 
     for i in range(len(argv)):
         if argv[i] == "-o":
@@ -110,6 +129,7 @@ def main(argv):
             output = output+"/"+filename
             with open(output, "w") as out:
                 print("dataconv: \"{}\"".format(fp))
+                out.write('[\n')
                 fd.readline()
                 for line in fd:
                     rnx = RINEX.parse(line)
@@ -120,19 +140,37 @@ def main(argv):
                         t0 = t
                     if tlast != t:
                         total_epochs += 1
-                    if total_epochs > 1:
-                        if sv != rnx["SV"]:
-                            rtk.write(out)
-                            out.write('\n')
 
                     sv = rnx["SV"]
-                    rtk = RTK(rnx)
-                    if not (sv in svnn):
-                        svnn.append(sv)
-                    if not rtk.signal in signals:
-                        signals.append(rtk.signal)
                     tlast = rnx["Epoch"]
 
+                    if not (sv in svnn):
+                        svnn.append(sv)
+
+                    if obsdata is None:
+                        obsdata = ObservationData(rnx)
+                    else:
+                        if prev_sv is not None:
+                            if sv != prev_sv:
+                                # new SV
+                                obsdata.write(out, first)
+                                first = False
+                            else:
+                                new_obs = Observation(rnx)
+                                pr = new_obs.pseudo_range
+                                ph = new_obs.phase_range
+                                dop = new_obs.doppler
+                                if pr is not None:
+                                    obsdata.observation.pseudo_range = pr
+                                if ph is not None:
+                                    obsdata.observation.phase_range = ph
+                                if dop is not None:
+                                    obsdata.observation.doppler = dop
+
+                    
+                    prev_sv = sv
+                    
+                out.write(']\n')
                 print("t_first: {}".format(t0))
                 print("t_last:  {}".format(tlast))
                 print("total:   {}".format(total_epochs))

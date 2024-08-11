@@ -17,6 +17,7 @@ impl Orbits {
         let orbits: Vec<OrbitalState> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("failed to parse orbits: {}", e));
         let len = orbits.len();
+        println!("Orbit source created: examples/data/orbits.json");
         Self {
             orbits,
             pos: 0,

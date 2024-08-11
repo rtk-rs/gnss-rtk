@@ -1,10 +1,11 @@
 use gnss_rtk::prelude::{Candidate, Epoch, Observation, SV};
 use serde::Deserialize;
 use std::fs::read_to_string;
+use std::str::FromStr;
 
 #[derive(Clone, Default, Deserialize)]
 pub struct ObservationData {
-    sv: SV,
+    sv: String,
     epoch: Epoch,
     observation: Observation,
 }
@@ -27,11 +28,12 @@ pub struct DataSource {
 
 impl DataSource {
     pub fn new() -> Self {
-        let content = read_to_string("examples/data/obs.json")
+        let content = read_to_string("examples/data/test_obs.json")
             .unwrap_or_else(|e| panic!("failed to read observations source: {}", e));
         let data: Vec<ObservationData> = serde_json::from_str(&content)
             .unwrap_or_else(|e| panic!("failed to parse observations: {}", e));
         let len = data.len();
+        println!("Data source created: examples/data/obs.json");
         Self {
             pos: 0,
             len,
@@ -56,7 +58,7 @@ impl Iterator for DataSource {
                 return None;
             }
             let t = self.data[self.pos].epoch;
-            let sv = self.data[self.pos].sv;
+            let sv = SV::from_str(&self.data[self.pos].sv).unwrap();
             if self.pos == 0 {
                 // grab first
                 self.epoch = t;
