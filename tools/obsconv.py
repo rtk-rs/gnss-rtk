@@ -89,7 +89,8 @@ class ObservationData:
         fd.write('\t\t\"epoch\": \"{}\",\n'.format(self.t))
         fd.write('\t\t\"observation\": {\n')
         fd.write('\t\t\t\"carrier\": \"{}\",\n'.format(self.observation.carrier))
-        fd.write('\t\t\t\"snr\": {},\n'.format(self.observation.snr))
+        if self.observation.snr is not None:
+            fd.write('\t\t\t\"snr\": {},\n'.format(self.observation.snr))
         if self.observation.pseudo_range is not None:
             fd.write('\t\t\t\"pseudo\": {}'.format(self.observation.pseudo_range))
         if self.observation.phase_range is not None or self.observation.doppler is not None:
@@ -153,6 +154,7 @@ def main(argv):
                                 # new SV
                                 obsdata.write(out, first)
                                 first = False
+                                obsdata = ObservationData(rnx)
                             else:
                                 new_obs = Observation(rnx)
                                 pr = new_obs.pseudo_range

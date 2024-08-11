@@ -1,10 +1,15 @@
 // The Cli is only there to help us modify the initial conditions, in CI/CD.
-use clap::{value_parser, Arg, ArgAction, ArgMatches, ColorChoice, Command};
+use clap::{
+    //value_parser,
+    Arg,
+    ArgAction,
+    //ArgMatches,
+    ColorChoice,
+    Command,
+};
 use std::fs::read_to_string;
 
 use crate::setup::Setup;
-
-use gnss_rtk::prelude::{Config as RTKConfig, Method as RTKMethod};
 
 pub struct Cli {
     setup: Setup,

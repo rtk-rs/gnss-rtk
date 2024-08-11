@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use gnss_rtk::prelude::{Config as RTKConfig, Method as RTKNaviMethod, Position};
+use serde::Deserialize;
 
 // CI/CD thorough verification purposes
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -30,6 +29,7 @@ impl Setup {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct TestConditions {
     pub kinematics: bool,
+    pub max_candidates: usize,
     pub apriori: Option<Position>,
 }
 
@@ -38,6 +38,7 @@ impl Default for TestConditions {
         Self {
             apriori: None,
             kinematics: false,
+            max_candidates: 16,
         }
     }
 }

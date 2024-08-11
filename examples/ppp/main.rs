@@ -16,9 +16,8 @@ use orbit::Orbits;
 pub mod setup;
 
 use gnss_rtk::prelude::{
-    BaseStation as RTKBaseStation, Candidate, Carrier, ClockCorrection, Config, Duration, Epoch,
-    Error, InvalidationCause, IonoComponents, Method, Observation, OrbitalState,
-    OrbitalStateProvider, Solver, TropoComponents, SV,
+    BaseStation as RTKBaseStation, Carrier, Epoch, Error, InvalidationCause, Observation, Solver,
+    SV,
 };
 
 // This example is direct positioning (not RTK), therefore
@@ -35,14 +34,14 @@ pub fn main() {
     // The Cli is only there to help us modify the initial conditions, in CI/CD.
     let cli = Cli::new();
 
-    let orbits = Orbits::new(); // Build the Orbit source
-    let mut source = DataSource::new(); // Build Data source
-
     // Deployment setup
     let setup = cli.setup();
     let rtk_config = setup.rtk_config();
     let test_conditions = setup.test_conditions();
     let apriori = test_conditions.apriori;
+
+    let orbits = Orbits::new(); // Build the Orbit source
+    let mut source = DataSource::new(test_conditions.max_candidates); // Build Data source
 
     // The API is pretty straightforward
     //  [+] pass configuration setup

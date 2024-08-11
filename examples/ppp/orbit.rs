@@ -1,5 +1,4 @@
 use gnss_rtk::prelude::{Epoch, OrbitalState, OrbitalStateProvider, SV};
-use serde::Deserialize;
 use std::fs::read_to_string;
 
 // Orbit Source Example: we parse a local text file
