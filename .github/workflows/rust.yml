@@ -27,6 +27,8 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build PPP
-      run: cargo build --example ppp --features=serde
-    - name: Run PPP
-      run: cargo run --example ppp --features=serde
+      run: |
+        cargo build --release --all-features --example ppp
+        export RUST_LOG=trace
+    - name: SPP LSQ 1 Day Survey
+      run: ./target/release/examples/ppp -c tests/survey/spp_lsq_1day.json

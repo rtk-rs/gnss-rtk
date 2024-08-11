@@ -33,10 +33,10 @@ impl Cli {
         let matches = cmd.get_matches();
         let setup = match matches.get_one::<String>("cfg") {
             Some(path) => {
-                let content =
-                    read_to_string(path).unwrap_or_else(|e| panic!("failed to read test setup"));
+                let content = read_to_string(path)
+                    .unwrap_or_else(|e| panic!("failed to read test setup: {}", e));
                 let setup: Setup = serde_json::from_str(&content)
-                    .unwrap_or_else(|e| panic!("failed to parse test setup"));
+                    .unwrap_or_else(|e| panic!("failed to parse test setup: {}", e));
                 setup
             },
             None => Setup::default(),

@@ -40,7 +40,9 @@ pub enum Error {
     #[error("not enough candidates provided")]
     NotEnoughCandidates,
     #[error("not enough candidates match pre-fit criteria")]
-    NotEnoughMatchingCandidates,
+    NotEnoughMatchingPreFit,
+    #[error("not enough candidates match post-fit criteria")]
+    NotEnoughMatchingPostFit,
     #[error("non supported/invalid strategy")]
     InvalidStrategy,
     #[error("failed to form matrix (invalid input?)")]
@@ -252,7 +254,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
 
         if pool.len() < min_required {
             // no need to proceed further
-            return Err(Error::NotEnoughMatchingCandidates);
+            return Err(Error::NotEnoughMatchingPreFit);
         }
 
         // gather (matching) observations on remote site
@@ -388,7 +390,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         }
 
         if pool.len() < min_required {
-            return Err(Error::NotEnoughMatchingCandidates);
+            return Err(Error::NotEnoughMatchingPostFit);
         }
 
         if self.initial.is_none() {
@@ -463,7 +465,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         });
 
         if pool.len() < min_required {
-            return Err(Error::NotEnoughMatchingCandidates);
+            return Err(Error::NotEnoughMatchingPostFit);
         }
 
         Self::retain_best_elevation(&mut pool, min_required);

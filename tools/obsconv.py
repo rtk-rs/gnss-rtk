@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 import sys
 
-class RINEX:
+class OBS_RINEX:
     t = ""
     sv = ""
     code = ""
@@ -21,16 +21,36 @@ class RINEX:
     def parse(content):
         ret = {}
         items=content.split(',')
-        for i in range(0, max(len(items), len(RINEX.KEYS))):
+        for i in range(0, max(len(items), len(OBS_RINEX.KEYS))):
             content = items[i].strip()
-            if RINEX.KEYS[i] == "Flag":
+            if OBS_RINEX.KEYS[i] == "Flag":
                 if content != "0":
                     return None
-            elif RINEX.KEYS[i] == "Value":
-                ret[RINEX.KEYS[i]] = float(content)
+            elif OBS_RINEX.KEYS[i] == "Value":
+                ret[OBS_RINEX.KEYS[i]] = float(content)
             else:
-                ret[RINEX.KEYS[i]] = content
+                ret[OBS_RINEX.KEYS[i]] = content
         
+        return ret
+
+class NAV_RINEX:
+    t = ""
+    sv = ""
+    clk = 0.0
+    KEYS = [
+        "Epoch",
+        "SV",
+        "Correction",
+    ]
+    def parse(content):
+        ret = {}
+        items=content.split(',')
+        for i in range(0, max(len(items), len(NAV_RINEX.KEYS))):
+            content = items[i].strip()
+            if NAV_RINEX.KEYS[i] == "Correction":
+                ret[NAV_RINEX.KEYS[i]] = float(content)
+            else:
+                ret[NAV_RINEX.KEYS[i]] = content
         return ret
 
 class Observation:
@@ -72,21 +92,29 @@ class ObservationData:
     KEYS = [
         "epoch",
         "sv",
+        "clk",
         "observation",
     ]
-    def __init__(self, rnx):
-        sv = rnx["SV"]
+    def __init__(self, rnx, corrections):
         self.t = rnx["Epoch"]
         self.sv = rnx["SV"]
         self.observation = Observation(rnx) 
-
-    def write(self, fd, is_first=True):
+        key = "{}:{}".format(self.t, self.sv)
+        if key in corrections:
+            self.clk = corrections[key]
+        else:
+            self.clk = None
+            
+    def write(self, fd, is_first):
+        if self.clk is None:
+            return is_first
         if is_first:
             fd.write('\t{\n')
         else:
             fd.write('\t,{\n')
         fd.write('\t\t\"sv\": \"{}\",\n'.format(self.sv))
         fd.write('\t\t\"epoch\": \"{}\",\n'.format(self.t))
+        fd.write('\t\t\"clk\": {},\n'.format(self.clk))
         fd.write('\t\t\"observation\": {\n')
         fd.write('\t\t\t\"carrier\": \"{}\",\n'.format(self.observation.carrier))
         if self.observation.snr is not None:
@@ -103,6 +131,7 @@ class ObservationData:
             fd.write('\t\t\t\"doppler\": {}\n'.format(self.observation.doppler))
         fd.write('\t\t}\n')
         fd.write('\t}\n')
+        return False
 
 def main(argv):
     sv = ""
@@ -117,64 +146,77 @@ def main(argv):
     output = "examples/data"
     obsdata = None
     pending_observation = None
+    corrections = {}
 
     for i in range(len(argv)):
         if argv[i] == "-o":
             output = argv[i+1]
+        if argv[i] == "--obs":
+            obs_fp = argv[i+1]
+        if argv[i] == "--nav":
+            nav_fp = argv[i+1]
 
-    for fp in argv:
-        with open(fp, "r") as fd:
-            filename = fp.split('/')[-1]
-            output = output+"/"+filename
-            with open(output, "w") as out:
-                print("dataconv: \"{}\"".format(fp))
-                out.write('[\n')
-                fd.readline()
-                for line in fd:
-                    rnx = RINEX.parse(line)
-                    t = rnx["Epoch"]
-                    code = rnx["RINEX Code"]
-                    value = rnx["Value"]
-                    if t0 == "":
-                        t0 = t
-                    if tlast != t:
-                        total_epochs += 1
+    with open(nav_fp, "r") as nav_fd:
+        filename = nav_fp.split('/')[-1]
+        print("dataconv: \"{}\"".format(filename))
+        nav_fd.readline()
+        for line in nav_fd:
+            rnx = NAV_RINEX.parse(line)
+            t = rnx["Epoch"]
+            sv = rnx["SV"]
+            key = "{}:{}".format(t, sv)
+            corrections[key] = rnx["Correction"]
 
-                    sv = rnx["SV"]
-                    tlast = rnx["Epoch"]
+    with open(obs_fp, "r") as obs_fd:
+        filename = obs_fp.split('/')[-1]
+        output = output+"/"+filename
+        with open("examples/data/obs.json", "w") as out:
+            print("dataconv: \"{}\"".format(filename))
+            out.write('[\n')
+            obs_fd.readline()
+            for line in obs_fd:
+                obs_rnx = OBS_RINEX.parse(line)
+                t = obs_rnx["Epoch"]
+                code = obs_rnx["RINEX Code"]
+                value = obs_rnx["Value"]
+                sv = obs_rnx["SV"]
 
-                    if not (sv in svnn):
-                        svnn.append(sv)
+                if t0 == "":
+                    t0 = t
+                if tlast != t:
+                    total_epochs += 1
+                
+                tlast = obs_rnx["Epoch"]
 
-                    if obsdata is None:
-                        obsdata = ObservationData(rnx)
-                    else:
-                        if prev_sv is not None:
-                            if sv != prev_sv:
-                                # new SV
-                                obsdata.write(out, first)
-                                first = False
-                                obsdata = ObservationData(rnx)
-                            else:
-                                new_obs = Observation(rnx)
-                                pr = new_obs.pseudo_range
-                                ph = new_obs.phase_range
-                                dop = new_obs.doppler
-                                if pr is not None:
-                                    obsdata.observation.pseudo_range = pr
-                                if ph is not None:
-                                    obsdata.observation.phase_range = ph
-                                if dop is not None:
-                                    obsdata.observation.doppler = dop
+                if not (sv in svnn):
+                    svnn.append(sv)
 
-                    
-                    prev_sv = sv
-                    
-                out.write(']\n')
-                print("t_first: {}".format(t0))
-                print("t_last:  {}".format(tlast))
-                print("total:   {}".format(total_epochs))
-                print("sv:      {}".format(svnn))
+                if obsdata is None:
+                    obsdata = ObservationData(obs_rnx, corrections)
+                else:
+                    if prev_sv is not None:
+                        if sv != prev_sv:
+                            # new SV
+                            first = obsdata.write(out, first)
+                            obsdata = ObservationData(obs_rnx, corrections)
+                        else:
+                            new_obs = Observation(obs_rnx)
+                            pr = new_obs.pseudo_range
+                            ph = new_obs.phase_range
+                            dop = new_obs.doppler
+                            if pr is not None:
+                                obsdata.observation.pseudo_range = pr
+                            if ph is not None:
+                                obsdata.observation.phase_range = ph
+                            if dop is not None:
+                                obsdata.observation.doppler = dop
+                prev_sv = sv
+                
+            out.write(']\n')
+            print("t_first: {}".format(t0))
+            print("t_last:  {}".format(tlast))
+            print("total:   {}".format(total_epochs))
+            print("sv:      {}".format(svnn))
 
 if __name__ == "__main__":
     main(sys.argv[1:])

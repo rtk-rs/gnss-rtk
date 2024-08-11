@@ -2,7 +2,11 @@
 // by opposition to RTK. Refer to the other example for that other technique.
 // Because the solver supports all navigation technique, the Rust language requires us to still define the RTK sides of the API even in this very case. But since we know this is totally disabled in this example, all RTK side is tied to Null.
 
+#[macro_use]
+extern crate log;
 extern crate serde;
+
+use env_logger::{Builder, Target};
 
 mod cli;
 use cli::Cli;
@@ -25,12 +29,20 @@ use gnss_rtk::prelude::{
 struct BaseStation {}
 
 impl RTKBaseStation for BaseStation {
-    fn observe(&mut self, t: Epoch, sv: SV, carrier: Carrier) -> Option<Observation> {
+    fn observe(&mut self, _: Epoch, _: SV, _: Carrier) -> Option<Observation> {
         None // no differential positioning
     }
 }
 
 pub fn main() {
+    // Take advantage of generated logs
+    let mut builder = Builder::from_default_env();
+    builder
+        .target(Target::Stdout)
+        .format_timestamp_secs()
+        .format_module_path(false)
+        .init();
+
     // Cli helps customizing the initial conditions
     let cli = Cli::new();
 
@@ -38,18 +50,21 @@ pub fn main() {
     let setup = cli.setup();
     let rtk_config = setup.rtk_config();
     let test_conditions = setup.test_conditions();
+    let test_validation = setup.test_validation();
     let apriori = test_conditions.apriori;
 
     if let Some(ref apriori) = apriori {
-        println!("Deployed with initial apriori : {:?}", apriori);
+        info!("Initial apriori: {:?}", apriori);
     } else {
-        println!("Deployed with first guess");
+        info!("Survey mode: no apriori knowledge");
     }
 
-    println!("{:#?}", rtk_config);
+    info!("{:#?}", rtk_config);
 
     // Tests
     let mut errors = 0;
+    let mut iterations = 0;
+    let mut nb_solutions = 0;
 
     // Deploy
     let orbits = Orbits::new(); // Build the Orbit source
@@ -63,18 +78,21 @@ pub fn main() {
     let mut solver: Solver<Orbits, BaseStation> =
         Solver::ppp(&rtk_config, apriori, orbits).expect("failed to deploy solver");
 
-    println!("PPP example deployed");
+    info!("PPP example deployed");
 
     // Browse data source and try solving
     while let Some((epoch, candidates)) = source.next() {
+        iterations += 1;
+
         match solver.resolve(epoch, &candidates) {
             Ok((_epoch, solution)) => {
                 // Success.
+                nb_solutions += 1;
                 // Position is always absolute, expressed in ECEF frame in [m].
                 // It is sometimes convenient to display those in [km]
                 let pos = solution.position;
                 let (x_km, y_km, z_km) = (pos[0] / 1.0E3, pos[1] / 1.0E3, pos[2] / 1.0E3);
-                println!(
+                info!(
                     "{}: new solution x={}km, y={}km, z={}km",
                     epoch, x_km, y_km, z_km
                 );
@@ -85,14 +103,14 @@ pub fn main() {
                 // Velocity is instantaneous, always absolute, in same frame [m]
                 let vel = solution.velocity;
                 let (vel_x, vel_y, vel_z) = (vel[0], vel[1], vel[2]);
-                println!(
+                info!(
                     "{}: velocity x={}m/s, y={}m/s, z={}m/s",
                     epoch, vel_x, vel_y, vel_z
                 );
 
                 // Local clock state
                 let (dt, timescale) = (solution.dt, solution.timescale);
-                println!("{}: clock offset {} [{}]", epoch, dt, timescale);
+                info!("{}: clock offset {} [{}]", epoch, dt, timescale);
 
                 // Solutions contributor
                 for info in solution.sv.values() {
@@ -116,7 +134,8 @@ pub fn main() {
                 println!("{}: error: {} ({})", epoch, e, errors);
                 match e {
                     Error::NotEnoughCandidates => {},
-                    Error::NotEnoughMatchingCandidates => {},
+                    Error::NotEnoughMatchingPreFit => {},
+                    Error::NotEnoughMatchingPostFit => {},
                     Error::MatrixError => {},
                     Error::NavigationError => {},
                     Error::MatrixInversionError => {},
@@ -150,6 +169,15 @@ pub fn main() {
                     },
                 }
             },
+        }
+
+        if nb_solutions == 0 {
+            if iterations >= test_validation.max_init_iterations {
+                panic!(
+                    "TEST FAILED: consumed {} epochs without producing anything.",
+                    iterations
+                );
+            }
         }
     }
 }

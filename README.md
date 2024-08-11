@@ -66,17 +66,23 @@ Examples and more information
 They will teach you how to deploy the solver for both applications
 * The example programs are entire application, they come with a small CLI. We use them for test and verification purposes.
 
-Deploy the PPP example program by default:
+Deploy the PPP example program and run with default options
 
 ```bash
-cargo run --example ppp --features=serde
+cargo build --release --example ppp
+./target/release/example/ppp
 ```
 
-Run the PPP test with this test setup, that verifies for 1 day static navigation,
-that we converge very accurately
+Or simply:
 
 ```bash
-cargo run --example ppp --features=serde -- -c tests/static/spp_absolute_1day.json
+cargo run --example ppp
+```
+
+Run one of our testbench:
+
+```bash
+cargo run --exampl ppp -- -c tests/static/spp_absolute_1day.json
 ```
 
 * [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework, at a high level

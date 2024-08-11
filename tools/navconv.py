@@ -7,6 +7,7 @@ class RINEX:
     x = 0.0
     y = 0.0
     z = 0.0
+    clk = 0.0
     KEYS = [
         "epoch",
         "sv",
@@ -24,7 +25,7 @@ class RINEX:
     def parse(content):
         ret = {}
         items=content.split(',')
-        for i in range(0, max(len(items), len(RINEX.KEYS))):
+        for i in range(0, min(len(items), len(RINEX.KEYS))):
             content = items[i].strip()
             if RINEX.TYPES[i] == "float":
                 ret[RINEX.KEYS[i]] = float(content)
@@ -76,16 +77,12 @@ def main(argv):
                         if ktype == 'str':
                             out.write("\t\"{}\": \"{}\",\n".format(key, rnx[key]))
                     
-                    out.write("\t\"position\": [{},{},{}],\n".format(rnx["x_ecef_km"], rnx["y_ecef_km"], rnx["z_ecef_km"]))
-                    out.write("\t\"azimuth\": 0.0,\n")
-                    out.write("\t\"elevation\": 0.0,\n")
-
-                    key = RINEX.KEYS[-1]
-                    ktype = RINEX.TYPES[-1]
-                    if ktype == 'str':
-                        out.write("\t\"{}\": \"{}\"\n".format(key, rnx[key]))
-                    else:
-                        out.write("\t\"{}\": {}\n}}\n".format(key, rnx[key]))
+                    out.write("\t\"state\": {\n")
+                    out.write("\t\t\"position\": [{},{},{}]\n".format(rnx["x_ecef_km"] * 1E3, rnx["y_ecef_km"] * 1E3, rnx["z_ecef_km"] *1E3))
+                    # out.write("\t\t\"azimuth\": 0.0,\n")
+                    # out.write("\t\t\"elevation\": 0.0\n")
+                    out.write("\t}\n")
+                    out.write("}\n")
                     if not (sv in svnn):
                         svnn.append(sv)
                     tlast = t

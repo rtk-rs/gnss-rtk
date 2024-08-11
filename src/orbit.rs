@@ -12,12 +12,15 @@ use std::f64::consts::PI;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct OrbitalState {
     /// Elevation compared to reference position and horizon in [°]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub elevation: f64,
     /// Azimuth compared to reference position and magnetic North in [°]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub azimuth: f64,
     /// APC Position vector in [m] ECEF
     pub position: Vector3<f64>,
     // Velocity vector in [m/s] ECEF that we calculated ourselves
+    #[cfg_attr(feature = "serde", serde(default))]
     pub(crate) velocity: Option<Vector3<f64>>,
 }
 
