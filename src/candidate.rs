@@ -149,8 +149,13 @@ impl ClockCorrection {
 
 // public
 impl Candidate {
-    /// Basic candidate definition.
-    /// This is not enough for PPP but fits RTK requirements.
+    /// Basic candidate definition. Each candidate
+    /// is to be proposed to the navigation solver.
+    /// This is the most simplistic definition (bare minimum).
+    /// It is certainly not enough for PPP navigation and will require
+    /// you provide more information (see other customization methods),
+    /// especially if you want to achieve accurate results.
+    /// Pure RTK navigation being the easiest scenario, you will only have to attach remote observations to this definition.
     /// ## Inputs
     /// - sv: [SV] Identity
     /// - t: sampling [Epoch]
@@ -211,8 +216,13 @@ impl Candidate {
     pub fn set_remote_observations(&mut self, remote: Vec<Observation>) {
         self.remote_obs = remote.clone();
     }
+    /// Returns true if self is compatible with navigation
+    /// and may contribute to navigation process
+    pub(crate) fn is_navi_compatible(&self) -> bool {
+        self.is_rtk_compatible() || self.is_ppp_compatible()
+    }
     /// Returns true if self is compatible with RTK positioning
-    fn is_rtk_compatible(&self) -> bool {
+    pub(crate) fn is_rtk_compatible(&self) -> bool {
         self.remote_obs.len() > 3 && self.observations.len() > 3
     }
     /// Returns true if self is compatible with PPP positioning
@@ -235,10 +245,10 @@ impl Candidate {
         // When RTK is feasible, it is always prefered,
         // because it is much easier and has immediate accuracy.
         if self.is_rtk_compatible() {
-            debug!("{}({}): rtk resolution", self.t, self.sv);
+            debug!("{}({}): rtk resolution attempt", self.t, self.sv);
             self.rtk_matrix_contribution(cfg, row, y, g)
         } else {
-            debug!("{}({}): ppp resolution", self.t, self.sv);
+            debug!("{}({}): ppp resolution attempt", self.t, self.sv);
             self.ppp_matrix_contribution(cfg, row, y, g, apriori_ecef_m)
         }
     }
@@ -300,6 +310,7 @@ impl Candidate {
 
         if cfg.modeling.sv_clock_bias {
             let corr = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
+            sv_input.clock_correction = Some(corr.duration);
             models -= corr.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
         }
 

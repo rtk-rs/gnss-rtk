@@ -13,7 +13,7 @@ use crate::{
     candidate::Candidate,
     cfg::Config,
     constants::Constants,
-    prelude::{Error, IonosphereBias, Method, SV},
+    prelude::{Duration, Error, IonosphereBias, Method, SV},
 };
 
 use nalgebra::{
@@ -34,6 +34,8 @@ pub struct SVInput {
     pub tropo_bias: Option<f64>,
     /// Ionosphere bias
     pub iono_bias: Option<IonosphereBias>,
+    /// Correction to said constellation, expressed as [Duration]
+    pub clock_correction: Option<Duration>,
 }
 
 /// Navigation Input
@@ -111,34 +113,31 @@ impl Input {
             None => apriori,
         };
 
-        //TODO: improve to <N> and remove 8x8 size limitation
-        for i in 0..8 {
+        // TODO: remove 8x8 size limitation
+        let mut i = 0;
+        let mut max = match cfg.sol_type {
+            PVTSolutionType::TimeOnly => 1,
+            _ => 4,
+        };
+        if cfg.fixed_altitude.is_some() {
+            max -= 1;
+        }
+        while i < max {
             let mut sv_input = SVInput::default();
-
-            // table index
-            let index = if i >= cd.len() {
-                if cfg.sol_type == PVTSolutionType::TimeOnly {
-                    0
-                } else {
-                    i - cd.len()
-                }
-            } else {
-                i
-            };
 
             match cd[i].matrix_contribution(cfg, i, &mut y, &mut g, apriori_ecef_m) {
                 Ok(input) => {
                     sv.insert(cd[i].sv, input);
                 },
                 Err(e) => {
-                    debug!(
-                        "{}({}): cannot contribute - {}",
-                        cd[index].t, cd[index].sv, e
-                    );
+                    debug!("{}({}): cannot contribute - {}", cd[i].t, cd[i].sv, e);
                     continue;
                 },
             }
 
+            // TODO reestablish phase contribution
+            g[(4 + i, 4 + i)] = 1.0_f64;
+            y[4 + i] = y[i];
             //TODO phase contrib
             //if i > 3 {
             //    g[(i, i)] = 1.0_f64;
@@ -179,6 +178,34 @@ impl Input {
             //        y[i] = cmb.value - rho - models - windup + bias;
             //    }
             //}
+            i += 1;
+        }
+
+        // TODO: improve matrix formation
+        if max == 3 {
+            y[3] = y[2];
+            g[(3, 3)] = 1.0_f64;
+            y[4 + 3] = y[2];
+            g[(4 + 3, 4 + 3)] = 1.0_f64;
+        }
+
+        // TODO: improve matrix formation
+        if max == 1 {
+            y[1] = y[0];
+            y[2] = y[0];
+            y[3] = y[0];
+
+            g[(1, 1)] = 1.0_f64;
+            g[(2, 2)] = 1.0_f64;
+            g[(3, 3)] = 1.0_f64;
+
+            y[4 + 1] = y[0];
+            y[4 + 2] = y[0];
+            y[4 + 3] = y[0];
+
+            g[(4 + 1, 4 + 1)] = 1.0_f64;
+            g[(4 + 2, 4 + 2)] = 1.0_f64;
+            g[(4 + 3, 4 + 3)] = 1.0_f64;
         }
 
         debug!("y: {} g: {}, w: {}", y, g, w);
