@@ -102,7 +102,7 @@ impl Input {
         /*
          * Compensate for ARP (if possible)
          */
-        let apriori = match cfg.arp_enu {
+        let apriori_ecef_m = match cfg.arp_enu {
             Some(offset) => (
                 apriori.0 + offset.0,
                 apriori.1 + offset.1,
@@ -111,11 +111,11 @@ impl Input {
             None => apriori,
         };
 
-        let (x0, y0, z0) = apriori;
-
+        //TODO: improve to <N> and remove 8x8 size limitation
         for i in 0..8 {
             let mut sv_input = SVInput::default();
 
+            // table index
             let index = if i >= cd.len() {
                 if cfg.sol_type == PVTSolutionType::TimeOnly {
                     0
@@ -126,136 +126,59 @@ impl Input {
                 i
             };
 
-            let state = cd[index].state.ok_or(Error::UnresolvedState)?;
-            let clock_corr = cd[index].clock_corr.duration.to_seconds();
-
-            let (azimuth, elevation) = (state.azimuth, state.elevation);
-            sv_input.azimuth = azimuth;
-            sv_input.elevation = elevation;
-
-            let (sv_x, sv_y, sv_z) = (state.position[0], state.position[1], state.position[2]);
-            let mut rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
-
-            if cfg.modeling.relativistic_path_range {
-                let mu = Constants::EARTH_GRAVITATION;
-                let r_sat = (state.position[0].powi(2)
-                    + state.position[1].powi(2)
-                    + state.position[2].powi(2))
-                .sqrt();
-                let r_0 = (x0.powi(2) + y0.powi(2) + z0.powi(2)).sqrt();
-                let r_sat_0 = r_0 - r_sat;
-                let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
-                    * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
-                debug!(
-                    "{}({}) relativistic path range {:.3E}m",
-                    cd[index].t, cd[index].sv, dr
-                );
-                rho += dr;
-            }
-
-            let (x_i, y_i, z_i) = ((x0 - sv_x) / rho, (y0 - sv_y) / rho, (z0 - sv_z) / rho);
-
-            g[(i, 0)] = x_i;
-            g[(i, 1)] = y_i;
-            g[(i, 2)] = z_i;
-            g[(i, 3)] = 1.0_f64;
-
-            let mut models = 0.0_f64;
-
-            if cfg.modeling.sv_clock_bias {
-                models -= clock_corr * SPEED_OF_LIGHT_M_S;
-            }
-            if let Some(delay) = cfg.externalref_delay {
-                models -= delay * SPEED_OF_LIGHT_M_S;
-            }
-
-            let (pr, frequency) = match cfg.method {
-                Method::SPP => {
-                    let pr = cd[index]
-                        .prefered_pseudorange()
-                        .ok_or(Error::MissingPseudoRange)?;
-                    (pr.pseudo.unwrap(), pr.carrier.frequency())
+            match cd[i].matrix_contribution(cfg, i, &mut y, &mut g, apriori_ecef_m) {
+                Ok(input) => {
+                    sv.insert(cd[i].sv, input);
                 },
-                Method::CPP | Method::PPP => {
-                    let pr = cd[index]
-                        .code_if_combination()
-                        .ok_or(Error::PseudoRangeCombination)?;
-                    (pr.value, pr.rhs.frequency())
-                },
-            };
-
-            // frequency dependent delay
-            for delay in &cfg.int_delay {
-                if delay.frequency == frequency {
-                    models += delay.delay * SPEED_OF_LIGHT_M_S;
-                }
-            }
-
-            /*
-             * TROPO
-             */
-            if cfg.modeling.tropo_delay {
-                models += cd[index].tropo_bias;
-                sv_input.tropo_bias = Some(cd[index].tropo_bias);
-            }
-
-            /*
-             * IONO
-             */
-            if cfg.modeling.iono_delay {
-                models += cd[index].iono_bias;
-                if cfg.method == Method::SPP {
-                    sv_input.iono_bias = Some(IonosphereBias::modeled(cd[index].iono_bias));
-                } else {
-                    sv_input.iono_bias = Some(IonosphereBias::measured(cd[index].iono_bias));
-                }
-            }
-
-            y[i] = pr - rho - models;
-
-            if i > 3 {
-                g[(i, i)] = 1.0_f64;
-
-                if cfg.method == Method::PPP {
-                    let cmb = cd[index]
-                        .phase_if_combination()
-                        .ok_or(Error::PhaseRangeCombination)?;
-
-                    let f_1 = cmb.rhs.frequency();
-                    let lambda_j = cmb.lhs.wavelength();
-                    let f_j = cmb.lhs.frequency();
-
-                    let (lambda_n, lambda_w) = (
-                        SPEED_OF_LIGHT_M_S / (f_1 + f_j),
-                        SPEED_OF_LIGHT_M_S / (f_1 - f_j),
+                Err(e) => {
+                    debug!(
+                        "{}({}): cannot contribute - {}",
+                        cd[index].t, cd[index].sv, e
                     );
-
-                    let bias = if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
-                        let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
-                        let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
-                        debug!(
-                            "{} ({}/{}) b_c: {}",
-                            cd[index].t, cd[index].sv, cmb.rhs, b_c
-                        );
-                        b_c
-                    } else {
-                        error!(
-                            "{} ({}/{}): unresolved ambiguity",
-                            cd[index].t, cd[index].sv, cmb.rhs
-                        );
-                        return Err(Error::UnresolvedAmbiguity);
-                    };
-
-                    // TODO: conclude windup
-                    let windup = 0.0_f64;
-
-                    y[i] = cmb.value - rho - models - windup + bias;
-                }
+                    continue;
+                },
             }
 
-            if i < cd.len() {
-                sv.insert(cd[i].sv, sv_input);
-            }
+            //TODO phase contrib
+            //if i > 3 {
+            //    g[(i, i)] = 1.0_f64;
+
+            //    if cfg.method == Method::PPP {
+            //        let cmb = cd[index]
+            //            .phase_if_combination()
+            //            .ok_or(Error::PhaseRangeCombination)?;
+
+            //        let f_1 = cmb.rhs.frequency();
+            //        let lambda_j = cmb.lhs.wavelength();
+            //        let f_j = cmb.lhs.frequency();
+
+            //        let (lambda_n, lambda_w) = (
+            //            SPEED_OF_LIGHT_M_S / (f_1 + f_j),
+            //            SPEED_OF_LIGHT_M_S / (f_1 - f_j),
+            //        );
+
+            //        let bias = if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
+            //            let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
+            //            let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
+            //            debug!(
+            //                "{} ({}/{}) b_c: {}",
+            //                cd[index].t, cd[index].sv, cmb.rhs, b_c
+            //            );
+            //            b_c
+            //        } else {
+            //            error!(
+            //                "{} ({}/{}): unresolved ambiguity",
+            //                cd[index].t, cd[index].sv, cmb.rhs
+            //            );
+            //            return Err(Error::UnresolvedAmbiguity);
+            //        };
+
+            //        // TODO: conclude windup
+            //        let windup = 0.0_f64;
+
+            //        y[i] = cmb.value - rho - models - windup + bias;
+            //    }
+            //}
         }
 
         debug!("y: {} g: {}, w: {}", y, g, w);

@@ -61,6 +61,8 @@ pub enum Error {
     PhaseRangeCombination,
     #[error("unresolved candidate state")]
     UnresolvedState,
+    #[error("missing clock correction")]
+    UnknownClockCorrection,
     #[error("physical non sense: rx prior tx")]
     PhysicalNonSenseRxPriorTx,
     #[error("physical non sense: t_rx is too late")]
@@ -79,14 +81,14 @@ pub enum Error {
     EarthFrame,
     #[error("physics issue: {0}")]
     Physics(PhysicsError),
+    #[error("missing observation on remote site {0}({1})")]
+    MissingRemoteRTKObservation(Epoch, SV),
 }
 
 /// [Solver] to resolve [PVTSolution]s.
-pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
+pub struct Solver<O: OrbitalStateProvider> {
     /// [OrbitalStateProvider]
     orbit: O,
-    /// [BaseStation]
-    base_station: Option<B>,
     /// Solver parametrization
     pub cfg: Config,
     /// Initial [Position]
@@ -110,8 +112,6 @@ pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
     prev_used: Vec<SV>,
     /// Stored previous SV state (internal logic)
     prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
-    /// Base station observations (single malloc)
-    base_observations: HashMap<SV, Vec<Observation>>,
 }
 
 /// Apply signal condition criteria
@@ -152,20 +152,7 @@ fn signal_quality_filter(method: Method, min_snr: f64, pool: &mut Vec<Candidate>
     })
 }
 
-impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
-    /// Create new Position [Solver] dedicated to PPP positioning
-    pub fn ppp(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
-        Self::new(cfg, initial, orbit, None)
-    }
-    /// Create new Position [Solver] dedicated to RTK positioning
-    pub fn rtk(
-        cfg: &Config,
-        initial: Option<Position>,
-        orbit: O,
-        base_station: B,
-    ) -> Result<Self, Error> {
-        Self::new(cfg, initial, orbit, Some(base_station))
-    }
+impl<O: OrbitalStateProvider> Solver<O> {
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
     /// - cfg: Solver [Config]
@@ -176,13 +163,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
     ///   You have to take that into account, especially when operating in Fixed Altitude
     ///   or Time Only modes.
     /// - orbit: [OrbitalStateProvider] must be provided for Direct (1D) PPP
-    /// - remote: single static [RemoteSite] for RTK
-    pub fn new(
-        cfg: &Config,
-        initial: Option<Position>,
-        orbit: O,
-        base_station: Option<B>,
-    ) -> Result<Self, Error> {
+    pub fn new(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
         // Default Almanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
 
@@ -194,6 +175,12 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         // Print more information
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("Eclipse filter is not meaningful in SPP mode");
+        }
+        if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
+            warn!("RF cable delay compensation is either incomplete or not entirely enabled");
+        }
+        if !cfg.int_delay.is_empty() && !cfg.modeling.cable_delay {
+            warn!("RF cable delay compensation is either incomplete or not entirely enabled");
         }
         Ok(Self {
             orbit,
@@ -216,10 +203,11 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             // postfit_kf: None,
             prev_sv_state: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
-            // base station
-            base_station,
-            base_observations: HashMap::with_capacity(16),
         })
+    }
+    /// Create new Position [Solver] without knowledge of apriori position (full survey)
+    pub fn survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
+        Self::new(cfg, None, orbit)
     }
     /// [PVTSolution] resolution attempt.
     /// ## Inputs
@@ -254,27 +242,6 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             // no need to proceed further
             return Err(Error::NotEnoughMatchingCandidates);
         }
-
-        // gather (matching) observations on remote site
-        if let Some(ref mut base_station) = self.base_station {
-            for cd in pool.iter() {
-                for obs in cd.observations.iter() {
-                    if let Some(ob) = base_station.observe(cd.t, cd.sv, obs.carrier) {
-                        if let Some(base) = self.base_observations.get_mut(&cd.sv) {
-                            base.push(ob.clone());
-                        } else {
-                            self.base_observations.insert(cd.sv, vec![ob.clone()]);
-                        }
-                    }
-                }
-            }
-        }
-        for (sv, remote) in self.base_observations.iter() {
-            if let Some(cd) = pool.iter_mut().filter(|cd| cd.sv == *sv).reduce(|k, _| k) {
-                cd.set_remote_observations(remote.to_vec());
-            }
-        }
-        self.base_observations.clear();
 
         // orbits
         let mut pool: Vec<Candidate> = pool
@@ -343,21 +310,23 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         for cd in pool.iter_mut() {
             if modeling.relativistic_clock_bias {
                 if let Some(ref mut state) = cd.state {
-                    if state.velocity.is_some() && cd.clock_corr.needs_relativistic_correction {
-                        let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
-                        let mu = Constants::EARTH_GRAVITATION;
+                    if let Some(ref mut correction) = cd.clock_corr {
+                        if state.velocity.is_some() && correction.needs_relativistic_correction {
+                            let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
+                            let mu = Constants::EARTH_GRAVITATION;
 
-                        let orbit = state.orbit(cd.t_tx, self.earth_cef);
-                        let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
-                        let ea_rad = ea_deg.to_radians();
-                        let gm = (w_e * mu).sqrt();
-                        let bias =
-                            -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
-                                / SPEED_OF_LIGHT_M_S
-                                / SPEED_OF_LIGHT_M_S
-                                * Unit::Second;
-                        debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
-                        cd.clock_corr.duration += bias;
+                            let orbit = state.orbit(cd.t_tx, self.earth_cef);
+                            let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
+                            let ea_rad = ea_deg.to_radians();
+                            let gm = (w_e * mu).sqrt();
+                            let bias =
+                                -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
+                                    / SPEED_OF_LIGHT_M_S
+                                    / SPEED_OF_LIGHT_M_S
+                                    * Unit::Second;
+                            debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                            correction.duration += bias;
+                        }
                     }
                     // update for next time
                     self.prev_sv_state.insert(cd.sv, (cd.t_tx, state.position));

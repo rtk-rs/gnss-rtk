@@ -116,6 +116,10 @@ fn default_phase_windup() -> bool {
     false
 }
 
+fn default_cable_delay() -> bool {
+    true
+}
+
 fn default_postfit_kf() -> bool {
     false
 }
@@ -253,6 +257,12 @@ pub struct Modeling {
     /// strategies that use raw phase like [Method::PPP].
     #[cfg_attr(feature = "serde", serde(default))]
     pub phase_windup: bool,
+    /// Setup cable delay compensation.
+    /// Only effective if the (RF) cable delay of your setup
+    /// are known and defined in [Config]. Only careful
+    /// cable delay specs will allow differential timing analysis.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub cable_delay: bool,
 }
 
 impl Default for Modeling {
@@ -264,6 +274,7 @@ impl Default for Modeling {
             sv_total_group_delay: default_sv_tgd(),
             earth_rotation: default_earth_rot(),
             phase_windup: default_phase_windup(),
+            cable_delay: default_cable_delay(),
             relativistic_clock_bias: default_relativistic_clock_bias(),
             relativistic_path_range: default_relativistic_path_range(),
         }
@@ -297,6 +308,8 @@ pub struct Config {
     #[cfg_attr(feature = "serde", serde(default = "default_smoothing"))]
     pub code_smoothing: bool,
     /// Internal delays to compensate for (total summation, in [s]).
+    /// Compensation is only effective if [Modeling.cable_delay]
+    /// is also turned on.
     #[cfg_attr(feature = "serde", serde(default))]
     pub int_delay: Vec<InternalDelay>,
     /// Antenna Reference Point (ARP) expressed as ENU offset [m]
@@ -309,6 +322,8 @@ pub struct Config {
     /// this is the time delay between the receiver external reference clock
     /// and the internal sampling clock. This is typically needed in
     /// ultra high precision timing applications or geodetic surveys.
+    /// Compensation is only effective if [Modeling.cable_delay]
+    /// is also turned on.
     #[cfg_attr(feature = "serde", serde(default))]
     pub externalref_delay: Option<f64>,
     /// Minimal rate of Sun light rate one SV must receive for not to be considered Eclipsed from the Sun by Earth.
