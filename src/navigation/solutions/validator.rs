@@ -60,8 +60,12 @@ impl Validator {
                 x[3] / SPEED_OF_LIGHT_M_S,
             );
 
-            let sv_pos = cd.state.unwrap().position;
-            let (sv_x, sv_y, sv_z) = (sv_pos[0], sv_pos[1], sv_pos[2]);
+            let sv_orbit = cd.state.unwrap();
+            let (sv_x, sv_y, sv_z) = (
+                sv_orbit.radius_km.x * 1.0E3,
+                sv_orbit.radius_km.y * 1.0E3,
+                sv_orbit.radius_km.z * 1.0E3,
+            );
 
             let rho = ((sv_x - x).powi(2) + (sv_y - y).powi(2) + (sv_z - z).powi(2)).sqrt();
 

@@ -35,7 +35,7 @@ pub mod prelude {
     pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, InvalidationCause, PVTSolution, PVTSolutionType};
-    pub use crate::orbit::{OrbitalState, OrbitalStateProvider};
+    pub use crate::orbit::OrbitalStateProvider;
     pub use crate::position::Position;
     pub use crate::rtk::BaseStation;
     pub use crate::solver::{Error, Solver};
@@ -43,7 +43,7 @@ pub mod prelude {
     pub use anise::{
         constants::frames::{EARTH_J2000, SUN_J2000},
         naif::SPK,
-        prelude::{Aberration, Almanac, Frame},
+        prelude::{Aberration, Almanac, Frame, Orbit},
     };
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};

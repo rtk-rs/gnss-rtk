@@ -38,7 +38,11 @@ impl Bancroft {
 
         for i in 0..4 {
             let state = cd[i].state.ok_or(Error::UnresolvedState)?;
-            let (x_i, y_i, z_i) = (state.position[0], state.position[1], state.position[2]);
+            let (x_i, y_i, z_i) = (
+                state.radius_km.x * 1.0E3,
+                state.radius_km.y * 1.0E3,
+                state.radius_km.z * 1.0E3,
+            );
             let r_i = cd[i]
                 .prefered_pseudorange()
                 .ok_or(Error::MissingPseudoRange)?

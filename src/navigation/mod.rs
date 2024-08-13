@@ -133,14 +133,19 @@ impl Input {
             sv_input.azimuth = azimuth;
             sv_input.elevation = elevation;
 
-            let (sv_x, sv_y, sv_z) = (state.position[0], state.position[1], state.position[2]);
+            let (sv_x, sv_y, sv_z) = (
+                state.radius_km.x * 1.0E3,
+                state.radius_km.y * 1.0E3,
+                state.radius_km.z * 1.0E3,
+            );
+
             let mut rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
 
             if cfg.modeling.relativistic_path_range {
                 let mu = Constants::EARTH_GRAVITATION;
-                let r_sat = (state.position[0].powi(2)
-                    + state.position[1].powi(2)
-                    + state.position[2].powi(2))
+                let r_sat = ((state.radius_km.x * 1.0E3).powi(2)
+                    + (state.radius_km.y * 1.0E3).powi(2)
+                    + (state.radius_km.z * 1.0E3).powi(2))
                 .sqrt();
                 let r_0 = (x0.powi(2) + y0.powi(2) + z0.powi(2)).sqrt();
                 let r_sat_0 = r_0 - r_sat;

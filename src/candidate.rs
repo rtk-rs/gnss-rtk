@@ -8,8 +8,8 @@ use std::cmp::Ordering;
 use crate::{
     bias::RuntimeParams as BiasRuntimeParams,
     prelude::{
-        Carrier, Config, Duration, Epoch, Error, IonoComponents, Method, OrbitalState,
-        TropoComponents, TropoModel, Vector3, SV,
+        Carrier, Config, Duration, Epoch, Error, IonoComponents, Method, Orbit, TropoComponents,
+        TropoModel, Vector3, SV,
     },
 };
 
@@ -94,7 +94,7 @@ pub struct Candidate {
     /// Sampling [Epoch]
     pub t: Epoch,
     /// State that needs to be resolved
-    pub state: Option<OrbitalState>,
+    pub state: Option<Orbit>,
     /// t_tx Epoch
     pub(crate) t_tx: Epoch,
     // SV group delay expressed as a [Duration]
@@ -199,8 +199,10 @@ impl Candidate {
         method: Method,
         tropo_modeling: bool,
         iono_modeling: bool,
-        apriori_geo_ddeg: (f64, f64, f64),
+        apriori: Orbit,
+        almanac: &Almanac,
     ) {
+        let el_az_range = almanac.azimuth_elevation_range_sez(rx, tx)?;
         if let Some(state) = self.state {
             if let Some(obs) = self.prefered_pseudorange() {
                 let rtm = BiasRuntimeParams {
@@ -560,7 +562,7 @@ impl Candidate {
         Ok((e_tx, dt))
     }
     #[cfg(test)]
-    pub fn set_state(&mut self, state: OrbitalState) {
+    pub fn set_state(&mut self, state: Orbit) {
         self.state = Some(state);
     }
 }

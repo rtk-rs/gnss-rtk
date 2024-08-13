@@ -29,9 +29,9 @@ use crate::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
         Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
     },
-    orbit::{OrbitalState, OrbitalStateProvider},
+    orbit::OrbitalStateProvider,
     position::Position,
-    prelude::{Duration, Epoch, Observation, SV},
+    prelude::{Duration, Epoch, Observation, Orbit, SV},
     rtk::BaseStation,
 };
 
@@ -606,7 +606,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         }
     }
     /* rotate interpolated position */
-    fn rotate_position(rotate: bool, interpolated: OrbitalState, dt_tx: Duration) -> OrbitalState {
+    fn rotate_position(rotate: bool, interpolated: Orbit, dt_tx: Duration) -> Orbit {
         let mut reworked = interpolated;
         let rot = if rotate {
             const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
@@ -627,7 +627,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
     /*
      * Determine velocities
      */
-    fn velocities(&self, t_tx: Epoch, sv: SV, interpolated: OrbitalState) -> OrbitalState {
+    fn orbit_with_velocities(&self, t_tx: Epoch, sv: SV, interpolated: Orbit) -> Orbit {
         let mut reworked = interpolated;
         if let Some((p_ttx, p_pos)) = self.prev_sv_state.get(&sv) {
             let dt = (t_tx - *p_ttx).to_seconds();
