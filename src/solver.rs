@@ -411,10 +411,7 @@ impl<O: OrbitalStateProvider> Solver<O> {
         }
 
         if self.initial.is_none() {
-            let rtk_compatible_len = pool
-                .iter()
-                .filter(|cd| cd.is_rtk_compatible())
-                .count();
+            let rtk_compatible_len = pool.iter().filter(|cd| cd.is_rtk_compatible()).count();
             if rtk_compatible_len < min_required {
                 if pool.len() < min_required {
                     return Err(Error::NotEnoughPostFitCandidates);
