@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     navigation::Filter,
-    prelude::{PVTSolutionType, TimeScale, Position},
+    prelude::{PVTSolutionType, Position, TimeScale},
 };
 
 use nalgebra::{base::dimension::U8, OMatrix};

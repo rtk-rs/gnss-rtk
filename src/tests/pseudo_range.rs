@@ -40,15 +40,7 @@ fn prefered_pseudorange() {
             carrier: Carrier::L1,
         },
     )] {
-        let cd = Candidate::new(
-            SV::default(),
-            Epoch::default(),
-            ClockCorrection::default(),
-            None,
-            observations,
-            IonoComponents::Unknown,
-            TropoComponents::Unknown,
-        );
+        let cd = Candidate::new(SV::default(), Epoch::default(), observations);
         assert_eq!(cd.prefered_pseudorange(), Some(prefered),);
     }
 }
@@ -73,15 +65,7 @@ fn l1_l2_narrowlane() {
             carrier: Carrier::L2,
         },
     ];
-    let cd = Candidate::new(
-        SV::default(),
-        Epoch::default(),
-        ClockCorrection::default(),
-        None,
-        codes,
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
-    );
+    let cd = Candidate::new(SV::default(), Epoch::default(), codes);
     let cn = cd.code_nl_combination();
     assert!(cn.is_some(), "failed to form Cn_narrow combination");
     let cn = cn.unwrap();
@@ -100,15 +84,7 @@ fn l1_l2_narrowlane() {
         pseudo: Some(64.0),
         carrier: Carrier::L1,
     }];
-    let cd = Candidate::new(
-        SV::default(),
-        Epoch::default(),
-        ClockCorrection::default(),
-        None,
-        codes,
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
-    );
+    let cd = Candidate::new(SV::default(), Epoch::default(), codes);
 
     assert!(
         cd.code_nl_combination().is_none(),
@@ -136,15 +112,7 @@ fn e1_e5_narrowlane() {
             carrier: Carrier::E5,
         },
     ];
-    let cd = Candidate::new(
-        SV::default(),
-        Epoch::default(),
-        ClockCorrection::default(),
-        None,
-        obs,
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
-    );
+    let cd = Candidate::new(SV::default(), Epoch::default(), obs);
     let cn = cd.code_nl_combination();
     assert!(cn.is_some(), "failed to form Cn_narrow combination");
     let cn = cn.unwrap();

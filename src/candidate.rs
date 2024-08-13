@@ -846,15 +846,7 @@ mod test {
             ],
             true,
         )] {
-            let cd = Candidate::new(
-                SV::default(),
-                Epoch::default(),
-                ClockCorrection::default(),
-                None,
-                observations,
-                IonoComponents::default(),
-                TropoComponents::default(),
-            );
+            let cd = Candidate::new(SV::default(), Epoch::default(), observations);
             assert_eq!(cd.cpp_compatible(), cpp_compatible);
         }
     }
