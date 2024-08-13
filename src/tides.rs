@@ -117,11 +117,14 @@ mod test {
         let t1 = t0 + 24.0 * Unit::Day;
         let dt = Duration::from_seconds(30.0 * 60.0);
         for t in TimeSeries::inclusive(t0, t1, dt).into_iter() { 
-            let dr = solid_tides(
+            let (dr_x, dr_y, dr_z) = solid_tides(
                 t,
                 &almanac,
                 france_ecef_m, 
-            );
+            ) / 1.0E3; // mm
+            assert!(dr_x_mm.abs() < max_absolute_mm);
+            assert!(dr_y_mm.abs() < max_absolute_mm);
+            assert!(dr_z_mm.abs() < max_absolute_mm);
             println!("solid tide: {:?}", dr);
         }
     }

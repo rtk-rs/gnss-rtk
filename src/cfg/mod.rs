@@ -116,6 +116,10 @@ fn default_phase_windup() -> bool {
     false
 }
 
+fn default_solid_tides() -> bool {
+    false
+}
+
 fn default_cable_delay() -> bool {
     true
 }
@@ -263,6 +267,9 @@ pub struct Modeling {
     /// cable delay specs will allow differential timing analysis.
     #[cfg_attr(feature = "serde", serde(default))]
     pub cable_delay: bool,
+    /// Compensate to crust (solid body) deformation due to moon and star
+    /// gravitational effect.
+    pub solid_tides: bool,
 }
 
 impl Default for Modeling {
@@ -274,6 +281,7 @@ impl Default for Modeling {
             sv_total_group_delay: default_sv_tgd(),
             earth_rotation: default_earth_rot(),
             phase_windup: default_phase_windup(),
+            solid_tides: default_solid_tides(),
             cable_delay: default_cable_delay(),
             relativistic_clock_bias: default_relativistic_clock_bias(),
             relativistic_path_range: default_relativistic_path_range(),
