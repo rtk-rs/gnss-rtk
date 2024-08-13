@@ -238,7 +238,7 @@ impl<O: OrbitalStateProvider> Solver<O> {
                 if let Some(ref initial) = initial {
                     let geo = initial.geodetic();
                     let (lat, lon) = (geo[0].to_degrees(), geo[1].to_degrees());
-                    info!("initial position lat={:.3E}°, lon={:.3E}°", lat, lon);
+                    info!("initial position lat={:.3}°, lon={:.3}°", lat, lon);
                 }
                 initial
             },
@@ -410,34 +410,36 @@ impl<O: OrbitalStateProvider> Solver<O> {
             });
         }
 
-        //if pool.len() < min_required {
-        //    return Err(Error::NotEnoughPostFitCandidates);
-        //}
-
         if self.initial.is_none() {
-            // TODO:
-            //  - this is not needed in pure RTK scenario
-            //  - and will not work in pure RTK scenario
-            let solver = Bancroft::new(&pool)?;
-            let output = solver.resolve()?;
-            let (x0, y0, z0) = (output[0], output[1], output[2]);
-            let position = Position::from_ecef(Vector3::<f64>::new(x0, y0, z0));
-            let geo = position.geodetic();
-            let (lat, lon) = (geo[0].to_degrees(), geo[1].to_degrees());
-            info!(
-                "{} - estimated initial position lat={:.3E}°, lon={:.3E}°",
-                pool[0].t, lat, lon
-            );
-            // update attitudes
-            for cd in pool.iter_mut() {
-                if let Some(state) = &mut cd.state {
-                    *state = state.with_elevation_azimuth((x0, y0, z0));
+            let rtk_compatible_len = pool
+                .iter()
+                .filter(|cd| cd.is_rtk_compatible())
+                .count();
+            if rtk_compatible_len < min_required {
+                if pool.len() < min_required {
+                    return Err(Error::NotEnoughPostFitCandidates);
                 }
+                let solver = Bancroft::new(&pool)?;
+                let output = solver.resolve()?;
+                let (x0, y0, z0) = (output[0], output[1], output[2]);
+                let position = Position::from_ecef(Vector3::<f64>::new(x0, y0, z0));
+                let geo = position.geodetic();
+                let (lat, lon) = (geo[0].to_degrees(), geo[1].to_degrees());
+                info!(
+                    "{} - estimated initial position lat={:.3}°, lon={:.3}°",
+                    pool[0].t, lat, lon
+                );
+                // update attitudes
+                for cd in pool.iter_mut() {
+                    if let Some(state) = &mut cd.state {
+                        *state = state.with_elevation_azimuth((x0, y0, z0));
+                    }
+                }
+                // store
+                self.initial = Some(Position::from_ecef(Vector3::new(
+                    output[0], output[1], output[2],
+                )));
             }
-            // store
-            self.initial = Some(Position::from_ecef(Vector3::new(
-                output[0], output[1], output[2],
-            )));
         }
 
         let initial = self.initial.as_ref().unwrap();

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     navigation::Filter,
-    prelude::{PVTSolutionType, TimeScale},
+    prelude::{PVTSolutionType, TimeScale, Position},
 };
 
 use nalgebra::{base::dimension::U8, OMatrix};
@@ -294,9 +294,12 @@ pub struct Config {
     /// Solver method (strategy) used.
     #[cfg_attr(feature = "serde", serde(default))]
     pub method: Method,
-    /// [Profile] selects the type of application.
+    /// [Profile] defines the type of application.
     #[cfg_attr(feature = "serde", serde(default))]
     pub profile: Profile,
+    /// Possible reference site static coordinates.
+    /// Must be defined in case RTK navigation is selected.
+    pub remote_site: Option<Position>,
     /// Interpolation order
     #[cfg_attr(feature = "serde", serde(default = "default_interp"))]
     pub interp_order: usize,
@@ -371,6 +374,7 @@ impl Config {
                 method,
                 profile: Profile::Static,
                 sol_type: PVTSolutionType::default(),
+                remote_site: None,
                 arp_enu: None,
                 fixed_altitude: None,
                 timescale: default_timescale(),
@@ -399,6 +403,7 @@ impl Config {
                 profile: Profile::Static,
                 sol_type: PVTSolutionType::default(),
                 arp_enu: None,
+                remote_site: None,
                 fixed_altitude: None,
                 timescale: default_timescale(),
                 interp_order: default_interp(),
@@ -426,6 +431,7 @@ impl Config {
                 profile: Profile::Static,
                 sol_type: PVTSolutionType::default(),
                 arp_enu: None,
+                remote_site: None,
                 fixed_altitude: None,
                 timescale: default_timescale(),
                 interp_order: default_interp(),

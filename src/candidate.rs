@@ -39,9 +39,74 @@ pub struct Observation {
 }
 
 impl Observation {
+    /// Creates new Pseudo Range [Observation] from given
+    /// raw measurement (in meters), and possible other information.
+    pub fn pseudo_range(carrier: Carrier, range_m: f64, snr: Option<f64>) -> Self {
+        Self {
+            snr,
+            carrier,
+            phase: None,
+            doppler: None,
+            ambiguity: None,
+            pseudo: Some(range_m),
+        }
+    }
+    /// Creates new ambiguous Phase Range [Observation] from given
+    /// raw measurement (in meters, not cycles), and possible other information.
+    pub fn ambiguous_phase_range(carrier: Carrier, range_m: f64, snr: Option<f64>) -> Self {
+        Self {
+            snr,
+            carrier,
+            pseudo: None,
+            doppler: None,
+            ambiguity: None,
+            phase: Some(range_m),
+        }
+    }
+    /// Creates new (unambiguous) Phase Range [Observation] from given
+    /// raw measurement (in meters, not cycles), ambiguity (as cycle fraction), and possible other information.
+    pub fn phase_range(carrier: Carrier, range_m: f64, ambiguity: f64, snr: Option<f64>) -> Self {
+        Self {
+            snr,
+            carrier,
+            pseudo: None,
+            doppler: None,
+            phase: Some(range_m),
+            ambiguity: Some(ambiguity),
+        }
+    }
+    /// Creates new Doppler [Observation]
+    pub fn doppler(carrier: Carrier, doppler: f64, snr: Option<f64>) -> Self {
+        Self {
+            snr,
+            carrier,
+            pseudo: None,
+            phase: None,
+            ambiguity: None,
+            doppler: Some(doppler),
+        }
+    }
     /// Set [Carrier]
     pub fn set_carrier(&mut self, c: Carrier) {
         self.carrier = c;
+    }
+    /// Define ambiguous Phase range observation (in m, not cycles)
+    pub fn set_ambiguous_phase_range(&mut self, pr: f64) {
+        self.ambiguity = None;
+        self.phase = Some(pr);
+    }
+    /// Define (unambiguous) Phase range observation (in m, not cycles)
+    pub fn set_phase_range(&mut self, pr: f64, ambiguity: f64) {
+        self.ambiguity = Some(ambiguity);
+        self.phase = Some(pr);
+    }
+    /// Define Doppler observation
+    pub fn set_doppler(&mut self, dop: f64) {
+        self.doppler = Some(dop);
+    }
+    /// Define Pseudo range observation (in m)
+    pub fn set_pseudo_range(&mut self, pr: f64) {
+        self.pseudo = Some(pr);
     }
     /// Creates [Self] with given phase range [m] observation
     pub fn with_phase_range(&self, ph: f64) -> Self {
@@ -211,13 +276,14 @@ impl Candidate {
     pub fn set_iono_components(&mut self, iono: IonoComponents) {
         self.iono_components = iono;
     }
-    /// Provide remote [Observation]s observed by [BaseStation] when operating
-    /// in RTK opmode.
+    /// Provide remote [Observation]s observed by remote reference site. Not required if you intend to navigate in PPP mode.
     pub fn set_remote_observations(&mut self, remote: Vec<Observation>) {
         self.remote_obs = remote.clone();
     }
-    /// Returns true if self is compatible with navigation
-    /// and may contribute to navigation process
+    /// Provide one remote [Observation] realized on remote reference site. Not required if you intend to navigate in PPP mode.
+    pub fn add_remote_observation(&mut self, remote: Observation) {
+        self.remote_obs.push(remote);
+    }
     pub(crate) fn is_navi_compatible(&self) -> bool {
         self.is_rtk_compatible() || self.is_ppp_compatible()
     }
