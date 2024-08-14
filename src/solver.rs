@@ -1,5 +1,4 @@
 //! PVT solver
-
 use std::{cmp::Ordering, collections::HashMap};
 
 use hifitime::Unit;
@@ -89,8 +88,10 @@ pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
     base_station: Option<B>,
     /// Solver parametrization
     pub cfg: Config,
-    /// Initial [Position]
-    initial: Option<Position>,
+    /// Initial [Orbit] either forwarded by User
+    /// or guess by a first Iteration. The latest [Orbit]
+    /// that we have resolved is contained in [prev_solution].
+    initial: Option<Orbit>,
     /// [Almanac]
     almanac: Almanac,
     /// [Frame]
@@ -106,10 +107,10 @@ pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
     prev_solution: Option<(Epoch, PVTSolution)>,
     /// Previous VDOP (internal logic)
     prev_vdop: Option<f64>,
-    /// Previously used (internal logic)
-    prev_used: Vec<SV>,
+    // /// Previously used (internal logic)
+    // prev_used: Vec<SV>,
     /// Stored previous SV state (internal logic)
-    prev_sv_state: HashMap<SV, (Epoch, Vector3<f64>)>,
+    prev_sv_state: HashMap<SV, (Epoch, Orbit)>,
     /// Base station observations (single malloc)
     base_observations: HashMap<SV, Vec<Observation>>,
 }
@@ -153,14 +154,35 @@ fn signal_quality_filter(method: Method, min_snr: f64, pool: &mut Vec<Candidate>
 }
 
 impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
-    /// Create new Position [Solver] dedicated to PPP positioning
-    pub fn ppp(cfg: &Config, initial: Option<Position>, orbit: O) -> Result<Self, Error> {
+    /// Create new Position [Solver] dedicated to PPP positioning with possible
+    /// knowledge of the receiver position (ahead of time).
+    /// # Inputs
+    ///  - cfg: [Config] setup
+    ///  - initial: Optional initial Position expressed as [Orbit] which must be epxressed
+    ///  in a geodetic fixed body Frame.
+    ///  - orbit: [OrbitalStateProvider] needs to return [SV] orbital state when we request it,
+    ///  otherwise, the algorithm cannot proceed.
+    /// # Output
+    ///  - [Solver] with possible [Error]
+    pub fn ppp(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
         Self::new(cfg, initial, orbit, None)
+    }
+    /// Create new Position [Solver] dedicated to PPP surveying,
+    /// the initial location is not known, we will have to consume
+    /// one complete Epoch (with 4 [SV] in sight) to initialize the process.
+    /// # Inputs
+    ///  - cfg: [Config] setup
+    ///  - orbit: [OrbitalStateProvider] needs to return [SV] orbital state when we request it,
+    ///  otherwise, the algorithm cannot proceed.
+    /// # Output
+    ///  - [Solver] with possible [Error]
+    pub fn ppp_survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
+        Self::new(cfg, None, orbit, None)
     }
     /// Create new Position [Solver] dedicated to RTK positioning
     pub fn rtk(
         cfg: &Config,
-        initial: Option<Position>,
+        initial: Option<Orbit>,
         orbit: O,
         base_station: B,
     ) -> Result<Self, Error> {
@@ -169,9 +191,8 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
     /// - cfg: Solver [Config]
-    /// - initial: possible initial [Position] knowledge, can then be used
-    ///   to initialize [Self]. When not provided (None), the solver will initialize itself
-    ///   autonomously by consuming at least one [Epoch].
+    /// - initial: possible initial position expressed as [Orbit] in ECEF.
+    ///   When not provided, the solver will initialize itself autonomously by consuming at least one [Epoch].
     ///   Note that we need at least 4 valid SV observations to initiliaze the [Solver].
     ///   You have to take that into account, especially when operating in Fixed Altitude
     ///   or Time Only modes.
@@ -179,7 +200,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
     /// - remote: single static [RemoteSite] for RTK
     pub fn new(
         cfg: &Config,
-        initial: Option<Position>,
+        initial: Option<Orbit>,
         orbit: O,
         base_station: Option<B>,
     ) -> Result<Self, Error> {
@@ -199,16 +220,9 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             orbit,
             almanac,
             earth_cef,
-            initial: {
-                if let Some(ref initial) = initial {
-                    let geo = initial.geodetic();
-                    let (lat, lon) = (geo[0].to_degrees(), geo[1].to_degrees());
-                    info!("initial position lat={:.3E}°, lon={:.3E}°", lat, lon);
-                }
-                initial
-            },
+            initial,
             prev_vdop: None,
-            prev_used: vec![],
+            // prev_used: vec![],
             cfg: cfg.clone(),
             prev_solution: None,
             // TODO
@@ -284,50 +298,63 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                     let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
                     // determine orbital state
-                    if let Some(mut orbit) = orbits.next_at(t_tx, cd.sv, interp_order) {
-                        let mut min_elev = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
-                        let mut min_azim = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
-                        let mut max_azim = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
+                    if let Some(mut tx_orbit) = orbits.next_at(t_tx, cd.sv, interp_order) {
+                        // possible elevation mask
+                        let mut min_elev_deg = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
+                        // possible azimuth conic region (compass)
+                        let mut min_azim_deg = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
+                        let mut max_azim_deg = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
 
-                        // fix orbital state after first iteration
-                        if let Some(initial) = &self.initial {
-                            let (x0, y0, z0) = (initial.ecef[0], initial.ecef[1], initial.ecef[2]);
-                            orbit = orbit.with_elevation_azimuth((x0, y0, z0));
-                        } else {
-                            // not apply criterias yet
-                            min_elev = 0.0_f64;
-                            min_azim = 0.0_f64;
-                            max_azim = 360.0_f64;
+                        // after first iteration (actual Orbit has been resolved at least once)
+                        // we can apply attitude filters, which may reject this very proposal.
+                        if let Some((_, pvt)) = &self.prev_solution {
+                            let state = pvt.state;
+                            // eval attitude
+                            match self.almanac
+                                .azimuth_elevation_range_sez(state, tx_orbit)
+                            {
+                                Ok(el_az_rang) => {
+                                    let el_deg = el_az_rang.elevation_deg;
+                                    let az_deg = el_az_rang.azimuth_deg;
+                                    if el_deg < min_elev_deg {
+                                        debug!(
+                                            "{} ({}) - rejected (below elevation mask)",
+                                            cd.t, cd.sv
+                                        );
+                                        None
+                                    } else if az_deg < min_azim_deg {
+                                        debug!(
+                                            "{} ({}) - rejected (below azimuth mask)",
+                                            cd.t, cd.sv
+                                        );
+                                    } else if az_deg > max_azim_deg {
+                                        debug!(
+                                            "{} ({}) - rejected (above azimuth mask)",
+                                            cd.t, cd.sv
+                                        );
+                                        None
+                                    } else {
+                                        // now we need to rotate the position to compensate
+                                        // for Earth's rotation (if this phenomena is compensated for)
+                                        //let mut cd = cd.clone();
+                                        //let orbit =
+                                        //    Self::rotate_position(modeling.earth_rotation, orbit, dt_tx);
+                                        //let orbit = self.velocities(t_tx, cd.sv, orbit);
+                                        //cd.t_tx = t_tx;
+                                        //debug!("{} ({}) : {:?}", cd.t, cd.sv, orbit);
+                                        //cd.state = Some(orbit);
+                                        //Some(cd)
+                                        Some(tx_orbit)
+                                    }
+                                },
+                                Err(e) => {
+                                    error!("{} ({}): attitude determination error {}", cd.t, cd.sv, e);
+                                    warn!("{} ({}): double check your data!", cd.t, cd.sv);
+                                    None
+                                },
+                            }
                         }
 
-                        if orbit.elevation < min_elev {
-                            debug!(
-                                "{} ({}) - {:?} rejected (below elevation mask)",
-                                cd.t, cd.sv, orbit
-                            );
-                            None
-                        } else if orbit.azimuth < min_azim {
-                            debug!(
-                                "{} ({}) - {:?} rejected (below azimuth mask)",
-                                cd.t, cd.sv, orbit
-                            );
-                            None
-                        } else if orbit.azimuth > max_azim {
-                            debug!(
-                                "{} ({}) - {:?} rejected (above azimuth mask)",
-                                cd.t, cd.sv, orbit
-                            );
-                            None
-                        } else {
-                            let mut cd = cd.clone();
-                            let orbit =
-                                Self::rotate_position(modeling.earth_rotation, orbit, dt_tx);
-                            let orbit = self.velocities(t_tx, cd.sv, orbit);
-                            cd.t_tx = t_tx;
-                            debug!("{} ({}) : {:?}", cd.t, cd.sv, orbit);
-                            cd.state = Some(orbit);
-                            Some(cd)
-                        }
                     } else {
                         Some(cd.clone()) // preseve, for pure RTK scenario
                     }
@@ -346,9 +373,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                     if state.velocity.is_some() && cd.clock_corr.needs_relativistic_correction {
                         let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
                         let mu = Constants::EARTH_GRAVITATION;
-
-                        let orbit = state.orbit(cd.t_tx, self.earth_cef);
-                        let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
+                        let ea_deg = state.ea_deg().map_err(Error::Physics)?;
                         let ea_rad = ea_deg.to_radians();
                         let gm = (w_e * mu).sqrt();
                         let bias =
@@ -369,10 +394,9 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
             pool.retain(|cd| {
                 if let Some(state) = cd.state {
-                    let orbit = state.orbit(cd.t, self.earth_cef);
-                    let state =
-                        eclipse_state(orbit, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
-                    let eclipsed = match state {
+                    let eclipse_state =
+                        eclipse_state(state, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
+                    let eclipsed = match eclipse_state {
                         EclipseState::Umbra => true,
                         EclipseState::Visibilis => false,
                         EclipseState::Penumbra(r) => r < min_rate,
@@ -391,37 +415,40 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             return Err(Error::NotEnoughMatchingCandidates);
         }
 
+        // Initialization
         if self.initial.is_none() {
+            let t = pool[0].t;
             let solver = Bancroft::new(&pool)?;
             let output = solver.resolve()?;
-            let (x0, y0, z0) = (output[0], output[1], output[2]);
-            let position = Position::from_ecef(Vector3::<f64>::new(x0, y0, z0));
-            let geo = position.geodetic();
-            let (lat, lon) = (geo[0].to_degrees(), geo[1].to_degrees());
-            info!(
-                "{} - estimated initial position lat={:.3E}°, lon={:.3E}°",
-                pool[0].t, lat, lon
+            let (x_km, y_km, z_km) = (output[0] / 1.0E3, output[1] / 1.0E3, output[2] / 1.0E3);
+            // TODO: run attitude filters ?
+            //  otherwise we will resolve with everything on 1st Iter
+            let orbit = Orbit::from_position(
+                x_km,
+                y_km,
+                z_km,
+                t,
+                self.earth_cef
             );
-            // update attitudes
-            for cd in pool.iter_mut() {
-                if let Some(state) = &mut cd.state {
-                    *state = state.with_elevation_azimuth((x0, y0, z0));
-                }
-            }
-            // store
-            self.initial = Some(Position::from_ecef(Vector3::new(
-                output[0], output[1], output[2],
-            )));
+            let (lat_deg, long_deg, h_km) = orbit.latlongalt()
+                .map_err(|e| Error::Physics(e))?;
+
+            info!(
+                "{} - initial position lat={:.5}°, lon={:.5}°, h={:.5}km",
+                t, lat_deg, long_deg, h_km,
+            );
         }
 
-        let initial = self.initial.as_ref().unwrap();
-        let (x0, y0, z0) = (initial.ecef()[0], initial.ecef()[1], initial.ecef()[2]);
-        let (lat_rad, lon_rad, altitude_above_sea_m) = (
-            initial.geodetic()[0],
-            initial.geodetic()[1],
-            initial.geodetic()[2],
-        );
-        let (lat_ddeg, lon_ddeg) = (lat_rad.to_degrees(), lon_rad.to_degrees());
+        let initial = self.initial.unwrap();
+        let state = initial.to_cartesian_pos_vel();
+        let (x0_km, y0_km, z0_km) = (state[0], state[1], state[2]);
+
+        // latest sol is prefered for internal modeling
+        let state = if let Some((_, prev_sol)) = &self.prev_solution {
+            prev_sol.state
+        } else {
+            state
+        };
 
         // Apply models
         for cd in &mut pool {
@@ -429,8 +456,8 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                 method,
                 tropo_modeling,
                 iono_modeling,
-                (lat_ddeg, lon_ddeg, altitude_above_sea_m),
-            );
+                state
+            )?;
         }
 
         // Resolve ambiguities
@@ -466,7 +493,19 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             return Err(Error::NotEnoughMatchingCandidates);
         }
 
-        Self::retain_best_elevation(&mut pool, min_required);
+        let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
+            prev_sol.state
+        } else {
+            self.initial
+        };
+
+        Self::retain_best_elevation(
+            rx_orbit,
+            &self.almanac,
+            &mut pool, 
+            min_required,
+        );
+
         pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
 
         let w = self.cfg.solver.weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
@@ -486,7 +525,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             },
         };
 
-        self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
+        // self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
 
         // Regular Iteration
         let output = match self.nav.resolve(&input) {
@@ -497,14 +536,14 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             },
         };
 
-        let x = output.state.estimate();
-        debug!("x: {}", x);
-
-        let position = match method {
-            // Method::PPP => Vector3::new(x[4] + x0, x[5] + y0, x[6] + z0),
-            Method::PPP => Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
-            Method::SPP | Method::CPP => Vector3::new(x[0] + x0, x[1] + y0, x[2] + z0),
-        };
+        let sol_x = output.state.estimate();
+        let sol_dt = sol_x[3] / SPEED_OF_LIGHT_M_S;
+        let (sol_x_km, sol_y_km, sol_z_km) = (
+            sol_x[0] / 1.0E3 + x0_km, 
+            sol_x[1] / 1.0E3 + y0_km, 
+            sol_x[2] / 1.0E3 + z0_km,
+        );
+        debug!("{} new solution x={}km, y={}km, z={}km", t, sol_x_km, sol_y_km, sol_z_km);
 
         // Bias
         // let mut bias = InstrumentBias::new();
@@ -524,7 +563,13 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         // Form Solution
         let mut solution = PVTSolution {
             // bias,
-            position,
+            state: Orbit::from_position(
+                sol_x_km,
+                sol_y_km,
+                sol_z_km,
+                t,
+                frame,
+            ),
             ambiguities,
             gdop: output.gdop,
             tdop: output.tdop,
@@ -532,8 +577,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             sv: input.sv.clone(),
             q: output.q_covar4x4(),
             timescale: self.cfg.timescale,
-            velocity: Vector3::<f64>::default(),
-            dt: Duration::from_seconds(x[3] / SPEED_OF_LIGHT_M_S),
+            dt: Duration::from_seconds(sol_dt),
             d_dt: 0.0_f64,
         };
 
@@ -577,15 +621,16 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             //}
         }
 
-        if let Some((prev_t, prev_solution)) = &self.prev_solution {
-            let dt_s = (t - *prev_t).to_seconds();
-            solution.velocity = (solution.position - prev_solution.position) / dt_s;
-            solution.d_dt = (prev_solution.dt - solution.dt).to_seconds() / dt_s;
-        }
-
+        self.update_solution(t, &mut solution);
+        // store for next time
         self.prev_solution = Some((t, solution.clone()));
 
-        Self::rework_solution(&mut solution, &self.cfg);
+        Self::rework_solution(
+            t,
+            self.earth_cef,
+            &self.cfg,
+            &mut solution, 
+        );
         Ok((t, solution))
     }
     /* returns minimal number of SV */
@@ -605,54 +650,94 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             }
         }
     }
-    /* rotate interpolated position */
-    fn rotate_position(rotate: bool, interpolated: Orbit, dt_tx: Duration) -> Orbit {
-        let mut reworked = interpolated;
-        let rot = if rotate {
-            const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
-            let dt_tx = dt_tx.to_seconds();
-            let we = EARTH_OMEGA_E_WGS84 * dt_tx;
-            let (we_cos, we_sin) = (we.cos(), we.sin());
-            Matrix3::<f64>::new(
-                we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64,
-            )
-        } else {
-            Matrix3::<f64>::new(
-                1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64,
-            )
-        };
-        reworked.position = rot * interpolated.position;
-        reworked
-    }
-    /*
-     * Determine velocities
-     */
-    fn orbit_with_velocities(&self, t_tx: Epoch, sv: SV, interpolated: Orbit) -> Orbit {
-        let mut reworked = interpolated;
-        if let Some((p_ttx, p_pos)) = self.prev_sv_state.get(&sv) {
-            let dt = (t_tx - *p_ttx).to_seconds();
-            reworked.velocity = Some((interpolated.position - p_pos) / dt);
+    // /* rotate interpolated position */
+    //fn rotate_position(rotate: bool, interpolated: Orbit, dt_tx: Duration) -> Orbit {
+    //    let mut reworked = interpolated;
+    //    let rot = if rotate {
+    //        const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
+    //        let dt_tx = dt_tx.to_seconds();
+    //        let we = EARTH_OMEGA_E_WGS84 * dt_tx;
+    //        let (we_cos, we_sin) = (we.cos(), we.sin());
+    //        Matrix3::<f64>::new(
+    //            we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64,
+    //        )
+    //    } else {
+    //        Matrix3::<f64>::new(
+    //            1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64,
+    //        )
+    //    };
+    //    reworked.position = rot * interpolated.position;
+    //    reworked
+    //}
+    // update solution
+    fn update_solution(&self, t: Epoch, sol: &mut PVTSolution) {
+        if let Some((prev_t, prev_sol)) = &self.prev_solution {
+            let dt_s = (t - *prev_t).to_seconds();
+            // update velocity
+            sol.state = Self::update_velocity(
+                t,
+                sol.state,
+                prev_sol.state,
+                dt_s,
+            );
+            // update clock drift
+            sol.d_dt = dt_s;
         }
-        reworked
+    }
+    // Update velocity
+    fn update_velocity(t: Epoch, orbit: Orbit, p_orbit: Orbit, dt_sec: f64) -> Orbit {
+        let state = orbit.to_cartesian_pos_vel();
+        let p_state = p_orbit.to_cartesian_pos_vel();
+        let (x_km, y_km, z_km) = (state[0], state[1], state[2]);
+        let (p_x_km, p_y_km, p_z_km) = (p_state[0], p_state[1], p_state[2]);
+        let (vel_x_km_s, vel_y_km_s, vel_z_km_s) = (
+            x_km - p_x_km / dt_sec,
+            y_km - p_y_km / dt_sec,
+            z_km - p_z_km / dt_sec,
+        );
+        orbit.with_velocity_km_s(Vector3::new(vel_x_km_s, vel_y_km_s, vel_z_km_s))
     }
     /*
      * Reworks solution
      */
-    fn rework_solution(pvt: &mut PVTSolution, cfg: &Config) {
-        if let Some(alt) = cfg.fixed_altitude {
-            pvt.position.z = alt;
-            pvt.velocity.z = 0.0_f64;
-        }
+    fn rework_solution(
+        t: Epoch, 
+        frame: Frame,
+        cfg: &Config,
+        pvt: &mut PVTSolution, 
+    ) {
+        // emphazise we only resolve dt by setting null attitude
         if cfg.sol_type == PVTSolutionType::TimeOnly {
-            pvt.position = Default::default();
-            pvt.velocity = Default::default();
+            pvt.state = Orbit::zero_at_epoch(t, frame);
+        }
+        // TODO: 
+        //  1. replace height component with user input
+        //  2. static in altitude: needs to reflect on velocity
+        // to emphasize that it is being used
+        if let Some(_alt_m) = cfg.fixed_altitude {
         }
     }
-    fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
+    /// Sort and only retain best attitudes
+    fn retain_best_elevation(
+        rx_orbit: Orbit, 
+        almanac: &Almanac,
+        pool: &mut Vec<Candidate>, 
+        min_required: usize,
+    ) {
         pool.sort_by(|cd_a, cd_b| {
             if let Some(state_a) = cd_a.state {
+                let elev_a_deg = if let Ok(elazrg) = almanac.azimuth_elevation_range_sez(rx_orbit, state_a) {
+                    elazrg.elevation_deg
+                } else {
+                    0.0
+                };
                 if let Some(state_b) = cd_b.state {
-                    state_a.elevation.partial_cmp(&state_b.elevation).unwrap()
+                    if elev_b_deg = if let Ok(elazrg) = almanac.azimuth_elevation_range_sez(rx_orbit, state_b) {
+                        elazrg.elevation_deg
+                    } else {
+                        0.0
+                    };
+                    elev_a_deg.partial_cmp(elev_b_deg)
                 } else {
                     Ordering::Greater
                 }

@@ -26,6 +26,13 @@ which is pretty much a slow converging PPP method
 * it can operate without apriori knowledge and is a true surveying tool
 * it can fulfill the challenging task of RTK / Geodetic reference station calibration
 
+Other cool features:
+  * works in all supported timescales
+  * can navigate using a conic azimuth mask (min and max azimuth angle).
+  In this case, we only select vehicles from that very region of the compass.
+  * could potentially apply to other Planets, if we make some function more generic
+  and propose better atmosphere interfaces.
+
 Applications
 ============
 

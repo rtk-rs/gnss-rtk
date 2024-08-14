@@ -46,10 +46,8 @@ impl std::fmt::Display for PVTSolutionType {
 #[derive(Debug, Clone)]
 // #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
-    /// Position error (in [m] ECEF)
-    pub position: Vector3<f64>,
-    /// Absolute Velocity (in [m/s] ECEF).
-    pub velocity: Vector3<f64>,
+    /// Receiver state, expressed as ECEF [Orbit]
+    pub state: Orbit,
     /// Timescale
     pub timescale: TimeScale,
     /// Offset to timescale

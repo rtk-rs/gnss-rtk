@@ -10,6 +10,7 @@ use crate::{
     prelude::{
         Carrier, Config, Duration, Epoch, Error, IonoComponents, Method, Orbit, TropoComponents,
         TropoModel, Vector3, SV,
+        Almanac,
     },
 };
 
@@ -193,38 +194,39 @@ impl Candidate {
 
 // private
 impl Candidate {
-    /// Applies all perturbation models to [Self]
+    /// Applies all perturbation models to [Self].
+    /// This will panic if State has not been resolved!
     pub(crate) fn apply_models(
         &mut self,
         method: Method,
         tropo_modeling: bool,
         iono_modeling: bool,
-        apriori: Orbit,
-        almanac: &Almanac,
-    ) {
-        let el_az_range = almanac.azimuth_elevation_range_sez(rx, tx)?;
-        if let Some(state) = self.state {
-            if let Some(obs) = self.prefered_pseudorange() {
-                let rtm = BiasRuntimeParams {
-                    t: self.t,
-                    elevation_deg: state.elevation,
-                    elevation_rad: state.elevation.to_radians(),
-                    azimuth_deg: state.azimuth,
-                    azimuth_rad: state.azimuth.to_radians(),
-                    frequency: obs.carrier.frequency(),
-                    apriori_geo: apriori_geo_ddeg,
-                    apriori_rad: (
-                        apriori_geo_ddeg.0.to_radians(),
-                        apriori_geo_ddeg.1.to_radians(),
-                    ),
-                };
-                if tropo_modeling {
-                    self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
-                }
-                if iono_modeling {
-                    if method == Method::SPP {
-                        self.iono_bias = self.iono_components.value(&rtm);
-                    }
+        rx_orbit: Orbit,
+    ) -> Result<(), Error> {
+        let mut state = self.state.unwrap();
+        let elazrg = azimuth_elevation_range_sez(rx_orbit, state)
+            .map_err(|e| Error::Physics(e))?;
+        let rx_geo = rx_orbit.latlongalt()
+            .map_err(|e| Error::Physics(e))?;
+        let rx_rad = (rx_geo[0].to_radians(), rx_geo[1].to_radians());
+
+        if let Some(obs) = self.prefered_pseudorange() {
+            let rtm = BiasRuntimeParams {
+                t: self.t,
+                rx_geo,
+                rx_rad,
+                elevation_deg: elazrg.elevation_deg,
+                elevation_rad: elazrg.elevation_deg.to_radians(),
+                azimuth_deg: elazrg.azimuth_deg,
+                azimuth_rad: elazrg.azimuth_deg.to_radians(),
+                frequency: obs.carrier.frequency(),
+            };
+            if tropo_modeling {
+                self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
+            }
+            if iono_modeling {
+                if method == Method::SPP {
+                    self.iono_bias = self.iono_components.value(&rtm);
                 }
             }
         }
