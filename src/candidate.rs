@@ -8,9 +8,8 @@ use std::cmp::Ordering;
 use crate::{
     bias::RuntimeParams as BiasRuntimeParams,
     prelude::{
-        Carrier, Config, Duration, Epoch, Error, IonoComponents, Method, Orbit, TropoComponents,
-        TropoModel, Vector3, SV,
-        Almanac,
+        Almanac, Carrier, Config, Duration, Epoch, Error, IonoComponents, Method, Orbit,
+        TropoComponents, TropoModel, Vector3, SV,
     },
 };
 
@@ -94,7 +93,7 @@ pub struct Candidate {
     pub sv: SV,
     /// Sampling [Epoch]
     pub t: Epoch,
-    /// Orbital state that needs to be resolved in PPP
+    /// Orbital state that needs to be resolved for PPP
     pub orbit: Option<Orbit>,
     /// t_tx Epoch
     pub(crate) t_tx: Epoch,
@@ -195,20 +194,21 @@ impl Candidate {
 // private
 impl Candidate {
     /// Applies all perturbation models to [Self].
-    /// This will panic if State has not been resolved!
+    /// This will panic if Orbit has not been resolved!
     pub(crate) fn apply_models(
         &mut self,
         method: Method,
+        almanac: &Almanac,
         tropo_modeling: bool,
         iono_modeling: bool,
         rx_orbit: Orbit,
     ) -> Result<(), Error> {
         let orbit = self.orbit.unwrap();
-        let elazrg = azimuth_elevation_range_sez(rx_orbit, orbit)
-            .map_err(|e| Error::Physics(e))?;
-        let rx_geo = rx_orbit.latlongalt()
-            .map_err(|e| Error::Physics(e))?;
-        let rx_rad = (rx_geo[0].to_radians(), rx_geo[1].to_radians());
+        let elazrg = almanac
+            .azimuth_elevation_range_sez(rx_orbit, orbit)
+            .map_err(|e| Error::Almanac(e))?;
+        let rx_geo = rx_orbit.latlongalt().map_err(|e| Error::Physics(e))?;
+        let rx_rad = (rx_geo.0.to_radians(), rx_geo.1.to_radians());
 
         if let Some(obs) = self.prefered_pseudorange() {
             let rtm = BiasRuntimeParams {
@@ -230,6 +230,7 @@ impl Candidate {
                 }
             }
         }
+        Ok(())
     }
     // Pseudo range iterator
     fn pseudo_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
@@ -563,9 +564,14 @@ impl Candidate {
         );
         Ok((e_tx, dt))
     }
+    pub(crate) fn with_orbit(&self, orbit: Orbit) -> Self {
+        let mut s = self.clone();
+        s.orbit = Some(orbit);
+        s
+    }
     #[cfg(test)]
-    pub fn set_state(&mut self, state: Orbit) {
-        self.state = Some(state);
+    pub fn set_orbit(&mut self, orbit: Orbit) {
+        self.orbit = Some(orbit);
     }
 }
 

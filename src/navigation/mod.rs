@@ -5,7 +5,7 @@ mod filter;
 
 pub use filter::{Filter, FilterState};
 
-use log::{debug, error};
+use log::{debug, error, warn};
 use std::collections::HashMap;
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
     candidate::Candidate,
     cfg::Config,
     constants::Constants,
-    prelude::{Error, IonosphereBias, Method, SV},
+    prelude::{Error, IonosphereBias, Method, Orbit, SV},
 };
 
 use nalgebra::{
@@ -26,10 +26,8 @@ use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 /// SV Navigation information
 #[derive(Debug, Clone, Default)]
 pub struct SVInput {
-    /// SV azimuth angle in degrees
-    pub azimuth: f64,
-    /// SV elevation angle in degrees
-    pub elevation: f64,
+    /// Possible [Orbit] state
+    pub orbit: Option<Orbit>,
     /// Troposphere bias in meters of delay
     pub tropo_bias: Option<f64>,
     /// Ionosphere bias
@@ -90,7 +88,7 @@ impl Output {
 impl Input {
     /// Forms new Navigation Input
     pub fn new(
-        apriori: (f64, f64, f64),
+        apriori_km: (f64, f64, f64),
         cfg: &Config,
         cd: &[Candidate],
         w: OMatrix<f64, U8, U8>,
@@ -102,16 +100,18 @@ impl Input {
         /*
          * Compensate for ARP (if possible)
          */
-        let apriori = match cfg.arp_enu {
-            Some(offset) => (
-                apriori.0 + offset.0,
-                apriori.1 + offset.1,
-                apriori.2 + offset.2,
-            ),
-            None => apriori,
+        let apriori_km = match cfg.arp_enu {
+            Some(offset) => {
+                //apriori.0 + offset.0,
+                //apriori.1 + offset.1,
+                //apriori.2 + offset.2,
+                warn!("ARP compensation is not feasible yet");
+                apriori_km
+            },
+            None => apriori_km,
         };
 
-        let (x0, y0, z0) = apriori;
+        let (x0_km, y0_km, z0_km) = apriori_km;
 
         for i in 0..8 {
             let mut sv_input = SVInput::default();
@@ -126,28 +126,26 @@ impl Input {
                 i
             };
 
-            let state = cd[index].state.ok_or(Error::UnresolvedState)?;
+            let orbit = cd[index].orbit.ok_or(Error::UnresolvedState)?;
             let clock_corr = cd[index].clock_corr.duration.to_seconds();
+            sv_input.orbit = Some(orbit);
 
-            let (azimuth, elevation) = (state.azimuth, state.elevation);
-            sv_input.azimuth = azimuth;
-            sv_input.elevation = elevation;
+            let (sv_x_km, sv_y_km, sv_z_km) =
+                (orbit.radius_km.x, orbit.radius_km.y, orbit.radius_km.z);
 
-            let (sv_x, sv_y, sv_z) = (
-                state.radius_km.x * 1.0E3,
-                state.radius_km.y * 1.0E3,
-                state.radius_km.z * 1.0E3,
-            );
-
-            let mut rho = ((sv_x - x0).powi(2) + (sv_y - y0).powi(2) + (sv_z - z0).powi(2)).sqrt();
+            let mut rho =
+                ((sv_x_km - x0_km).powi(2) + (sv_y_km - y0_km).powi(2) + (sv_z_km - z0_km).powi(2))
+                    .sqrt();
 
             if cfg.modeling.relativistic_path_range {
                 let mu = Constants::EARTH_GRAVITATION;
-                let r_sat = ((state.radius_km.x * 1.0E3).powi(2)
-                    + (state.radius_km.y * 1.0E3).powi(2)
-                    + (state.radius_km.z * 1.0E3).powi(2))
+                let r_sat = ((orbit.radius_km.x * 1.0E3).powi(2)
+                    + (orbit.radius_km.y * 1.0E3).powi(2)
+                    + (orbit.radius_km.z * 1.0E3).powi(2))
                 .sqrt();
-                let r_0 = (x0.powi(2) + y0.powi(2) + z0.powi(2)).sqrt();
+                let r_0 =
+                    ((x0_km * 1.0E3).powi(2) + (y0_km * 1.0E3).powi(2) + (z0_km * 1.0E3).powi(2))
+                        .sqrt();
                 let r_sat_0 = r_0 - r_sat;
                 let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                     * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
@@ -158,7 +156,11 @@ impl Input {
                 rho += dr;
             }
 
-            let (x_i, y_i, z_i) = ((x0 - sv_x) / rho, (y0 - sv_y) / rho, (z0 - sv_z) / rho);
+            let (x_i, y_i, z_i) = (
+                (x0_km - sv_x_km) / rho,
+                (y0_km - sv_y_km) / rho,
+                (z0_km - sv_z_km) / rho,
+            );
 
             g[(i, 0)] = x_i;
             g[(i, 1)] = y_i;

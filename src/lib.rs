@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-#![cfg_attr(docrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate gnss_rs as gnss;
 extern crate nyx_space as nyx;

@@ -37,7 +37,7 @@ impl Bancroft {
         );
 
         for i in 0..4 {
-            let state = cd[i].state.ok_or(Error::UnresolvedState)?;
+            let state = cd[i].orbit.ok_or(Error::UnresolvedState)?;
             let (x_i, y_i, z_i) = (
                 state.radius_km.x * 1.0E3,
                 state.radius_km.y * 1.0E3,

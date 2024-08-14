@@ -32,7 +32,7 @@ pub(crate) struct Validator {
 
 impl Validator {
     pub fn new(
-        apriori_ecef: Vector3<f64>,
+        apriori_km: Vector3<f64>,
         pool: &[Candidate],
         input: &Input,
         output: &Output,
@@ -54,13 +54,13 @@ impl Validator {
             let x = output.state.estimate();
 
             let (x, y, z, dt) = (
-                apriori_ecef[0] + x[0],
-                apriori_ecef[1] + x[1],
-                apriori_ecef[2] + x[2],
+                apriori_km[0] + x[0],
+                apriori_km[1] + x[1],
+                apriori_km[2] + x[2],
                 x[3] / SPEED_OF_LIGHT_M_S,
             );
 
-            let sv_orbit = cd.state.unwrap();
+            let sv_orbit = cd.orbit.unwrap();
             let (sv_x, sv_y, sv_z) = (
                 sv_orbit.radius_km.x * 1.0E3,
                 sv_orbit.radius_km.y * 1.0E3,

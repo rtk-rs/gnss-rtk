@@ -38,7 +38,7 @@ impl KbModel {
         const LAMBDA_P: f64 = 291.0;
         const L1_F: f64 = 1575.42E6;
 
-        let (phi_u, lambda_u) = rtm.apriori_rad;
+        let (phi_u, lambda_u) = rtm.rx_rad;
         let fract = R_EARTH / (R_EARTH + self.h_km);
         let (elev_rad, azim_rad) = (rtm.elevation_rad, rtm.azimuth_rad);
 
