@@ -3,7 +3,8 @@ pub use solutions::{InvalidationCause, PVTSolution, PVTSolutionType};
 
 mod filter;
 
-pub use filter::{Filter, FilterState};
+pub use filter::Filter;
+pub(crate) use filter::FilterState;
 
 use log::{debug, error, warn};
 use std::collections::HashMap;
@@ -49,7 +50,7 @@ pub struct Input {
 
 /// Navigation Output
 #[derive(Debug, Clone, Default)]
-pub struct Output {
+pub(crate) struct Output {
     /// Time Dilution of Precision
     pub tdop: f64,
     /// Geometric Dilution of Precision

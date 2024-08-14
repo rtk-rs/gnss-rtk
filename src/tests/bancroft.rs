@@ -1,8 +1,10 @@
 use crate::bancroft::Bancroft;
 use crate::prelude::{
     Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, IonoComponents,
-    Observation, OrbitalState, TropoComponents, SV,
+    Observation, Orbit, TropoComponents, EARTH_J2000, SV,
 };
+
+use std::str::FromStr;
 
 #[test]
 fn test() {
@@ -26,9 +28,14 @@ fn test() {
         IonoComponents::Unknown,
         TropoComponents::Unknown,
     );
-    let st =
-        OrbitalState::from_position((24170352.34904016, -16029029.85873581, -5905924.153143198));
-    cd0.set_state(st);
+    let orbit = Orbit::from_position(
+        24170352.34904016 / 1.0E3,
+        -16029029.85873581 / 1.0E3,
+        -5905924.153143198 / 1.0E3,
+        Epoch::from_str("2020-06-20T00:00:00 GPST").unwrap(),
+        EARTH_J2000, //wrong ! wgs84
+    );
+    cd0.set_orbit(orbit);
 
     let pr = Observation {
         snr: None,
@@ -48,9 +55,14 @@ fn test() {
         IonoComponents::Unknown,
         TropoComponents::Unknown,
     );
-    let st =
-        OrbitalState::from_position((16069642.946692571, -8992001.827692423, 23184746.654093638));
-    cd1.set_state(st);
+    let orbit = Orbit::from_position(
+        16069642.946692571 / 1.0E3,
+        -8992001.827692423 / 1.0E3,
+        23184746.654093638 / 1.0E3,
+        Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap(),
+        EARTH_J2000,
+    );
+    cd1.set_orbit(orbit);
 
     let pr = Observation {
         snr: None,
@@ -70,9 +82,14 @@ fn test() {
         IonoComponents::Unknown,
         TropoComponents::Unknown,
     );
-    let st =
-        OrbitalState::from_position((26119621.94656989, 7791422.617964384, 11558902.718228433));
-    cd2.set_state(st);
+    let orbit = Orbit::from_position(
+        26119621.94656989 / 1.0E3,
+        7791422.617964384 / 1.0E3,
+        11558902.718228433 / 1.0E3,
+        Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap(),
+        EARTH_J2000, // TODO WRONG! GPS
+    );
+    cd2.set_orbit(orbit);
 
     let pr = Observation {
         snr: None,
@@ -92,9 +109,14 @@ fn test() {
         IonoComponents::Unknown,
         TropoComponents::Unknown,
     );
-    let st =
-        OrbitalState::from_position((-3601205.0295727667, -20311399.087870672, 21230831.216778148));
-    cd3.set_state(st);
+    let orbit = Orbit::from_position(
+        -3601205.0295727667 / 1.0E3,
+        -20311399.087870672 / 1.0E3,
+        21230831.216778148 / 1.0E3,
+        Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap(),
+        EARTH_J2000,
+    );
+    cd3.set_orbit(orbit);
 
     let pool = vec![cd0, cd1, cd2, cd3];
     let solver = Bancroft::new(&pool);

@@ -5,7 +5,8 @@ use hifitime::Unit;
 use thiserror::Error;
 
 use log::{debug, error, info, warn};
-use nalgebra::{Matrix3, Vector3};
+use nalgebra::Vector3;
+//use nalgebra::Matrix3;
 
 use nyx::cosmic::{
     eclipse::{eclipse_state, EclipseState},

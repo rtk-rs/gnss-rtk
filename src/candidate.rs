@@ -95,8 +95,6 @@ pub struct Candidate {
     pub t: Epoch,
     /// Orbital state that needs to be resolved for PPP
     pub orbit: Option<Orbit>,
-    /// t_tx Epoch
-    pub(crate) t_tx: Epoch,
     // SV group delay expressed as a [Duration]
     pub(crate) tgd: Option<Duration>,
     // Windup term in cycles
@@ -168,7 +166,6 @@ impl Candidate {
         Self {
             sv,
             t,
-            t_tx: t,
             clock_corr,
             tgd,
             orbit: None,
@@ -216,7 +213,6 @@ impl Candidate {
                 rx_geo,
                 rx_rad,
                 frequency: obs.carrier.frequency(),
-                azimuth_deg: elazrg.azimuth_deg,
                 elevation_deg: elazrg.elevation_deg,
                 azimuth_rad: elazrg.azimuth_deg.to_radians(),
                 elevation_rad: elazrg.elevation_deg.to_radians(),
