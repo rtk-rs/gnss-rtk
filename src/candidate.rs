@@ -94,8 +94,8 @@ pub struct Candidate {
     pub sv: SV,
     /// Sampling [Epoch]
     pub t: Epoch,
-    /// State that needs to be resolved
-    pub state: Option<Orbit>,
+    /// Orbital state that needs to be resolved in PPP
+    pub orbit: Option<Orbit>,
     /// t_tx Epoch
     pub(crate) t_tx: Epoch,
     // SV group delay expressed as a [Duration]
@@ -172,7 +172,7 @@ impl Candidate {
             t_tx: t,
             clock_corr,
             tgd,
-            state: None,
+            orbit: None,
             observations,
             iono_bias: 0.0,
             iono_components,
@@ -203,8 +203,8 @@ impl Candidate {
         iono_modeling: bool,
         rx_orbit: Orbit,
     ) -> Result<(), Error> {
-        let mut state = self.state.unwrap();
-        let elazrg = azimuth_elevation_range_sez(rx_orbit, state)
+        let orbit = self.orbit.unwrap();
+        let elazrg = azimuth_elevation_range_sez(rx_orbit, orbit)
             .map_err(|e| Error::Physics(e))?;
         let rx_geo = rx_orbit.latlongalt()
             .map_err(|e| Error::Physics(e))?;
@@ -215,11 +215,11 @@ impl Candidate {
                 t: self.t,
                 rx_geo,
                 rx_rad,
-                elevation_deg: elazrg.elevation_deg,
-                elevation_rad: elazrg.elevation_deg.to_radians(),
-                azimuth_deg: elazrg.azimuth_deg,
-                azimuth_rad: elazrg.azimuth_deg.to_radians(),
                 frequency: obs.carrier.frequency(),
+                azimuth_deg: elazrg.azimuth_deg,
+                elevation_deg: elazrg.elevation_deg,
+                azimuth_rad: elazrg.azimuth_deg.to_radians(),
+                elevation_rad: elazrg.elevation_deg.to_radians(),
             };
             if tropo_modeling {
                 self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);

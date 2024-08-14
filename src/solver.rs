@@ -297,7 +297,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                 Ok((t_tx, dt_tx)) => {
                     let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    // determine orbital state
+                    // retrieve orbital state
                     if let Some(mut tx_orbit) = orbits.next_at(t_tx, cd.sv, interp_order) {
                         // possible elevation mask
                         let mut min_elev_deg = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
@@ -369,23 +369,28 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         // relativistic clock bias
         for cd in pool.iter_mut() {
             if modeling.relativistic_clock_bias {
-                if let Some(ref mut state) = cd.state {
-                    if state.velocity.is_some() && cd.clock_corr.needs_relativistic_correction {
-                        let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
-                        let mu = Constants::EARTH_GRAVITATION;
-                        let ea_deg = state.ea_deg().map_err(Error::Physics)?;
-                        let ea_rad = ea_deg.to_radians();
-                        let gm = (w_e * mu).sqrt();
-                        let bias =
-                            -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
-                                / SPEED_OF_LIGHT_M_S
-                                / SPEED_OF_LIGHT_M_S
-                                * Unit::Second;
-                        debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
-                        cd.clock_corr.duration += bias;
+                if let Some(orbit) = cd.orbit {
+                    // internal storage for next iter
+                    self.prev_sv_state.insert(cd.sv, orbit);
+                    let state = orbit.to_cartesian_pos_vel();
+                    // all these calculations need inst. velocity
+                    // and cannot apply to first Iter
+                    if state[3] > 0.0 && state[4] > 0.0 && state[5] > 0.0 {
+                        if cd.clock_corr.needs_relativistic_correction {
+                            let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
+                            let mu = Constants::EARTH_GRAVITATION;
+                            let ea_deg = state.ea_deg().map_err(Error::Physics)?;
+                            let ea_rad = ea_deg.to_radians();
+                            let gm = (w_e * mu).sqrt();
+                            let bias =
+                                -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
+                                    / SPEED_OF_LIGHT_M_S
+                                    / SPEED_OF_LIGHT_M_S
+                                    * Unit::Second;
+                            debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                            cd.clock_corr.duration += bias;
+                        }
                     }
-                    // update for next time
-                    self.prev_sv_state.insert(cd.sv, (cd.t_tx, state.position));
                 }
             }
         }
