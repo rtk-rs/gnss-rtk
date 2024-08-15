@@ -31,10 +31,9 @@ impl Bancroft {
         let m = Self::m_matrix();
         let mut a = Vector4::<f64>::default();
         let mut b = Matrix4::<f64>::default();
-        assert!(
-            cd.len() > 3,
-            "can't resolve Bancroft equation: invalid input"
-        );
+        if cd.len() < 3 {
+            return Err(Error::NotEnoughCandidatesBancroft);
+        }
 
         for i in 0..4 {
             let state = cd[i].orbit.ok_or(Error::UnresolvedState)?;
@@ -55,12 +54,13 @@ impl Bancroft {
 
             let dt_i = clock_corr.duration.to_seconds();
             let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
+            let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
 
             b[(i, 0)] = x_i;
             b[(i, 1)] = y_i;
             b[(i, 2)] = z_i;
-            let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
             b[(i, 3)] = pr_i;
+
             a[i] = 0.5 * (x_i.powi(2) + y_i.powi(2) + z_i.powi(2) - pr_i.powi(2));
         }
         Ok(Self {
@@ -71,7 +71,6 @@ impl Bancroft {
         })
     }
     pub fn resolve(&self) -> Result<Vector4<f64>, Error> {
-        let _output = Vector4::<f64>::default();
         let b_inv = self.b.try_inverse().ok_or(Error::MatrixInversionError)?;
         let b_1 = b_inv * self.ones;
         let b_a = b_inv * self.a;

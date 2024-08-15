@@ -333,7 +333,6 @@ impl Candidate {
         let state = orbit.to_cartesian_pos_vel();
 
         let (x0_km, y0_km, z0_km) = apriori_km;
-        let (sv_x_km, sv_y_km, sv_z_km) = (state[0], state[1], state[2]);
 
         let (x0_m, y0_m, z0_m) = (x0_km * 1.0E3, y0_km * 1.0E3, z0_km * 1.0E3);
         let (sv_x_m, sv_y_m, sv_z_m) = (state[0] * 1.0E3, state[1] * 1.0E3, state[2] * 1.0E3);
@@ -822,10 +821,7 @@ impl Candidate {
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::{
-        Candidate, Carrier, ClockCorrection, Epoch, IonoComponents, Observation, TropoComponents,
-        SV,
-    };
+    use crate::prelude::{Candidate, Carrier, Epoch, Observation, SV};
     #[test]
     fn cpp_compatibility() {
         for (observations, cpp_compatible) in [(

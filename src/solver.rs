@@ -38,6 +38,11 @@ pub enum Error {
     /// Not enough candidates were proposed: we do not attempt resolution
     #[error("not enough candidates provided")]
     NotEnoughCandidates,
+    /// Survey initialization (no apriori = internal guess)
+    /// requires at least 4 SV in sight temporarily, whatever
+    /// your navigation technique.
+    #[error("needs 4 SV in sight at least temporarily")]
+    NotEnoughCandidatesBancroft,
     /// PreFit (signal quality, other..) criterias
     /// have been applied but we're left with not enough vehicles that match
     /// the navigation technique: no attempt.

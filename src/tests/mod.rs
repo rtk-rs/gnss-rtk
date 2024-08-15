@@ -1,6 +1,6 @@
 use crate::prelude::{
-    Candidate, Carrier, Config, Epoch, Error, InvalidationCause, Observation, Orbit,
-    OrbitalStateProvider, PVTSolution, Solver, TimeScale, SV,
+    Candidate, Config, Epoch, Error, InvalidationCause, Orbit, OrbitalStateProvider, PVTSolution,
+    Solver, TimeScale, SV,
 };
 
 mod bancroft;
@@ -105,6 +105,7 @@ impl Tester {
                 },
                 Err(e) => match e {
                     Error::NotEnoughCandidates => {},
+                    Error::NotEnoughCandidatesBancroft => {},
                     Error::NotEnoughPreFitCandidates => {},
                     Error::NotEnoughPostFitCandidates => {},
                     Error::MatrixFormationError => {},
