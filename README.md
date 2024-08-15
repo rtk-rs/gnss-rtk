@@ -34,6 +34,11 @@ Other cool features:
   * could potentially apply to other Planets, if we make some function more generic
   and propose better atmosphere interfaces.
 
+GNSS-RTK does not care about SV or signal modulations. It cares
+about physics, distances, frequencies and environmental phenomena.
+This means you operate it from whatever data source you have at your disposal,
+as long as you can provide the required inputs.
+
 Applications
 ============
 
