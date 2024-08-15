@@ -3,6 +3,7 @@ use crate::prelude::{
     Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, Observation, Orbit,
     EARTH_J2000, IAU_EARTH_FRAME, SV,
 };
+use hifitime::Unit;
 
 use std::str::FromStr;
 
@@ -13,11 +14,7 @@ fn test() {
 
     let pr = Observation::pseudo_range(Carrier::E1, 28776032.260, None);
 
-    let mut cd0 = Candidate::new(
-        SV::new(Constellation::default(), 2),
-        Epoch::default(),
-        vec![pr],
-    );
+    let mut cd0 = Candidate::new(SV::new(Constellation::default(), 2), t0, vec![pr]);
     cd0.set_clock_correction(ClockCorrection::without_relativistic_correction(
         Duration::from_microseconds(142.784),
     ));
@@ -32,11 +29,7 @@ fn test() {
 
     let pr = Observation::pseudo_range(Carrier::E1, 24090441.364, None);
 
-    let mut cd1 = Candidate::new(
-        SV::new(Constellation::default(), 3),
-        Epoch::default(),
-        vec![pr],
-    );
+    let mut cd1 = Candidate::new(SV::new(Constellation::default(), 3), t0, vec![pr]);
     cd1.set_clock_correction(ClockCorrection::without_relativistic_correction(
         Duration::from_microseconds(-313.533),
     ));
@@ -49,11 +42,7 @@ fn test() {
     ));
 
     let pr = Observation::pseudo_range(Carrier::E1, 24762903.616, None);
-    let mut cd2 = Candidate::new(
-        SV::new(Constellation::default(), 5),
-        Epoch::default(),
-        vec![pr],
-    );
+    let mut cd2 = Candidate::new(SV::new(Constellation::default(), 5), t0, vec![pr]);
     cd2.set_clock_correction(ClockCorrection::without_relativistic_correction(
         Duration::from_microseconds(-368.749),
     ));
@@ -66,11 +55,7 @@ fn test() {
     ));
 
     let pr = Observation::pseudo_range(Carrier::E1, 25537644.454, None);
-    let mut cd3 = Candidate::new(
-        SV::new(Constellation::default(), 8),
-        Epoch::default(),
-        vec![pr],
-    );
+    let mut cd3 = Candidate::new(SV::new(Constellation::default(), 8), t0, vec![pr]);
     cd3.set_clock_correction(ClockCorrection::without_relativistic_correction(
         Duration::from_milliseconds(-6.158955),
     ));
@@ -108,12 +93,12 @@ fn test() {
     );
     assert!(
         y_err < 100.0,
-        "bancroft solver error: x error too large: {}",
+        "bancroft solver error: y error too large: {}",
         y_err
     );
     assert!(
         z_err < 100.0,
-        "bancroft solver error: x error too large: {}",
+        "bancroft solver error: z error too large: {}",
         z_err
     );
 }

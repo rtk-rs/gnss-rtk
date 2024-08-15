@@ -37,11 +37,8 @@ impl Bancroft {
 
         for i in 0..4 {
             let state = cd[i].orbit.ok_or(Error::UnresolvedState)?;
-            let (x_i, y_i, z_i) = (
-                state.radius_km.x * 1.0E3,
-                state.radius_km.y * 1.0E3,
-                state.radius_km.z * 1.0E3,
-            );
+            let state = state.to_cartesian_pos_vel();
+            let (x_i, y_i, z_i) = (state[0] * 1.0E3, state[1] * 1.0E3, state[2] * 1.0E3);
             let r_i = cd[i]
                 .prefered_pseudorange()
                 .ok_or(Error::MissingPseudoRange)?
