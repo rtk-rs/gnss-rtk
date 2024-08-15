@@ -43,7 +43,7 @@ impl Bancroft {
                 .prefered_pseudorange()
                 .ok_or(Error::MissingPseudoRange)?
                 .pseudo
-                .unwrap();
+                .ok_or(Error::MissingPseudoRange)?;
 
             let clock_corr = cd[i]
                 .clock_corr

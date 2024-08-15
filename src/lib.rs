@@ -40,7 +40,7 @@ pub mod prelude {
     pub use crate::solver::{Error, Solver};
     // re-export
     pub use anise::{
-        constants::frames::{EARTH_J2000, IAU_EARTH_FRAME, SUN_J2000},
+        constants::frames::{EARTH_ITRF93, EARTH_J2000, IAU_EARTH_FRAME, SUN_J2000},
         naif::SPK,
         prelude::{Aberration, Almanac, Frame, Orbit},
     };
