@@ -22,9 +22,10 @@ GNSS-RTK is flexible and efficient:
 * you don't have to sample L1 and can navigate with modern signals
 * it supports navigation without phase range
 * a special CPP method for dual frequency pseudo range (no phase range)
-which is pretty much a slow converging PPP method
-* it can operate without apriori knowledge and is a true surveying tool
+which behaves like a slow converging PPP method
+* is a true surveying tool because it can operate without apriori knowledge
 * it can fulfill the challenging task of RTK / Geodetic reference station calibration
+by deploying a complete PPP survey
 
 Other cool features:
   * works in all supported timescales

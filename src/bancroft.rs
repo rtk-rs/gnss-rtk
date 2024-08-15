@@ -49,7 +49,10 @@ impl Bancroft {
                 .pseudo
                 .unwrap();
 
-            let clock_corr = cd[i].clock_corr.ok_or(Error::UnknownClockCorrection)?;
+            let clock_corr = cd[i]
+                .clock_corr
+                .ok_or(Error::UnknownClockCorrectionBancroft)?;
+
             let dt_i = clock_corr.duration.to_seconds();
             let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
 

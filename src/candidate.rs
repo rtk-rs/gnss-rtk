@@ -14,8 +14,8 @@ use crate::{
     constants::Constants,
     navigation::SVInput,
     prelude::{
-        Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method,
-        Orbit, Almanac, TropoComponents, TropoModel, Vector3, SV,
+        Almanac, Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method,
+        Orbit, TropoComponents, TropoModel, Vector3, SV,
     },
 };
 
@@ -334,19 +334,16 @@ impl Candidate {
 
         let (x0_km, y0_km, z0_km) = apriori_km;
         let (sv_x_km, sv_y_km, sv_z_km) = (state[0], state[1], state[2]);
-        
+
         let (x0_m, y0_m, z0_m) = (x0_km * 1.0E3, y0_km * 1.0E3, z0_km * 1.0E3);
         let (sv_x_m, sv_y_m, sv_z_m) = (state[0] * 1.0E3, state[1] * 1.0E3, state[2] * 1.0E3);
 
         let mut rho =
-            ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2))
-                .sqrt();
+            ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
 
         if cfg.modeling.relativistic_path_range {
             let mu = Constants::EARTH_GRAVITATION;
-            let r_sat =
-                (sv_x_m.powi(2) + sv_y_m.powi(2) + sv_z_m.powi(2))
-                    .sqrt();
+            let r_sat = (sv_x_m.powi(2) + sv_y_m.powi(2) + sv_z_m.powi(2)).sqrt();
             let r_0 = (x0_m.powi(2) + y0_m.powi(2) + z0_m.powi(2)).sqrt();
             let r_sat_0 = r_0 - r_sat;
             let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S

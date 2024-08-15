@@ -6,9 +6,11 @@ mod filter;
 pub use filter::Filter;
 pub(crate) use filter::FilterState;
 
-use log::{debug, 
-    //error, 
-    warn};
+use log::{
+    debug,
+    //error,
+    warn,
+};
 use std::collections::HashMap;
 
 use crate::{
@@ -16,8 +18,13 @@ use crate::{
     candidate::Candidate,
     cfg::Config,
     // constants::Constants,
-    prelude::{Duration, Error, IonosphereBias, //Method, 
-    SV, Orbit},
+    prelude::{
+        Duration,
+        Error,
+        IonosphereBias, //Method,
+        Orbit,
+        SV,
+    },
 };
 
 use nalgebra::{

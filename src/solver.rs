@@ -82,6 +82,10 @@ pub enum Error {
     /// it is mandatory for the user to provide [ClockCorrection].
     #[error("missing clock correction")]
     UnknownClockCorrection,
+    /// When operating in full survey mode (worst case scenario),
+    /// we will need [ClockCorrection]s to be defined.
+    #[error("bancroft solver needs clock correction")]
+    UnknownClockCorrectionBancroft,
     /// Physical non sense due to bad signal data or invalid orbital state, will cause us
     /// abort with this message.
     #[error("physical non sense: rx prior tx")]
@@ -386,11 +390,13 @@ impl<O: OrbitalStateProvider> Solver<O> {
                                 let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
                                 let ea_rad = ea_deg.to_radians();
                                 let gm = (w_e * mu).sqrt();
-                                let bias =
-                                    -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
-                                        / SPEED_OF_LIGHT_M_S
-                                        / SPEED_OF_LIGHT_M_S
-                                        * Unit::Second;
+                                let bias = -2.0_f64
+                                    * orbit.ecc().map_err(Error::Physics)?
+                                    * ea_rad.sin()
+                                    * gm
+                                    / SPEED_OF_LIGHT_M_S
+                                    / SPEED_OF_LIGHT_M_S
+                                    * Unit::Second;
                                 debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
                                 clock_corr.duration += bias;
                             }
@@ -437,11 +443,14 @@ impl<O: OrbitalStateProvider> Solver<O> {
                     pool[0].t,
                     self.earth_cef,
                 );
-                let (lat_deg, long_deg, alt_km) = orbit.latlongalt()
-                    .map_err(|e| Error::Physics(e))?;
+                let (lat_deg, long_deg, alt_km) =
+                    orbit.latlongalt().map_err(|e| Error::Physics(e))?;
                 info!(
                     "{} estimate initial position lat={:.5}°, lon={:.5}°, alt={:.3}m",
-                    pool[0].t, lat_deg, long_deg, alt_km * 1.0E3,
+                    pool[0].t,
+                    lat_deg,
+                    long_deg,
+                    alt_km * 1.0E3,
                 );
                 //TODO: apply attitude filters ?
                 self.initial = Some(orbit); // store
@@ -524,13 +533,14 @@ impl<O: OrbitalStateProvider> Solver<O> {
                                                  //     }
                                                  // }
 
-        let input = match NavigationInput::new((x0_km, y0_km, z0_km), &self.cfg, &pool, w, &ambiguities) {
-            Ok(input) => input,
-            Err(e) => {
-                error!("Failed to form navigation matrix: {}", e);
-                return Err(Error::MatrixFormationError);
-            },
-        };
+        let input =
+            match NavigationInput::new((x0_km, y0_km, z0_km), &self.cfg, &pool, w, &ambiguities) {
+                Ok(input) => input,
+                Err(e) => {
+                    error!("Failed to form navigation matrix: {}", e);
+                    return Err(Error::MatrixFormationError);
+                },
+            };
 
         // self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
 

@@ -1,6 +1,6 @@
 use crate::prelude::{
-    BaseStation as RTKBaseStation, Candidate, Carrier, Config, Epoch, Error, InvalidationCause,
-    Observation, Orbit, OrbitalStateProvider, PVTSolution, Solver, TimeScale, SV,
+    Candidate, Carrier, Config, Epoch, Error, InvalidationCause, Observation, Orbit,
+    OrbitalStateProvider, PVTSolution, Solver, TimeScale, SV,
 };
 
 mod bancroft;
@@ -109,6 +109,7 @@ impl Tester {
                     Error::NotEnoughPostFitCandidates => {},
                     Error::MatrixFormationError => {},
                     Error::UnknownClockCorrection => {},
+                    Error::UnknownClockCorrectionBancroft => {},
                     Error::MissingRemoteRTKObservation(..) => {},
                     Error::MissingRemoteRTKObservations => {},
                     Error::MatrixInversionError => {},

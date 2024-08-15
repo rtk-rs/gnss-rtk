@@ -1,9 +1,8 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    Candidate, Carrier, ClockCorrection, Config, Duration, Epoch, Error, InvalidationCause,
-    IonoComponents, Method, Observation, OrbitalState, OrbitalStateProvider, Solver,
-    TropoComponents, SV,
+    Candidate, Carrier, Config, Epoch, Error, InvalidationCause, Method, Observation, Orbit,
+    OrbitalStateProvider, Solver, EARTH_J2000, SV,
 };
 
 // Orbit source example
