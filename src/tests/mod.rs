@@ -24,14 +24,6 @@ impl OrbitalStateProvider for Orbits {
     }
 }
 
-struct BaseStation {}
-
-impl RTKBaseStation for BaseStation {
-    fn observe(&mut self, _: Epoch, _: SV, _: Carrier) -> Option<Observation> {
-        None
-    }
-}
-
 struct SolverInput {
     t_rx: Epoch,
     pool: Vec<Candidate>,
@@ -84,24 +76,20 @@ impl Tester {
     }
     fn deploy_without_apriori(&self, cfg: &Config) {
         let orbits = Orbits {};
-        let mut solver: Solver<Orbits, BaseStation> = Solver::ppp(&cfg, None, orbits)
+        let mut solver = Solver::survey(&cfg, orbits)
             .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
     fn deploy_with_apriori(&self, cfg: &Config) {
         let orbits = Orbits {};
-        let mut solver: Solver<Orbits, BaseStation> =
-            Solver::ppp(&cfg, self.reference.clone(), orbits)
+        let mut solver =
+            Solver::new(&cfg, None, orbits) // TODO
                 .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
-    fn run<O: OrbitalStateProvider, B: RTKBaseStation>(
-        &self,
-        solver: &mut Solver<O, B>,
-        cfg: &Config,
-    ) {
+    fn run<O: OrbitalStateProvider>(&self, solver: &mut Solver<O>, cfg: &Config) {
         for (data_index, data) in gps_test_data().iter_mut().enumerate() {
             match solver.resolve(data.t_rx, &mut data.pool) {
                 Ok((_, solution)) => {
@@ -117,9 +105,12 @@ impl Tester {
                 },
                 Err(e) => match e {
                     Error::NotEnoughCandidates => {},
-                    Error::NotEnoughMatchingCandidates => {},
-                    Error::MatrixError => {},
-                    Error::FirstGuess => {},
+                    Error::NotEnoughPreFitCandidates => {},
+                    Error::NotEnoughPostFitCandidates => {},
+                    Error::MatrixFormationError => {},
+                    Error::UnknownClockCorrection => {},
+                    Error::MissingRemoteRTKObservation(..) => {},
+                    Error::MissingRemoteRTKObservations => {},
                     Error::MatrixInversionError => {},
                     Error::TimeIsNan => {
                         panic!("resolved dt is Not A Number");

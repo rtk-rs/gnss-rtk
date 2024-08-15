@@ -6,15 +6,18 @@ mod filter;
 pub use filter::Filter;
 pub(crate) use filter::FilterState;
 
-use log::{debug, error, warn};
+use log::{debug, 
+    //error, 
+    warn};
 use std::collections::HashMap;
 
 use crate::{
     ambiguity::Ambiguities,
     candidate::Candidate,
     cfg::Config,
-    constants::Constants,
-    prelude::{Error, IonosphereBias, Method, Orbit, SV},
+    // constants::Constants,
+    prelude::{Duration, Error, IonosphereBias, //Method, 
+    SV, Orbit},
 };
 
 use nalgebra::{
@@ -22,7 +25,7 @@ use nalgebra::{
     OMatrix, OVector,
 };
 
-use nyx::cosmic::SPEED_OF_LIGHT_M_S;
+// use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 /// SV Navigation information
 #[derive(Debug, Clone, Default)]
@@ -33,6 +36,8 @@ pub struct SVInput {
     pub tropo_bias: Option<f64>,
     /// Ionosphere bias
     pub iono_bias: Option<IonosphereBias>,
+    /// Correction to said constellation, expressed as [Duration]
+    pub clock_correction: Option<Duration>,
 }
 
 /// Navigation Input
@@ -93,7 +98,7 @@ impl Input {
         cfg: &Config,
         cd: &[Candidate],
         w: OMatrix<f64, U8, U8>,
-        ambiguities: &Ambiguities,
+        _: &Ambiguities,
     ) -> Result<Self, Error> {
         let mut y = OVector::<f64, U8>::zeros();
         let mut g = OMatrix::<f64, U8, U8>::zeros();
@@ -102,7 +107,7 @@ impl Input {
          * Compensate for ARP (if possible)
          */
         let apriori_km = match cfg.arp_enu {
-            Some(offset) => {
+            Some(_) => {
                 //apriori.0 + offset.0,
                 //apriori.1 + offset.1,
                 //apriori.2 + offset.2,
@@ -112,158 +117,97 @@ impl Input {
             None => apriori_km,
         };
 
-        let (x0_km, y0_km, z0_km) = apriori_km;
+        let mut max = match cfg.sol_type {
+            PVTSolutionType::TimeOnly => 1,
+            _ => 4,
+        };
+        if cfg.fixed_altitude.is_some() {
+            max -= 1;
+        }
+        let mut i = 0;
 
-        for i in 0..8 {
-            let mut sv_input = SVInput::default();
-
-            let index = if i >= cd.len() {
-                if cfg.sol_type == PVTSolutionType::TimeOnly {
-                    0
-                } else {
-                    i - cd.len()
-                }
-            } else {
-                i
-            };
-
-            let orbit = cd[index].orbit.ok_or(Error::UnresolvedState)?;
-            let clock_corr = cd[index].clock_corr.duration.to_seconds();
-            sv_input.orbit = Some(orbit);
-
-            let (sv_x_km, sv_y_km, sv_z_km) =
-                (orbit.radius_km.x, orbit.radius_km.y, orbit.radius_km.z);
-
-            let mut rho =
-                ((sv_x_km - x0_km).powi(2) + (sv_y_km - y0_km).powi(2) + (sv_z_km - z0_km).powi(2))
-                    .sqrt();
-
-            if cfg.modeling.relativistic_path_range {
-                let mu = Constants::EARTH_GRAVITATION;
-                let r_sat = ((orbit.radius_km.x * 1.0E3).powi(2)
-                    + (orbit.radius_km.y * 1.0E3).powi(2)
-                    + (orbit.radius_km.z * 1.0E3).powi(2))
-                .sqrt();
-                let r_0 =
-                    ((x0_km * 1.0E3).powi(2) + (y0_km * 1.0E3).powi(2) + (z0_km * 1.0E3).powi(2))
-                        .sqrt();
-                let r_sat_0 = r_0 - r_sat;
-                let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
-                    * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
-                debug!(
-                    "{}({}) relativistic path range {:.3E}m",
-                    cd[index].t, cd[index].sv, dr
-                );
-                rho += dr;
-            }
-
-            let (x_i, y_i, z_i) = (
-                (x0_km - sv_x_km) / rho,
-                (y0_km - sv_y_km) / rho,
-                (z0_km - sv_z_km) / rho,
-            );
-
-            g[(i, 0)] = x_i;
-            g[(i, 1)] = y_i;
-            g[(i, 2)] = z_i;
-            g[(i, 3)] = 1.0_f64;
-
-            let mut models = 0.0_f64;
-
-            if cfg.modeling.sv_clock_bias {
-                models -= clock_corr * SPEED_OF_LIGHT_M_S;
-            }
-            if let Some(delay) = cfg.externalref_delay {
-                models -= delay * SPEED_OF_LIGHT_M_S;
-            }
-
-            let (pr, frequency) = match cfg.method {
-                Method::SPP => {
-                    let pr = cd[index]
-                        .prefered_pseudorange()
-                        .ok_or(Error::MissingPseudoRange)?;
-                    (pr.pseudo.unwrap(), pr.carrier.frequency())
+        while i < max {
+            match cd[i].matrix_contribution(cfg, i, &mut y, &mut g, apriori_km) {
+                Ok(input) => {
+                    sv.insert(cd[i].sv, input);
                 },
-                Method::CPP | Method::PPP => {
-                    let pr = cd[index]
-                        .code_if_combination()
-                        .ok_or(Error::PseudoRangeCombination)?;
-                    (pr.value, pr.rhs.frequency())
+                Err(e) => {
+                    debug!("{}({}) cannot contribute: {}", cd[i].t, cd[i].sv, e);
+                    continue;
                 },
-            };
-
-            // frequency dependent delay
-            for delay in &cfg.int_delay {
-                if delay.frequency == frequency {
-                    models += delay.delay * SPEED_OF_LIGHT_M_S;
-                }
             }
 
-            /*
-             * TROPO
-             */
-            if cfg.modeling.tropo_delay {
-                models += cd[index].tropo_bias;
-                sv_input.tropo_bias = Some(cd[index].tropo_bias);
-            }
+            // TODO reestablish phase contribution
+            g[(4 + i, 4 + i)] = 1.0_f64;
+            y[4 + i] = y[i];
+            //TODO phase contrib
+            //if i > 3 {
+            //    g[(i, i)] = 1.0_f64;
 
-            /*
-             * IONO
-             */
-            if cfg.modeling.iono_delay {
-                models += cd[index].iono_bias;
-                if cfg.method == Method::SPP {
-                    sv_input.iono_bias = Some(IonosphereBias::modeled(cd[index].iono_bias));
-                } else {
-                    sv_input.iono_bias = Some(IonosphereBias::measured(cd[index].iono_bias));
-                }
-            }
+            //    if cfg.method == Method::PPP {
+            //        let cmb = cd[index]
+            //            .phase_if_combination()
+            //            .ok_or(Error::PhaseRangeCombination)?;
 
-            y[i] = pr - rho - models;
+            //        let f_1 = cmb.rhs.frequency();
+            //        let lambda_j = cmb.lhs.wavelength();
+            //        let f_j = cmb.lhs.frequency();
 
-            if i > 3 {
-                g[(i, i)] = 1.0_f64;
+            //        let (lambda_n, lambda_w) = (
+            //            SPEED_OF_LIGHT_M_S / (f_1 + f_j),
+            //            SPEED_OF_LIGHT_M_S / (f_1 - f_j),
+            //        );
 
-                if cfg.method == Method::PPP {
-                    let cmb = cd[index]
-                        .phase_if_combination()
-                        .ok_or(Error::PhaseRangeCombination)?;
+            //        let bias = if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
+            //            let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
+            //            let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
+            //            debug!(
+            //                "{} ({}/{}) b_c: {}",
+            //                cd[index].t, cd[index].sv, cmb.rhs, b_c
+            //            );
+            //            b_c
+            //        } else {
+            //            error!(
+            //                "{} ({}/{}): unresolved ambiguity",
+            //                cd[index].t, cd[index].sv, cmb.rhs
+            //            );
+            //            return Err(Error::UnresolvedAmbiguity);
+            //        };
 
-                    let f_1 = cmb.rhs.frequency();
-                    let lambda_j = cmb.lhs.wavelength();
-                    let f_j = cmb.lhs.frequency();
+            //        // TODO: conclude windup
+            //        let windup = 0.0_f64;
 
-                    let (lambda_n, lambda_w) = (
-                        SPEED_OF_LIGHT_M_S / (f_1 + f_j),
-                        SPEED_OF_LIGHT_M_S / (f_1 - f_j),
-                    );
+            //        y[i] = cmb.value - rho - models - windup + bias;
+            //    }
+            //}
+            i += 1;
+        }
 
-                    let bias = if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
-                        let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
-                        let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
-                        debug!(
-                            "{} ({}/{}) b_c: {}",
-                            cd[index].t, cd[index].sv, cmb.rhs, b_c
-                        );
-                        b_c
-                    } else {
-                        error!(
-                            "{} ({}/{}): unresolved ambiguity",
-                            cd[index].t, cd[index].sv, cmb.rhs
-                        );
-                        return Err(Error::UnresolvedAmbiguity);
-                    };
+        // TODO: improve matrix formation
+        if max == 3 {
+            y[3] = y[2];
+            g[(3, 3)] = 1.0_f64;
+            y[4 + 3] = y[2];
+            g[(4 + 3, 4 + 3)] = 1.0_f64;
+        }
 
-                    // TODO: conclude windup
-                    let windup = 0.0_f64;
+        // TODO: improve matrix formation
+        if max == 1 {
+            y[1] = y[0];
+            y[2] = y[0];
+            y[3] = y[0];
 
-                    y[i] = cmb.value - rho - models - windup + bias;
-                }
-            }
+            g[(1, 1)] = 1.0_f64;
+            g[(2, 2)] = 1.0_f64;
+            g[(3, 3)] = 1.0_f64;
 
-            if i < cd.len() {
-                sv.insert(cd[i].sv, sv_input);
-            }
+            y[4 + 1] = y[0];
+            y[4 + 2] = y[0];
+            y[4 + 3] = y[0];
+
+            g[(4 + 1, 4 + 1)] = 1.0_f64;
+            g[(4 + 2, 4 + 2)] = 1.0_f64;
+            g[(4 + 3, 4 + 3)] = 1.0_f64;
         }
 
         debug!("y: {} g: {}, w: {}", y, g, w);

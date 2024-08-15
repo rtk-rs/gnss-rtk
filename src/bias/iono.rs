@@ -125,7 +125,7 @@ impl IonoComponents {
             Self::KbModel(model) => model.value(rtm),
             Self::NgModel(model) => model.value(rtm),
             Self::BdModel(model) => model.value(rtm),
-            Self::Stec(stec) => 0.0, //TODO
+            Self::Stec(..) => 0.0, //TODO
         }
     }
 }

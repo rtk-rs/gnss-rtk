@@ -22,11 +22,7 @@ fn test() {
     let mut cd0 = Candidate::new(
         SV::new(Constellation::default(), 2),
         Epoch::default(),
-        ClockCorrection::without_relativistic_correction(Duration::from_seconds(142.784E-6)),
-        None, // TGD
         vec![pr],
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
     );
     let orbit = Orbit::from_position(
         24170352.34904016 / 1.0E3,
@@ -49,11 +45,7 @@ fn test() {
     let mut cd1 = Candidate::new(
         SV::new(Constellation::default(), 3),
         Epoch::default(),
-        ClockCorrection::without_relativistic_correction(Duration::from_seconds(-313.533E-6)),
-        None, // TGD
         vec![pr],
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
     );
     let orbit = Orbit::from_position(
         16069642.946692571 / 1.0E3,
@@ -76,11 +68,7 @@ fn test() {
     let mut cd2 = Candidate::new(
         SV::new(Constellation::default(), 5),
         Epoch::default(),
-        ClockCorrection::without_relativistic_correction(Duration::from_seconds(-368.749E-6)),
-        None, // TGD
         vec![pr],
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
     );
     let orbit = Orbit::from_position(
         26119621.94656989 / 1.0E3,
@@ -103,11 +91,7 @@ fn test() {
     let mut cd3 = Candidate::new(
         SV::new(Constellation::default(), 8),
         Epoch::default(),
-        ClockCorrection::without_relativistic_correction(Duration::from_seconds(6.158955E-3)),
-        None, // TGD
         vec![pr],
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
     );
     let orbit = Orbit::from_position(
         -3601205.0295727667 / 1.0E3,

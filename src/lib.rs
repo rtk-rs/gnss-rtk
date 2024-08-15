@@ -14,10 +14,10 @@ mod cfg;
 mod navigation;
 mod orbit;
 mod position;
-mod rtk;
 mod solver;
 
 pub(crate) mod constants;
+// pub(crate) mod tides;
 
 // mod tracker;
 // pub(crate) mod utils;
@@ -37,7 +37,6 @@ pub mod prelude {
     pub use crate::navigation::{Filter, InvalidationCause, PVTSolution, PVTSolutionType};
     pub use crate::orbit::OrbitalStateProvider;
     pub use crate::position::Position;
-    pub use crate::rtk::BaseStation;
     pub use crate::solver::{Error, Solver};
     // re-export
     pub use anise::{

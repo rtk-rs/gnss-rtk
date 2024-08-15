@@ -30,62 +30,111 @@ use crate::{
         Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
     },
     orbit::OrbitalStateProvider,
-    prelude::{Duration, Epoch, Observation, Orbit, SV},
-    rtk::BaseStation,
+    prelude::{Duration, Epoch, Orbit, SV},
 };
 
 #[derive(Debug, PartialEq, Error)]
 pub enum Error {
+    /// Not enough candidates were proposed: we do not attempt resolution
     #[error("not enough candidates provided")]
     NotEnoughCandidates,
+    /// PreFit (signal quality, other..) criterias
+    /// have been applied but we're left with not enough vehicles that match
+    /// the navigation technique: no attempt.
     #[error("not enough candidates match pre-fit criteria")]
-    NotEnoughMatchingCandidates,
+    NotEnoughPreFitCandidates,
+    /// PostFit (state solver and other) have been resolved,
+    /// but we're left with not enough vehicles that match
+    /// the navigation technique: no attempt.
+    #[error("not enough candidates match post-fit criteria")]
+    NotEnoughPostFitCandidates,
+    /// Failed to parse navigation method
     #[error("non supported/invalid strategy")]
     InvalidStrategy,
-    #[error("failed to form matrix (invalid input?)")]
-    MatrixError,
-    #[error("first guess failure")]
-    FirstGuess,
+    #[error("failed to form matrix (invalid input or not enough data)")]
+    MatrixFormationError,
+    /// Invalid orbital states or bad signal data may cause the algebric calculations
+    /// to wind up here.
     #[error("failed to invert matrix")]
     MatrixInversionError,
+    /// Invalid orbital states or bad signal data may cause the algebric calculations
+    /// to wind up here.
     #[error("resolved time is `nan` (invalid value(s))")]
     TimeIsNan,
+    /// Invalid orbital states or bad signal data may cause the algebric calculations
+    /// to abort.
     #[error("internal navigation error")]
     NavigationError,
     #[error("missing pseudo range observation")]
     MissingPseudoRange,
+    /// [Method::CPP] requires the special signal combination to exist.
+    /// This require the user to sample PR on two separate frequencies.
     #[error("failed to form pseudo range combination")]
     PseudoRangeCombination,
+    /// [Method::PPP] requires the special signal combination to exist.
+    /// This require the user to sample PR + PH on two separate frequencies.
     #[error("failed to form phase range combination")]
     PhaseRangeCombination,
+    /// Each [Candidate] state needs to be resolved to contribute to any PPP resolution attempt.
     #[error("unresolved candidate state")]
     UnresolvedState,
+    /// When [Modeling.sv_clock_bias] is turned on and we attempt PPP resolution,
+    /// it is mandatory for the user to provide [ClockCorrection].
+    #[error("missing clock correction")]
+    UnknownClockCorrection,
+    /// Physical non sense due to bad signal data or invalid orbital state, will cause us
+    /// abort with this message.
     #[error("physical non sense: rx prior tx")]
     PhysicalNonSenseRxPriorTx,
+    /// Physical non sense due to bad signal data or invalid orbital state, will cause us
+    /// abort with this message.
     #[error("physical non sense: t_rx is too late")]
     PhysicalNonSenseRxTooLate,
+    /// Solutions may be invalidated and are rejected with [InvalidationCause].
     #[error("invalidated solution, cause: {0}")]
     InvalidatedSolution(InvalidationCause),
+    /// In pure PPP survey (no RTK, no position apriori knowledge = worst case scenario),
+    /// [Solver] is initiliazed by [Bancroft] algorithm, which requires
+    /// temporary 4x4 navigation and pseudo range sampling (whatever your navigation technique),
+    /// until at least initialization is achieved.
     #[error("bancroft solver error: invalid input ?")]
     BancroftError,
+    /// [Bancroft] initialization process (see [BancroftError]) will wind up here
+    /// in case unrealistic or bad signal observation or orbital states were forwarded.
     #[error("bancroft solver error: invalid input (imaginary solution)")]
     BancroftImaginarySolution,
+    /// PPP navigation technique requires phase ambiguity to be solved prior any attempt.
+    /// It is Okay to wind up here for a few iterations, until the ambiguities are fixed
+    /// and we may proceed to precise navigation. We will reject solving attempt until then.
+    /// Hardware and external events may reset the ambiguity fixes and it is okay to need to
+    /// rerun through this phase for a short period of time. Normally not too often, when good
+    /// equipment is properly operated.
     #[error("unresolved signal ambiguity")]
     UnresolvedAmbiguity,
+    /// [Solver] requires [Almanac] determination at build up and may wind-up here this step is in failure.
     #[error("issue with Almanac: {0}")]
     Almanac(AlmanacError),
+    /// [Solver] requires to determine a [Frame] from [Almanac] and we wind-up here if this step is in failure.
     #[error("failed to retrieve Earth reference Frame")]
     EarthFrame,
+    /// Any physical non sense detected by ANISE will cause us to abort with this error.
     #[error("physics issue: {0}")]
     Physics(PhysicsError),
+    /// Remote observation is required for a [Candidate] to contribute in RTK solving attempt.
+    /// You need up to four of them to resolve. We may print this internal message and still
+    /// proceed to resolve, as [SV] may go out of sight of rover or reference site.
+    #[error("missing observation on remote site {0}({1})")]
+    MissingRemoteRTKObservation(Epoch, SV),
+    /// In RTK resolution attempt, you need to observe all pending [SV] on reference site as well.
+    /// If that is not the case, we abort with this error.
+    #[error("missing observations on remote site")]
+    MissingRemoteRTKObservations,
 }
 
 /// [Solver] to resolve [PVTSolution]s.
-pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
+pub struct Solver<O: OrbitalStateProvider> {
     /// [OrbitalStateProvider]
     orbit: O,
-    /// [BaseStation]
-    base_station: Option<B>,
     /// Solver parametrization
     pub cfg: Config,
     /// Initial [Orbit] either forwarded by User
@@ -105,14 +154,8 @@ pub struct Solver<O: OrbitalStateProvider, B: BaseStation> {
     /* prev. solution for internal logic */
     /// Previous solution (internal logic)
     prev_solution: Option<(Epoch, PVTSolution)>,
-    // /// Previous VDOP (internal logic)
-    // prev_vdop: Option<f64>,
-    // /// Previously used (internal logic)
-    // prev_used: Vec<SV>,
     /// Stored previous SV state (internal logic)
     sv_orbits: HashMap<SV, Orbit>,
-    /// Base station observations (single malloc)
-    base_observations: HashMap<SV, Vec<Observation>>,
 }
 
 /// Apply signal condition criteria
@@ -153,41 +196,7 @@ fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
     })
 }
 
-impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
-    /// Create new Position [Solver] dedicated to PPP positioning with possible
-    /// knowledge of the receiver position (ahead of time).
-    /// # Inputs
-    ///  - cfg: [Config] setup
-    ///  - initial: Optional initial Position expressed as [Orbit] which must be epxressed
-    ///  in a geodetic fixed body Frame.
-    ///  - orbit: [OrbitalStateProvider] needs to return [SV] orbital state when we request it,
-    ///  otherwise, the algorithm cannot proceed.
-    /// # Output
-    ///  - [Solver] with possible [Error]
-    pub fn ppp(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
-        Self::new(cfg, initial, orbit, None)
-    }
-    /// Create new Position [Solver] dedicated to PPP surveying,
-    /// the initial location is not known, we will have to consume
-    /// one complete Epoch (with 4 [SV] in sight) to initialize the process.
-    /// # Inputs
-    ///  - cfg: [Config] setup
-    ///  - orbit: [OrbitalStateProvider] needs to return [SV] orbital state when we request it,
-    ///  otherwise, the algorithm cannot proceed.
-    /// # Output
-    ///  - [Solver] with possible [Error]
-    pub fn ppp_survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
-        Self::new(cfg, None, orbit, None)
-    }
-    /// Create new Position [Solver] dedicated to RTK positioning
-    pub fn rtk(
-        cfg: &Config,
-        initial: Option<Orbit>,
-        orbit: O,
-        base_station: B,
-    ) -> Result<Self, Error> {
-        Self::new(cfg, initial, orbit, Some(base_station))
-    }
+impl<O: OrbitalStateProvider> Solver<O> {
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
     /// - cfg: Solver [Config]
@@ -197,13 +206,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
     ///   You have to take that into account, especially when operating in Fixed Altitude
     ///   or Time Only modes.
     /// - orbit: [OrbitalStateProvider] must be provided for Direct (1D) PPP
-    /// - remote: single static [RemoteSite] for RTK
-    pub fn new(
-        cfg: &Config,
-        initial: Option<Orbit>,
-        orbit: O,
-        base_station: Option<B>,
-    ) -> Result<Self, Error> {
+    pub fn new(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
         // Default Almanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
 
@@ -216,13 +219,17 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("Eclipse filter is not meaningful in SPP mode");
         }
+        if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
+            warn!("RF cable delay compensation is either incomplete or not entirely enabled");
+        }
+        if !cfg.int_delay.is_empty() && !cfg.modeling.cable_delay {
+            warn!("RF cable delay compensation is either incomplete or not entirely enabled");
+        }
         Ok(Self {
             orbit,
             almanac,
             earth_cef,
             initial,
-            // prev_vdop: None,
-            // prev_used: vec![],
             cfg: cfg.clone(),
             prev_solution: None,
             // TODO
@@ -230,10 +237,11 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             // postfit_kf: None,
             sv_orbits: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
-            // base station
-            base_station,
-            base_observations: HashMap::with_capacity(16),
         })
+    }
+    /// Create new Position [Solver] without knowledge of apriori position (full survey)
+    pub fn survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
+        Self::new(cfg, None, orbit)
     }
     /// [PVTSolution] resolution attempt.
     /// ## Inputs
@@ -266,31 +274,10 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
 
         if pool.len() < min_required {
             // no need to proceed further
-            return Err(Error::NotEnoughMatchingCandidates);
+            return Err(Error::NotEnoughPreFitCandidates);
         }
 
-        // gather (matching) observations on remote site
-        if let Some(ref mut base_station) = self.base_station {
-            for cd in pool.iter() {
-                for obs in cd.observations.iter() {
-                    if let Some(ob) = base_station.observe(cd.t, cd.sv, obs.carrier) {
-                        if let Some(base) = self.base_observations.get_mut(&cd.sv) {
-                            base.push(ob.clone());
-                        } else {
-                            self.base_observations.insert(cd.sv, vec![ob.clone()]);
-                        }
-                    }
-                }
-            }
-        }
-        for (sv, remote) in self.base_observations.iter() {
-            if let Some(cd) = pool.iter_mut().filter(|cd| cd.sv == *sv).reduce(|k, _| k) {
-                cd.set_remote_observations(remote.to_vec());
-            }
-        }
-        self.base_observations.clear();
-
-        // orbits
+        // orbital state solver
         let mut pool: Vec<Candidate> = pool
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
@@ -332,6 +319,7 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                                         );
                                         None
                                     } else {
+                                        // Orbit rotation
                                         // now we need to rotate the position to compensate
                                         // for Earth's rotation (if this phenomena is compensated for)
                                         //let mut cd = cd.clone();
@@ -355,12 +343,22 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                                 },
                             }
                         } else {
-                            // TODO reconsider for RTK
-                            None
+                            if cd.is_rtk_compatible() {
+                                // preserve and permit pure RTK scenario
+                                Some(cd.clone())
+                            } else {
+                                debug!("{}({}) to be dropped", cd.t, cd.sv);
+                                None
+                            }
                         }
                     } else {
-                        // TODO reconsider for RTK
-                        None
+                        if cd.is_rtk_compatible() {
+                            // preserve and permit pure RTK scenario
+                            Some(cd.clone())
+                        } else {
+                            debug!("{}({}) to be dropped", cd.t, cd.sv);
+                            None
+                        }
                     }
                 },
                 Err(e) => {
@@ -370,29 +368,32 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             })
             .collect();
 
-        // relativistic clock bias
+        // state update
+        //  [+] provide velocity if we can
+        //  [+] velocity dependant calculations
         for cd in pool.iter_mut() {
             if modeling.relativistic_clock_bias {
                 if let Some(orbit) = cd.orbit {
                     // internal storage for next iter
                     self.sv_orbits.insert(cd.sv, orbit);
                     let state = orbit.to_cartesian_pos_vel();
-                    // all these calculations need inst. velocity
-                    // and cannot apply to first Iter
+                    // TODO: improve
                     if state[3] > 0.0 && state[4] > 0.0 && state[5] > 0.0 {
-                        if cd.clock_corr.needs_relativistic_correction {
-                            let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
-                            let mu = Constants::EARTH_GRAVITATION;
-                            let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
-                            let ea_rad = ea_deg.to_radians();
-                            let gm = (w_e * mu).sqrt();
-                            let bias =
-                                -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
-                                    / SPEED_OF_LIGHT_M_S
-                                    / SPEED_OF_LIGHT_M_S
-                                    * Unit::Second;
-                            debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
-                            cd.clock_corr.duration += bias;
+                        if let Some(clock_corr) = &mut cd.clock_corr {
+                            if clock_corr.needs_relativistic_correction {
+                                let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
+                                let mu = Constants::EARTH_GRAVITATION;
+                                let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
+                                let ea_rad = ea_deg.to_radians();
+                                let gm = (w_e * mu).sqrt();
+                                let bias =
+                                    -2.0_f64 * orbit.ecc().map_err(Error::Physics)? * ea_rad.sin() * gm
+                                        / SPEED_OF_LIGHT_M_S
+                                        / SPEED_OF_LIGHT_M_S
+                                        * Unit::Second;
+                                debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                                clock_corr.duration += bias;
+                            }
                         }
                     }
                 }
@@ -420,25 +421,31 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             });
         }
 
-        if pool.len() < min_required {
-            return Err(Error::NotEnoughMatchingCandidates);
-        }
-
-        // Initialization
         if self.initial.is_none() {
-            let t = pool[0].t;
-            let solver = Bancroft::new(&pool)?;
-            let output = solver.resolve()?;
-            let (x_km, y_km, z_km) = (output[0] / 1.0E3, output[1] / 1.0E3, output[2] / 1.0E3);
-            // TODO: run attitude filters ?
-            //  otherwise we will resolve with everything on 1st Iter
-            let orbit = Orbit::from_position(x_km, y_km, z_km, t, self.earth_cef);
-            let (lat_deg, long_deg, h_km) = orbit.latlongalt().map_err(|e| Error::Physics(e))?;
-
-            info!(
-                "{} - initial position lat={:.5}°, lon={:.5}°, h={:.5}km",
-                t, lat_deg, long_deg, h_km,
-            );
+            let rtk_compatible_len = pool.iter().filter(|cd| cd.is_rtk_compatible()).count();
+            if rtk_compatible_len < min_required {
+                if pool.len() < min_required {
+                    return Err(Error::NotEnoughPostFitCandidates);
+                }
+                let solver = Bancroft::new(&pool)?;
+                let output = solver.resolve()?;
+                let (x0, y0, z0) = (output[0], output[1], output[2]);
+                let orbit = Orbit::from_position(
+                    x0 / 1.0E3,
+                    y0 / 1.0E3,
+                    z0 / 1.0E3,
+                    pool[0].t,
+                    self.earth_cef,
+                );
+                let (lat_deg, long_deg, alt_km) = orbit.latlongalt()
+                    .map_err(|e| Error::Physics(e))?;
+                info!(
+                    "{} estimate initial position lat={:.5}°, lon={:.5}°, alt={:.3}m",
+                    pool[0].t, lat_deg, long_deg, alt_km * 1.0E3,
+                );
+                //TODO: apply attitude filters ?
+                self.initial = Some(orbit); // store
+            }
         }
 
         let initial = self.initial.unwrap();
@@ -486,8 +493,16 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
             retained
         });
 
+        pool.retain(|cd| {
+            let retained = cd.is_navi_compatible();
+            if !retained {
+                debug!("{}({}): not proposed - missing data", cd.t, cd.sv);
+            }
+            retained
+        });
+
         if pool.len() < min_required {
-            return Err(Error::NotEnoughMatchingCandidates);
+            return Err(Error::NotEnoughPostFitCandidates);
         }
 
         let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
@@ -509,14 +524,13 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
                                                  //     }
                                                  // }
 
-        let input =
-            match NavigationInput::new((x0_km, y0_km, z0_km), &self.cfg, &pool, w, &ambiguities) {
-                Ok(input) => input,
-                Err(e) => {
-                    error!("Failed to form navigation matrix: {}", e);
-                    return Err(Error::MatrixError);
-                },
-            };
+        let input = match NavigationInput::new((x0_km, y0_km, z0_km), &self.cfg, &pool, w, &ambiguities) {
+            Ok(input) => input,
+            Err(e) => {
+                error!("Failed to form navigation matrix: {}", e);
+                return Err(Error::MatrixFormationError);
+            },
+        };
 
         // self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
 
@@ -573,7 +587,6 @@ impl<O: OrbitalStateProvider, B: BaseStation> Solver<O, B> {
 
         // First solution
         if self.prev_solution.is_none() {
-            // self.prev_vdop = Some(solution.vdop(lat_rad, lon_rad));
             self.prev_solution = Some((t, solution.clone()));
             // always discard 1st solution
             return Err(Error::InvalidatedSolution(InvalidationCause::FirstSolution));

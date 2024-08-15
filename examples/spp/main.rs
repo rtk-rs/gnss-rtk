@@ -1,9 +1,9 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    BaseStation as RTKBaseStation, Candidate, Carrier, ClockCorrection, Config, Duration, Epoch,
-    Error, InvalidationCause, IonoComponents, Method, Observation, Orbit, OrbitalStateProvider,
-    Solver, TropoComponents, EARTH_J2000, SV,
+    Candidate, Carrier, ClockCorrection, Config, Duration, Epoch, Error, InvalidationCause,
+    IonoComponents, Method, Observation, OrbitalState, OrbitalStateProvider, Solver,
+    TropoComponents, SV,
 };
 
 // Orbit source example
@@ -20,16 +20,6 @@ impl OrbitalStateProvider for Orbits {
     fn next_at(&mut self, t: Epoch, _sv: SV, _order: usize) -> Option<Orbit> {
         let (x_km, y_km, z_km) = (0.0_f64, 0.0_f64, 0.0_f64);
         Some(Orbit::from_position(x_km, y_km, z_km, t, EARTH_J2000))
-    }
-}
-
-// This example is direct positioning (not RTK), therefore
-// the BaseStation returns Null all the time (== non existant)
-struct BaseStation {}
-
-impl RTKBaseStation for BaseStation {
-    fn observe(&mut self, _t: Epoch, _sv: SV, _carrier: Carrier) -> Option<Observation> {
-        None // no differential positioning
     }
 }
 
@@ -56,12 +46,6 @@ impl MyDataSource {
                     SV::default(),
                     // Sampling Epoch. Must be identical for this grouping of candidates
                     Epoch::default(),
-                    // You must provide a [ClockCorrection] for each candidate
-                    ClockCorrection::without_relativistic_correction(Duration::from_nanoseconds(
-                        100.0,
-                    )),
-                    // If you know the total group day for this Candidate, specify it here
-                    None,
                     // List of observations
                     vec![Observation {
                         carrier: Carrier::L1, // example
@@ -73,10 +57,6 @@ impl MyDataSource {
                         doppler: None,
                         ambiguity: None,
                     }],
-                    // Provide more information if you can
-                    IonoComponents::Unknown,
-                    // Provide more information if you can
-                    TropoComponents::Unknown,
                 ),
                 // Create all as many candidates as possible.
                 // It's better to have more than needed, it leaves us more possibility in the election process.
@@ -89,9 +69,6 @@ pub fn main() {
     // Build the Orbit source
     let orbits = Orbits {};
 
-    // Build the Base station
-    let base_station = BaseStation {};
-
     // The preset API is useful to quickly deploy depending on your application.
     // Static presets target static positioning.
     let cfg = Config::static_preset(Method::SPP); // Single Freq. Pseudo Range based
@@ -102,11 +79,8 @@ pub fn main() {
         &cfg,
         // We deploy without apriori knowledge.
         // The solver will initialize itself.
-        None,
-        // Tie the Orbit source
+        None, // Tie the Orbit source
         orbits,
-        // Tie the Base station
-        Some(base_station),
     );
 
     // The solver needs to be mutable, due to the iteration process.

@@ -31,6 +31,7 @@ pub(crate) struct Validator {
 }
 
 impl Validator {
+    // TODO: rework for RTK &/or PPP
     pub fn new(
         apriori_km: Vector3<f64>,
         pool: &[Candidate],
@@ -69,7 +70,7 @@ impl Validator {
 
             let rho = ((sv_x - x).powi(2) + (sv_y - y).powi(2) + (sv_z - z).powi(2)).sqrt();
 
-            let dt = cd.clock_corr.duration.to_seconds() - dt;
+            let dt = cd.clock_corr.unwrap().duration.to_seconds() - dt;
 
             residuals[idx] = pr;
             residuals[idx] -= rho;
