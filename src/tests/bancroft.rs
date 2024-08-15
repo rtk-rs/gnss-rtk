@@ -20,15 +20,14 @@ fn test() {
     let mut cd0 = Candidate::new(
         SV::new(Constellation::default(), 2),
         Epoch::default(),
-        ClockCorrection::without_relativistic_correction(Duration::from_seconds(142.784E-6)),
-        None, // TGD
         vec![pr],
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
     );
     let st =
         OrbitalState::from_position((24170352.34904016, -16029029.85873581, -5905924.153143198));
     cd0.set_state(st);
+    cd0.set_clock_correction(ClockCorrection::without_relativistic_correction(
+        Duration::from_seconds(142.784E-6),
+    ));
 
     let pr = Observation {
         snr: None,
@@ -42,15 +41,14 @@ fn test() {
     let mut cd1 = Candidate::new(
         SV::new(Constellation::default(), 3),
         Epoch::default(),
-        ClockCorrection::without_relativistic_correction(Duration::from_seconds(-313.533E-6)),
-        None, // TGD
         vec![pr],
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
     );
     let st =
         OrbitalState::from_position((16069642.946692571, -8992001.827692423, 23184746.654093638));
     cd1.set_state(st);
+    cd1.set_clock_correction(ClockCorrection::without_relativistic_correction(
+        Duration::from_seconds(-313.533E-6),
+    ));
 
     let pr = Observation {
         snr: None,
@@ -64,15 +62,14 @@ fn test() {
     let mut cd2 = Candidate::new(
         SV::new(Constellation::default(), 5),
         Epoch::default(),
-        ClockCorrection::without_relativistic_correction(Duration::from_seconds(-368.749E-6)),
-        None, // TGD
         vec![pr],
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
     );
     let st =
         OrbitalState::from_position((26119621.94656989, 7791422.617964384, 11558902.718228433));
     cd2.set_state(st);
+    cd2.set_clock_correction(ClockCorrection::without_relativistic_correction(
+        Duration::from_seconds(-368.749E-6),
+    ));
 
     let pr = Observation {
         snr: None,
@@ -86,15 +83,14 @@ fn test() {
     let mut cd3 = Candidate::new(
         SV::new(Constellation::default(), 8),
         Epoch::default(),
-        ClockCorrection::without_relativistic_correction(Duration::from_seconds(6.158955E-3)),
-        None, // TGD
         vec![pr],
-        IonoComponents::Unknown,
-        TropoComponents::Unknown,
     );
     let st =
         OrbitalState::from_position((-3601205.0295727667, -20311399.087870672, 21230831.216778148));
     cd3.set_state(st);
+    cd3.set_clock_correction(ClockCorrection::without_relativistic_correction(
+        Duration::from_seconds(6.158955E-3),
+    ));
 
     let pool = vec![cd0, cd1, cd2, cd3];
     let solver = Bancroft::new(&pool);
