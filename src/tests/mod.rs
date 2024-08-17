@@ -76,7 +76,7 @@ impl Tester {
     }
     fn deploy_without_apriori(&self, cfg: &Config) {
         let orbits = Orbits {};
-        let mut solver = Solver::survey(&cfg, orbits)
+        let mut solver = Solver::new_survey(&cfg, orbits)
             .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
