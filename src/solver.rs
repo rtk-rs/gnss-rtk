@@ -14,7 +14,6 @@ use nyx::cosmic::{
 };
 
 use anise::{
-    almanac::metaload::MetaFile,
     constants::frames::{EARTH_ITRF93, EARTH_J2000, IAU_EARTH_FRAME, SUN_J2000},
     errors::{AlmanacError, PhysicsError},
     math::Matrix3,
@@ -225,7 +224,7 @@ impl<O: OrbitSource> Solver<O> {
                             Ok(almanac) => {
                                 info!("JPL high precision (daily) kernels loaded.");
                                 if let Ok(itrf93) = almanac.frame_from_uid(EARTH_ITRF93) {
-                                    info!("High precision context initiated.");
+                                    info!("Deployed with highest precision context available.");
                                     Ok((almanac, itrf93))
                                 } else {
                                     let iau_earth = almanac

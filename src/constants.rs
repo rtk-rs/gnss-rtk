@@ -12,8 +12,7 @@ impl Url {
     }
     pub fn nyx_anise_pck11_pca() -> MetaFile {
         MetaFile {
-            //crc32: Some(0xe33f5940),
-            crc32: None,
+            crc32: Some(0x8213b6e9),
             uri: String::from("http://public-data.nyxspace.com/anise/v0.4/pck11.pca"),
         }
     }
