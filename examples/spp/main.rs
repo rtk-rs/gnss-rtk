@@ -1,14 +1,14 @@
 // SPP example (pseudo range based direct positioning).
 // This is simply here to demonstrate how to operate the API, and does not generate actual results.
 use gnss_rtk::prelude::{
-    Candidate, Carrier, Config, Epoch, Error, InvalidationCause, Method, Observation, Orbit,
-    OrbitalStateProvider, Solver, EARTH_J2000, SV,
+    Candidate, Carrier, Config, Epoch, Error, Frame, InvalidationCause, Method, Observation, Orbit,
+    OrbitSource, Solver, EARTH_J2000, SV,
 };
 
 // Orbit source example
 struct Orbits {}
 
-impl OrbitalStateProvider for Orbits {
+impl OrbitSource for Orbits {
     // For each requested "t" and "sv",
     // if we can, we should resolve the SV [Orbit].
     // If interpolation is to be used (depending on your apps), you can
@@ -16,7 +16,7 @@ impl OrbitalStateProvider for Orbits {
     // If you're not in position to determine [Orbit], simply return None.
     // If None is returned for too long, this [Epoch] will eventually be dropped out,
     // and we will move on to the next
-    fn next_at(&mut self, t: Epoch, _sv: SV, _order: usize) -> Option<Orbit> {
+    fn next_at(&mut self, t: Epoch, _sv: SV, _fr: Frame, _order: usize) -> Option<Orbit> {
         let (x_km, y_km, z_km) = (0.0_f64, 0.0_f64, 0.0_f64);
         Some(Orbit::from_position(x_km, y_km, z_km, t, EARTH_J2000))
     }

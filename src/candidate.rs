@@ -164,7 +164,7 @@ pub struct Candidate {
     pub sv: SV,
     /// Sampling [Epoch]
     pub t: Epoch,
-    /// Orbital state that needs to be resolved for PPP
+    /// [Orbit], which needs to be resolved for PPP
     pub orbit: Option<Orbit>,
     // SV group delay expressed as a [Duration]
     pub(crate) tgd: Option<Duration>,

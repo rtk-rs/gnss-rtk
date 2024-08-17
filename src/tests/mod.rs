@@ -1,5 +1,5 @@
 use crate::prelude::{
-    Candidate, Config, Epoch, Error, InvalidationCause, Orbit, OrbitalStateProvider, PVTSolution,
+    Candidate, Config, Epoch, Error, Frame, InvalidationCause, Orbit, OrbitSource, PVTSolution,
     Solver, TimeScale, SV,
 };
 
@@ -12,8 +12,8 @@ use data::{gps::test_data as gps_test_data, interp::interp_data};
 
 struct Orbits {}
 
-impl OrbitalStateProvider for Orbits {
-    fn next_at(&mut self, t: Epoch, sv: SV, _: usize) -> Option<Orbit> {
+impl OrbitSource for Orbits {
+    fn next_at(&mut self, t: Epoch, sv: SV, fr: Frame, _: usize) -> Option<Orbit> {
         Some(
             interp_data()
                 .iter()
@@ -89,7 +89,7 @@ impl Tester {
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
-    fn run<O: OrbitalStateProvider>(&self, solver: &mut Solver<O>, cfg: &Config) {
+    fn run<O: OrbitSource>(&self, solver: &mut Solver<O>, cfg: &Config) {
         for (data_index, data) in gps_test_data().iter_mut().enumerate() {
             match solver.resolve(data.t_rx, &mut data.pool) {
                 Ok((_, solution)) => {
@@ -110,7 +110,6 @@ impl Tester {
                     Error::NotEnoughPostFitCandidates => {},
                     Error::MatrixFormationError => {},
                     Error::UnknownClockCorrection => {},
-                    Error::UnknownClockCorrectionBancroft => {},
                     Error::MissingRemoteRTKObservation(..) => {},
                     Error::MissingRemoteRTKObservations => {},
                     Error::MatrixInversionError => {},
@@ -128,6 +127,9 @@ impl Tester {
                         InvalidationCause::TDOPOutlier(..) => {},
                         InvalidationCause::InnovationOutlier(..) => {},
                         InvalidationCause::CodeResidual(..) => {},
+                    },
+                    Error::UnresolvedStateBancroft => {
+                        panic!("bancroft resolution attempt, without enough SV");
                     },
                     Error::UnresolvedState => {
                         panic!("navigation attempt while some states still remain unresolved or ambiguous");

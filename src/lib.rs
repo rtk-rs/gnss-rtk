@@ -35,7 +35,7 @@ pub mod prelude {
     pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, InvalidationCause, PVTSolution, PVTSolutionType};
-    pub use crate::orbit::OrbitalStateProvider;
+    pub use crate::orbit::OrbitSource;
     pub use crate::position::Position;
     pub use crate::solver::{Error, Solver};
     // re-export

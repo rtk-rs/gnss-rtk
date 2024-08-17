@@ -39,6 +39,10 @@ use nalgebra::{
 pub struct SVInput {
     /// Possible [Orbit] state
     pub orbit: Option<Orbit>,
+    /// Elevation from RX position
+    pub elevation: f64,
+    /// Azimuth from RX position
+    pub azimuth: f64,
     /// Troposphere bias in meters of delay
     pub tropo_bias: Option<f64>,
     /// Ionosphere bias

@@ -29,7 +29,7 @@ use crate::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
         Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
     },
-    orbit::OrbitalStateProvider,
+    orbit::OrbitSource,
     prelude::{Duration, Epoch, Orbit, SV},
 };
 
@@ -83,14 +83,13 @@ pub enum Error {
     /// Each [Candidate] state needs to be resolved to contribute to any PPP resolution attempt.
     #[error("unresolved candidate state")]
     UnresolvedState,
+    /// Each [Candidate] presented to the Bancroft solver needs a resolved state.
+    #[error("bancroft requires 4 fully resolved candidates")]
+    UnresolvedStateBancroft,
     /// When [Modeling.sv_clock_bias] is turned on and we attempt PPP resolution,
     /// it is mandatory for the user to provide [ClockCorrection].
     #[error("missing clock correction")]
     UnknownClockCorrection,
-    /// When operating in full survey mode (worst case scenario),
-    /// we will need [ClockCorrection]s to be defined.
-    #[error("bancroft solver needs clock correction")]
-    UnknownClockCorrectionBancroft,
     /// Physical non sense due to bad signal data or invalid orbital state, will cause us
     /// abort with this message.
     #[error("physical non sense: rx prior tx")]
@@ -141,8 +140,8 @@ pub enum Error {
 }
 
 /// [Solver] to resolve [PVTSolution]s.
-pub struct Solver<O: OrbitalStateProvider> {
-    /// [OrbitalStateProvider]
+pub struct Solver<O: OrbitSource> {
+    /// [OrbitSource]
     orbit: O,
     /// Solver parametrization
     pub cfg: Config,
@@ -205,7 +204,7 @@ fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
     })
 }
 
-impl<O: OrbitalStateProvider> Solver<O> {
+impl<O: OrbitSource> Solver<O> {
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
     /// - cfg: Solver [Config]
@@ -214,7 +213,7 @@ impl<O: OrbitalStateProvider> Solver<O> {
     ///   Note that we need at least 4 valid SV observations to initiliaze the [Solver].
     ///   You have to take that into account, especially when operating in Fixed Altitude
     ///   or Time Only modes.
-    /// - orbit: [OrbitalStateProvider] must be provided for Direct (1D) PPP
+    /// - orbit: [OrbitSource] must be provided for Direct (1D) PPP
     pub fn new(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
         // Default Almanac, valid until 2035
         let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
@@ -294,80 +293,73 @@ impl<O: OrbitalStateProvider> Solver<O> {
                     let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
                     // retrieve orbital state
-                    if let Some(tx_orbit) = orbits.next_at(t_tx, cd.sv, interp_order) {
-                        // possible elevation mask
-                        let min_elev_deg = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
-                        // possible azimuth conic region (compass)
-                        let min_azim_deg = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
-                        let max_azim_deg = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
+                    if let Some(tx_orbit) =
+                        orbits.next_at(t_tx, cd.sv, self.earth_cef, interp_order)
+                    {
+                        // set/store orbital attitude
+                        Some(cd.with_orbit(tx_orbit))
+                        //// possible elevation mask
+                        //let min_elev_deg = self.cfg.min_sv_elev.unwrap_or(0.0_f64);
+                        //// possible azimuth conic region (compass)
+                        //let min_azim_deg = self.cfg.min_sv_azim.unwrap_or(0.0_f64);
+                        //let max_azim_deg = self.cfg.max_sv_azim.unwrap_or(360.0_f64);
 
-                        // we can only apply attitude filters after 1st Iter
-                        if let Some((_, pvt)) = &self.prev_solution {
-                            let state = pvt.state;
-                            // eval attitude
-                            match self.almanac.azimuth_elevation_range_sez(state, tx_orbit) {
-                                Ok(el_az_rang) => {
-                                    let el_deg = el_az_rang.elevation_deg;
-                                    let az_deg = el_az_rang.azimuth_deg;
-                                    if el_deg < min_elev_deg {
-                                        debug!(
-                                            "{} ({}) - rejected (below elevation mask)",
-                                            cd.t, cd.sv
-                                        );
-                                        None
-                                    } else if az_deg < min_azim_deg {
-                                        debug!(
-                                            "{} ({}) - rejected (below azimuth mask)",
-                                            cd.t, cd.sv
-                                        );
-                                        None
-                                    } else if az_deg > max_azim_deg {
-                                        debug!(
-                                            "{} ({}) - rejected (above azimuth mask)",
-                                            cd.t, cd.sv
-                                        );
-                                        None
-                                    } else {
-                                        // Orbit rotation
-                                        // now we need to rotate the position to compensate
-                                        // for Earth's rotation (if this phenomena is compensated for)
-                                        //let mut cd = cd.clone();
-                                        //let orbit =
-                                        //    Self::rotate_position(modeling.earth_rotation, orbit, dt_tx);
-                                        //let orbit = self.velocities(t_tx, cd.sv, orbit);
-                                        //cd.t_tx = t_tx;
-                                        //debug!("{} ({}) : {:?}", cd.t, cd.sv, orbit);
-                                        //cd.state = Some(orbit);
-                                        //Some(cd)
-                                        Some(cd.with_orbit(tx_orbit))
-                                    }
-                                },
-                                Err(e) => {
-                                    error!(
-                                        "{} ({}): attitude determination error {}",
-                                        cd.t, cd.sv, e
-                                    );
-                                    warn!("{} ({}): double check your data!", cd.t, cd.sv);
-                                    None
-                                },
-                            }
-                        } else {
-                            if cd.is_rtk_compatible() {
-                                // preserve and permit pure RTK scenario
-                                Some(cd.clone())
-                            } else {
-                                debug!("{}({}) to be dropped", cd.t, cd.sv);
-                                None
-                            }
-                        }
+                        //// we can only apply attitude filters after 1st Iter
+                        //if let Some((_, pvt)) = &self.prev_solution {
+                        //    let state = pvt.state;
+                        //    // eval attitude
+                        //    match self.almanac.azimuth_elevation_range_sez(state, tx_orbit) {
+                        //        Ok(el_az_rang) => {
+                        //            let el_deg = el_az_rang.elevation_deg;
+                        //            let az_deg = el_az_rang.azimuth_deg;
+                        //            if el_deg < min_elev_deg {
+                        //                debug!(
+                        //                    "{} ({}) - rejected (below elevation mask)",
+                        //                    cd.t, cd.sv
+                        //                );
+                        //                None
+                        //            } else if az_deg < min_azim_deg {
+                        //                debug!(
+                        //                    "{} ({}) - rejected (below azimuth mask)",
+                        //                    cd.t, cd.sv
+                        //                );
+                        //                None
+                        //            } else if az_deg > max_azim_deg {
+                        //                debug!(
+                        //                    "{} ({}) - rejected (above azimuth mask)",
+                        //                    cd.t, cd.sv
+                        //                );
+                        //                None
+                        //            } else {
+                        //                // Orbit rotation
+                        //                // now we need to rotate the position to compensate
+                        //                // for Earth's rotation (if this phenomena is compensated for)
+                        //                //let mut cd = cd.clone();
+                        //                //let orbit =
+                        //                //    Self::rotate_position(modeling.earth_rotation, orbit, dt_tx);
+                        //                //let orbit = self.velocities(t_tx, cd.sv, orbit);
+                        //                //cd.t_tx = t_tx;
+                        //                //debug!("{} ({}) : {:?}", cd.t, cd.sv, orbit);
+                        //                //cd.state = Some(orbit);
+                        //                //Some(cd)
+                        //                Some(cd.with_orbit(tx_orbit))
+                        //            }
+                        //        },
+                        //        Err(e) => {
+                        //            error!(
+                        //                "{} ({}): attitude determination error {}",
+                        //                cd.t, cd.sv, e
+                        //            );
+                        //            warn!("{} ({}): double check your data!", cd.t, cd.sv);
+                        //            None
+                        //        },
+                        //    }
+                        //} else {
+                        //    Some(cd.clone())
+                        //}
                     } else {
-                        if cd.is_rtk_compatible() {
-                            // preserve and permit pure RTK scenario
-                            Some(cd.clone())
-                        } else {
-                            debug!("{}({}) to be dropped", cd.t, cd.sv);
-                            None
-                        }
+                        // preserve: may still apply to RTK
+                        Some(cd.clone())
                     }
                 },
                 Err(e) => {
@@ -385,9 +377,7 @@ impl<O: OrbitalStateProvider> Solver<O> {
                 if let Some(orbit) = cd.orbit {
                     // internal storage for next iter
                     self.sv_orbits.insert(cd.sv, orbit);
-                    let state = orbit.to_cartesian_pos_vel();
-                    // TODO: improve
-                    if state[3] > 0.0 && state[4] > 0.0 && state[5] > 0.0 {
+                    if orbit.vmag_km_s() > 0.0 {
                         if let Some(clock_corr) = &mut cd.clock_corr {
                             if clock_corr.needs_relativistic_correction {
                                 let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
@@ -427,11 +417,12 @@ impl<O: OrbitalStateProvider> Solver<O> {
                     }
                     !eclipsed
                 } else {
-                    true // preserve, for pure RTK
+                    true // preserved (for possible RTK)
                 }
             });
         }
 
+        // initialize (if need be)
         if self.initial.is_none() {
             let rtk_compatible_len = pool.iter().filter(|cd| cd.is_rtk_compatible()).count();
             if rtk_compatible_len < min_required {
@@ -451,7 +442,7 @@ impl<O: OrbitalStateProvider> Solver<O> {
                 let (lat_deg, long_deg, alt_km) =
                     orbit.latlongalt().map_err(|e| Error::Physics(e))?;
                 info!(
-                    "{} estimate initial position lat={:.5}°, lon={:.5}°, alt={:.3}m",
+                    "{} estimated initial position lat={:.5}°, lon={:.5}°, alt={:.3}m",
                     pool[0].t,
                     lat_deg,
                     long_deg,
@@ -475,7 +466,9 @@ impl<O: OrbitalStateProvider> Solver<O> {
 
         // Apply models
         for cd in &mut pool {
-            cd.apply_models(method, &self.almanac, tropo_modeling, iono_modeling, state)?;
+            if cd.orbit.is_some() {
+                cd.apply_models(method, &self.almanac, tropo_modeling, iono_modeling, state)?;
+            }
         }
 
         // Resolve ambiguities
