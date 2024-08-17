@@ -1,4 +1,24 @@
+pub struct Url;
 pub struct Constants;
+
+use anise::almanac::metaload::MetaFile;
+
+impl Url {
+    pub fn nyx_anise_de440s_bsp() -> MetaFile {
+        MetaFile {
+            crc32: None,
+            uri: String::from("http://public-data.nyxspace.com/anise/de440s.bsp"),
+        }
+    }
+    pub fn jpl_latest_high_prec_bsp() -> MetaFile {
+        MetaFile {
+            crc32: None,
+            uri:
+                "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bsp"
+                    .to_string(),
+        }
+    }
+}
 
 impl Constants {
     /// Earth angular velocity, in WGS84 frame rad/s

@@ -14,6 +14,7 @@ use nyx::cosmic::{
 };
 
 use anise::{
+    almanac::metaload::MetaFile,
     constants::frames::{EARTH_ITRF93, EARTH_J2000, IAU_EARTH_FRAME, SUN_J2000},
     errors::{AlmanacError, PhysicsError},
     math::Matrix3,
@@ -25,7 +26,7 @@ use crate::{
     bancroft::Bancroft,
     candidate::Candidate,
     cfg::{Config, Method},
-    constants::Constants,
+    constants::{Constants, Url},
     navigation::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
         Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
@@ -206,24 +207,37 @@ fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
 }
 
 impl<O: OrbitSource> Solver<O> {
-    /// Infaillible method to build the highest precision [Almanac]
-    /// and reference [Frame] to work with.
-    /// We prefer the highest precision scenario, which may require
-    /// remote access on first run.
+    /// Infaillible method to either download, retrieve or create
+    /// a basic [Almanac] and reference [Frame] to work with.
+    /// We always prefer the highest precision scenario.
+    /// On first deployment, it will require internet access.
+    /// We can only rely on lower precision kernels if we cannot access the cloud.
     fn build_almanac() -> Result<(Almanac, Frame), Error> {
-        match MetaAlmanac::latest() {
-            Ok(latest_high_pres) => {
-                let itrf_earth = latest_high_pres
-                    .frame_from_uid(EARTH_ITRF93)
-                    .map_err(|_| Error::EarthFrame)?;
-                Ok((latest_high_pres, itrf_earth))
+        let almanac = Almanac::default();
+        match almanac.load_from_metafile(Url::nyx_anise_de440s_bsp()) {
+            Ok(almanac) => match almanac.load_from_metafile(Url::jpl_latest_high_prec_bsp()) {
+                Ok(almanac) => {
+                    info!("JPL high precision (daily) kernels loaded.");
+                    let itrf_earth = almanac
+                        .frame_from_uid(EARTH_ITRF93)
+                        .map_err(|_| Error::EarthFrame)?;
+                    info!("High precision context initiated.");
+                    Ok((almanac, itrf_earth))
+                },
+                Err(e) => {
+                    error!("Failed to load JPL high precision kernels: {}", e);
+                    let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
+                    warn!("Relying on lowest precision kernels.");
+                    let iau_earth = almanac
+                        .frame_from_uid(IAU_EARTH_FRAME)
+                        .map_err(|_| Error::EarthFrame)?;
+                    Ok((almanac, iau_earth))
+                },
             },
             Err(e) => {
-                error!(
-                    "Failed to deploy using latest high precision kernels: {}",
-                    e
-                );
+                error!("Failed to load DE440S BSP: {}", e);
                 let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
+                warn!("Relying on lowest precision kernels");
                 let iau_earth = almanac
                     .frame_from_uid(IAU_EARTH_FRAME)
                     .map_err(|_| Error::EarthFrame)?;
