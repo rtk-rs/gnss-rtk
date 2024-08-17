@@ -265,18 +265,18 @@ impl<O: OrbitSource> Solver<O> {
             },
         }
     }
-    /// Create a new Position [Solver] that may support any positioning technique..
-    /// ## Inputs
-    /// - cfg: Solver [Config]
-    /// - initial: possible initial position expressed as [Orbit] in ECEF.
-    ///   When not provided, the solver will initialize itself autonomously by consuming at least one [Epoch].
-    ///   Note that we need at least 4 valid SV observations to initiliaze the [Solver].
-    ///   You have to take that into account, especially when operating in Fixed Altitude
-    ///   or Time Only modes.
-    /// - orbit: [OrbitSource] must be provided for Direct (1D) PPP
-    pub fn new(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
-        let (almanac, earth_cef) = Self::build_almanac()?;
-
+    /// Create a new Position [Solver] with desired [Almanac] and [Frame] to work with.
+    /// The specified [Frame] needs to be one of the available ECEF for the following process to work
+    /// correctly. Prefer this method over others, if you already have [Almanac] and [Frame] (ECEF)
+    /// definitions, and avoid possibly re-dowloading and re-defining a context.
+    /// See [Self::new] for other options.
+    pub fn new_almanac_frame(
+        cfg: &Config,
+        initial: Option<Orbit>,
+        orbit: O,
+        almanac: Almanac,
+        frame: Frame,
+    ) -> Self {
         // Print more information
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
             warn!("Eclipse filter is not meaningful in SPP mode");
@@ -287,10 +287,10 @@ impl<O: OrbitSource> Solver<O> {
         if !cfg.int_delay.is_empty() && !cfg.modeling.cable_delay {
             warn!("RF cable delay compensation is either incomplete or not entirely enabled");
         }
-        Ok(Self {
+        Self {
             orbit,
             almanac,
-            earth_cef,
+            earth_cef: frame,
             initial,
             cfg: cfg.clone(),
             prev_solution: None,
@@ -299,11 +299,37 @@ impl<O: OrbitSource> Solver<O> {
             // postfit_kf: None,
             sv_orbits: HashMap::new(),
             nav: Navigation::new(cfg.solver.filter),
-        })
+        }
+    }
+    /// Create a new Position [Solver] that may support any positioning technique
+    /// and uses internal [Almanac] and [Frame] model definition.
+    /// ## Inputs
+    /// - cfg: Solver [Config]
+    /// - initial: possible initial position expressed as [Orbit] in ECEF.
+    ///   When not provided, the solver will initialize itself autonomously by consuming at least one [Epoch].
+    ///   Note that we need at least 4 valid SV observations to initiliaze the [Solver].
+    ///   You have to take that into account, especially when operating in Fixed Altitude
+    ///   or Time Only modes.
+    /// - orbit: [OrbitSource] must be provided for Direct (1D) PPP
+    pub fn new(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
+        let (almanac, earth_cef) = Self::build_almanac()?;
+        Ok(Self::new_almanac_frame(
+            cfg, initial, orbit, almanac, earth_cef,
+        ))
     }
     /// Create new Position [Solver] without knowledge of apriori position (full survey)
-    pub fn survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
+    pub fn new_survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
         Self::new(cfg, None, orbit)
+    }
+    /// Create new Position [Solver] without knowledge of apriori position (full survey)
+    /// and prefered [Almanac] and [Frame] to work with
+    pub fn new_survey_almanac_frame(
+        cfg: &Config,
+        orbit: O,
+        almanac: Almanac,
+        frame: Frame,
+    ) -> Self {
+        Self::new_almanac_frame(cfg, None, orbit, almanac, frame)
     }
     /// [PVTSolution] resolution attempt.
     /// ## Inputs
