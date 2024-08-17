@@ -12,8 +12,9 @@ impl Url {
     }
     pub fn nyx_anise_pck11_pca() -> MetaFile {
         MetaFile {
-            crc32: Some(0xe33f5940),
-            uri: String::from("http://public-data.nyxspace.com/anise/pck11.pca"),
+            //crc32: Some(0xe33f5940),
+            crc32: None,
+            uri: String::from("http://public-data.nyxspace.com/anise/v0.4/pck11.pca"),
         }
     }
     pub fn jpl_latest_high_prec_bpc() -> MetaFile {

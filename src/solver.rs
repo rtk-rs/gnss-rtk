@@ -214,6 +214,7 @@ impl<O: OrbitSource> Solver<O> {
     /// We can only rely on lower precision kernels if we cannot access the cloud.
     fn build_almanac() -> Result<(Almanac, Frame), Error> {
         let almanac = Almanac::until_2035().map_err(|e| Error::Almanac(e))?;
+        //let almanac = Almanac::default();
         match almanac.load_from_metafile(Url::nyx_anise_de440s_bsp()) {
             Ok(almanac) => {
                 info!("ANISE DE440S BSP has been loaded");
@@ -238,7 +239,7 @@ impl<O: OrbitSource> Solver<O> {
                                 let iau_earth = almanac
                                     .frame_from_uid(IAU_EARTH_FRAME)
                                     .map_err(|_| Error::EarthFrame)?;
-                                error!("Failed to dowload JPL High precision kernels: relying on IAU model");
+                                error!("Failed to download JPL High precision kernels: relying on IAU model");
                                 Ok((almanac, iau_earth))
                             },
                         }
@@ -247,9 +248,7 @@ impl<O: OrbitSource> Solver<O> {
                         let iau_earth = almanac
                             .frame_from_uid(IAU_EARTH_FRAME)
                             .map_err(|_| Error::EarthFrame)?;
-                        error!(
-                            "Failed to dowload JPL High precision kernels: relying on IAU model"
-                        );
+                        error!("Failed to download PCK11 PCA: relying on IAU model");
                         Ok((almanac, iau_earth))
                     },
                 }
@@ -268,7 +267,7 @@ impl<O: OrbitSource> Solver<O> {
     /// Create a new Position [Solver] with desired [Almanac] and [Frame] to work with.
     /// The specified [Frame] needs to be one of the available ECEF for the following process to work
     /// correctly. Prefer this method over others, if you already have [Almanac] and [Frame] (ECEF)
-    /// definitions, and avoid possibly re-dowloading and re-defining a context.
+    /// definitions, and avoid possibly re-downloading and re-defining a context.
     /// See [Self::new] for other options.
     pub fn new_almanac_frame(
         cfg: &Config,
