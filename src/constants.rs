@@ -1,6 +1,8 @@
 pub struct Constants;
 
 impl Constants {
+    /// Earth angular velocity, in WGS84 frame rad/s
+    pub const EARTH_ANGULAR_VEL_RAD: f64 = 7.2921151467E-5;
     /// Earth gravitational constant (m^3 s-2)
     pub const EARTH_GRAVITATION: f64 = 3986004.418 * 10.0E8;
     /// Sun gravitational constant (m^3 s-2)

@@ -14,9 +14,10 @@ use nyx::cosmic::{
 };
 
 use anise::{
-    constants::frames::{EARTH_ITRF93, EARTH_J2000, SUN_J2000},
+    constants::frames::{EARTH_ITRF93, EARTH_J2000, IAU_EARTH_FRAME, SUN_J2000},
     errors::{AlmanacError, PhysicsError},
-    prelude::{Almanac, Frame},
+    math::Matrix3,
+    prelude::{Almanac, Frame, MetaAlmanac},
 };
 
 use crate::{
@@ -205,6 +206,31 @@ fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
 }
 
 impl<O: OrbitSource> Solver<O> {
+    /// Infaillible method to build the highest precision [Almanac]
+    /// and reference [Frame] to work with.
+    /// We prefer the highest precision scenario, which may require
+    /// remote access on first run.
+    fn build_almanac() -> Result<(Almanac, Frame), Error> {
+        match MetaAlmanac::latest() {
+            Ok(latest_high_pres) => {
+                let itrf_earth = latest_high_pres
+                    .frame_from_uid(EARTH_ITRF93)
+                    .map_err(|_| Error::EarthFrame)?;
+                Ok((latest_high_pres, itrf_earth))
+            },
+            Err(e) => {
+                error!(
+                    "Failed to deploy using latest high precision kernels: {}",
+                    e
+                );
+                let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
+                let iau_earth = almanac
+                    .frame_from_uid(IAU_EARTH_FRAME)
+                    .map_err(|_| Error::EarthFrame)?;
+                Ok((almanac, iau_earth))
+            },
+        }
+    }
     /// Create a new Position [Solver] that may support any positioning technique..
     /// ## Inputs
     /// - cfg: Solver [Config]
@@ -215,13 +241,7 @@ impl<O: OrbitSource> Solver<O> {
     ///   or Time Only modes.
     /// - orbit: [OrbitSource] must be provided for Direct (1D) PPP
     pub fn new(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
-        // Default Almanac, valid until 2035
-        let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
-
-        let earth_cef = almanac
-            //.frame_from_uid(EARTH_J2000)
-            .frame_from_uid(EARTH_ITRF93)
-            .map_err(|_| Error::EarthFrame)?;
+        let (almanac, earth_cef) = Self::build_almanac()?;
 
         // Print more information
         if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
@@ -292,9 +312,16 @@ impl<O: OrbitSource> Solver<O> {
                 Ok((t_tx, dt_tx)) => {
                     let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    if let Some(tx_orbit) =
+                    if let Some(mut tx_orbit) =
                         orbits.next_at(t_tx, cd.sv, self.earth_cef, interp_order)
                     {
+                        let tx_orbit = if modeling.earth_rotation {
+                            // TODO: missing rotate_by
+                            // tx_orbit.with_position_rotated_by(Self::direct_cosine_rot3(dt_tx))
+                            tx_orbit
+                        } else {
+                            tx_orbit
+                        };
                         Some(cd.with_orbit(tx_orbit).with_propagation_delay(dt_tx))
                     } else {
                         // preserve: may still apply to RTK
@@ -395,6 +422,14 @@ impl<O: OrbitSource> Solver<O> {
         };
 
         // Prepare for NAV
+        pool.retain(|cd| {
+            let retained = cd.is_navi_compatible();
+            if !retained {
+                debug!("{}({}): not proposed - missing data", cd.t, cd.sv);
+            }
+            retained
+        });
+
         //  select best candidates, sort (coherent matrix), propose
         pool.retain(|cd| {
             let retained = cd.tropo_bias < max_tropo_bias;
@@ -409,17 +444,9 @@ impl<O: OrbitSource> Solver<O> {
         pool.retain(|cd| {
             let retained = cd.iono_bias < max_iono_bias;
             if retained {
-                debug!("{}({}): iono delay {:.3E}[m]", cd.t, cd.sv, cd.iono_bias);
+                debug!("{}({}) - iono delay {:.3E}[m]", cd.t, cd.sv, cd.iono_bias);
             } else {
-                debug!("{}({}) rejected (extreme iono delay)", cd.t, cd.sv);
-            }
-            retained
-        });
-
-        pool.retain(|cd| {
-            let retained = cd.is_navi_compatible();
-            if !retained {
-                debug!("{}({}): not proposed - missing data", cd.t, cd.sv);
+                debug!("{}({}) - rejected (extreme iono delay)", cd.t, cd.sv);
             }
             retained
         });
@@ -613,7 +640,6 @@ impl<O: OrbitSource> Solver<O> {
 
                 cd.azimuth_deg = Some(elazrg.azimuth_deg);
                 cd.elevation_deg = Some(elazrg.elevation_deg);
-
                 self.sv_orbits.insert(cd.sv, *orbit);
             } //has_orbit
         }
@@ -624,23 +650,23 @@ impl<O: OrbitSource> Solver<O> {
         let min_azim_deg = cfg.min_sv_azim.unwrap_or(0.0);
         let max_azim_deg = cfg.max_sv_azim.unwrap_or(360.0);
         pool.retain(|cd| {
-            let mut retain = true;
             if let Some((elev, azim)) = cd.attitude() {
-                debug!("{}({}) - elev={:.3}° azim={:.3}°", cd.t, cd.sv, elev, azim);
                 if elev < min_elev_deg {
                     debug!("{}({}) - rejected (below elevation mask)", cd.t, cd.sv);
-                    retain = false;
-                }
-                if azim < min_azim_deg {
+                    false
+                } else if azim < min_azim_deg {
                     debug!("{}({}) - rejected (below azimuth mask)", cd.t, cd.sv);
-                    retain = false;
-                }
-                if azim > max_azim_deg {
+                    false
+                } else if azim > max_azim_deg {
                     debug!("{}({}) - rejected (above azimuth mask)", cd.t, cd.sv);
-                    retain = false;
+                    false
+                } else {
+                    debug!("{}({}) - elev={:.3}° azim={:.3}°", cd.t, cd.sv, elev, azim);
+                    true
                 }
+            } else {
+                true
             }
-            retain
         });
     }
     fn min_sv_required(&self) -> usize {
@@ -659,24 +685,11 @@ impl<O: OrbitSource> Solver<O> {
             }
         }
     }
-    //fn rotate_position(rotate: bool, interpolated: Orbit, dt_tx: Duration) -> Orbit {
-    //    let mut reworked = interpolated;
-    //    let rot = if rotate {
-    //        const EARTH_OMEGA_E_WGS84: f64 = 7.2921151467E-5;
-    //        let dt_tx = dt_tx.to_seconds();
-    //        let we = EARTH_OMEGA_E_WGS84 * dt_tx;
-    //        let (we_cos, we_sin) = (we.cos(), we.sin());
-    //        Matrix3::<f64>::new(
-    //            we_cos, we_sin, 0.0_f64, -we_sin, we_cos, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64,
-    //        )
-    //    } else {
-    //        Matrix3::<f64>::new(
-    //            1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 1.0_f64,
-    //        )
-    //    };
-    //    reworked.position = rot * interpolated.position;
-    //    reworked
-    //}
+    fn direct_cosine_rot3(dt: Duration) -> Matrix3 {
+        let we = Constants::EARTH_ANGULAR_VEL_RAD * dt.to_seconds();
+        let (we_sin, we_cos) = we.sin_cos();
+        Matrix3::new(we_cos, we_sin, 0.0, -we_sin, we_cos, 0.0, 0.0, 0.0, 1.0)
+    }
     fn update_solution(&self, t: Epoch, sol: &mut PVTSolution) {
         if let Some((prev_t, prev_sol)) = &self.prev_solution {
             let dt_s = (t - *prev_t).to_seconds();

@@ -343,11 +343,10 @@ impl Candidate {
     ) -> Result<SVInput, Error> {
         let mut sv_input = SVInput::default();
         let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
-        let state = orbit.to_cartesian_pos_vel();
+        let state = orbit.to_cartesian_pos_vel() * 1.0E3;
 
         let (x0_m, y0_m, z0_m) = apriori;
-
-        let (sv_x_m, sv_y_m, sv_z_m) = (state[0] * 1.0E3, state[1] * 1.0E3, state[2] * 1.0E3);
+        let (sv_x_m, sv_y_m, sv_z_m) = (state[0], state[1], state[2]);
 
         let mut rho =
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
@@ -460,23 +459,24 @@ impl Candidate {
         rx_geo: (f64, f64, f64),
         rx_rad: (f64, f64),
     ) -> Result<(), Error> {
-        if let Some(obs) = self.prefered_pseudorange() {
-            let rtm = BiasRuntimeParams {
-                t: self.t,
-                rx_geo,
-                rx_rad,
-                elevation_deg,
-                frequency: obs.carrier.frequency(),
-                azimuth_rad: azimuth_deg.to_radians(),
-                elevation_rad: elevation_deg.to_radians(),
-            };
-            if tropo_modeling {
-                self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
-            }
-            if iono_modeling {
-                if method == Method::SPP {
-                    self.iono_bias = self.iono_components.value(&rtm);
-                }
+        let pr = self
+            .prefered_pseudorange()
+            .ok_or(Error::MissingPseudoRange)?;
+        let rtm = BiasRuntimeParams {
+            t: self.t,
+            rx_geo,
+            rx_rad,
+            elevation_deg,
+            frequency: pr.carrier.frequency(),
+            azimuth_rad: azimuth_deg.to_radians(),
+            elevation_rad: elevation_deg.to_radians(),
+        };
+        if tropo_modeling {
+            self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
+        }
+        if iono_modeling {
+            if method == Method::SPP {
+                self.iono_bias = self.iono_components.value(&rtm);
             }
         }
         Ok(())

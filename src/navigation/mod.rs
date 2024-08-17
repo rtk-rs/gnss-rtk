@@ -151,7 +151,7 @@ impl Input {
             // TODO reestablish phase contribution
             g[(4 + i, 4 + i)] = 1.0_f64;
             y[4 + i] = y[i];
-            //TODO phase contrib
+
             //if i > 3 {
             //    g[(i, i)] = 1.0_f64;
 
