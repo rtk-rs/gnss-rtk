@@ -14,8 +14,8 @@ use crate::{
     constants::Constants,
     navigation::SVInput,
     prelude::{
-        Almanac, Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method,
-        Orbit, TropoComponents, TropoModel, Vector3, SV,
+        Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method, Orbit,
+        TropoComponents, TropoModel, Vector3, SV,
     },
 };
 

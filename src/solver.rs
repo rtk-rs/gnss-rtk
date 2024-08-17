@@ -17,7 +17,7 @@ use anise::{
     constants::frames::{EARTH_ITRF93, EARTH_J2000, IAU_EARTH_FRAME, SUN_J2000},
     errors::{AlmanacError, PhysicsError},
     math::Matrix3,
-    prelude::{Almanac, Frame, MetaAlmanac},
+    prelude::{Almanac, Frame},
 };
 
 use crate::{
@@ -213,7 +213,6 @@ impl<O: OrbitSource> Solver<O> {
     /// We can only rely on lower precision kernels if we cannot access the cloud.
     fn build_almanac() -> Result<(Almanac, Frame), Error> {
         let almanac = Almanac::until_2035().map_err(|e| Error::Almanac(e))?;
-        //let almanac = Almanac::default();
         match almanac.load_from_metafile(Url::nyx_anise_de440s_bsp()) {
             Ok(almanac) => {
                 info!("ANISE DE440S BSP has been loaded");
@@ -223,42 +222,47 @@ impl<O: OrbitSource> Solver<O> {
                         match almanac.load_from_metafile(Url::jpl_latest_high_prec_bpc()) {
                             Ok(almanac) => {
                                 info!("JPL high precision (daily) kernels loaded.");
-                                if let Ok(itrf93) = almanac.frame_from_uid(EARTH_ITRF93) {
-                                    info!("Deployed with highest precision context available.");
-                                    Ok((almanac, itrf93))
-                                } else {
-                                    let iau_earth = almanac
-                                        .frame_from_uid(IAU_EARTH_FRAME)
-                                        .map_err(|_| Error::EarthFrame)?;
-                                    warn!("Failed to build ITRF93: relying on IAU model");
-                                    Ok((almanac, iau_earth))
+                                match almanac.frame_from_uid(EARTH_ITRF93) {
+                                    Ok(itrf93) => {
+                                        info!("Deployed with highest precision context available.");
+                                        Ok((almanac, itrf93))
+                                    },
+                                    Err(e) => {
+                                        error!("Failed to build ITRF93: {}", e);
+                                        let iau_earth = almanac
+                                            .frame_from_uid(IAU_EARTH_FRAME)
+                                            .map_err(|_| Error::EarthFrame)?;
+                                        warn!("Relying on IAU frame model.");
+                                        Ok((almanac, iau_earth))
+                                    },
                                 }
                             },
                             Err(e) => {
                                 let iau_earth = almanac
                                     .frame_from_uid(IAU_EARTH_FRAME)
                                     .map_err(|_| Error::EarthFrame)?;
-                                error!("Failed to download JPL High precision kernels: relying on IAU model");
+                                error!("Failed to download JPL High precision kernels: {}", e);
+                                warn!("Relying on IAU frame model.");
                                 Ok((almanac, iau_earth))
                             },
                         }
                     },
                     Err(e) => {
+                        error!("Failed to download PCK11 PCA: {}", e);
                         let iau_earth = almanac
                             .frame_from_uid(IAU_EARTH_FRAME)
                             .map_err(|_| Error::EarthFrame)?;
-                        error!("Failed to download PCK11 PCA: relying on IAU model");
+                        warn!("Relying on IAU frame model.");
                         Ok((almanac, iau_earth))
                     },
                 }
             },
             Err(e) => {
                 error!("Failed to load DE440S BSP: {}", e);
-                //let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
                 let iau_earth = almanac
                     .frame_from_uid(IAU_EARTH_FRAME)
                     .map_err(|_| Error::EarthFrame)?;
-                warn!("Relying on lowest precision kernels");
+                warn!("Relying on IAU frame model.");
                 Ok((almanac, iau_earth))
             },
         }
@@ -660,6 +664,18 @@ impl<O: OrbitSource> Solver<O> {
 
         for cd in pool.iter_mut() {
             if let Some(orbit) = &mut cd.orbit {
+                // velocities
+                if let Some(past_orbit) = self.sv_orbits.get(&cd.sv) {
+                    let dt_s = (orbit.epoch - past_orbit.epoch).to_seconds();
+                    let current = orbit.to_cartesian_pos_vel();
+                    let past = past_orbit.to_cartesian_pos_vel();
+                    let der = (
+                        (current[0] - past[0]) / dt_s,
+                        (current[1] - past[1]) / dt_s,
+                        (current[2] - past[2]) / dt_s,
+                    );
+                    *orbit = orbit.with_velocity_km_s(Vector3::new(der.0, der.1, der.2));
+                }
                 // clock
                 if orbit.vmag_km_s() > 0.0 {
                     if self.cfg.modeling.relativistic_clock_bias {
@@ -758,16 +774,20 @@ impl<O: OrbitSource> Solver<O> {
         }
     }
     fn update_velocity(orbit: Orbit, p_orbit: Orbit, dt_sec: f64) -> Orbit {
-        let state = orbit.to_cartesian_pos_vel();
-        let p_state = p_orbit.to_cartesian_pos_vel();
-        let (x_km, y_km, z_km) = (state[0], state[1], state[2]);
-        let (p_x_km, p_y_km, p_z_km) = (p_state[0], p_state[1], p_state[2]);
-        let (vel_x_km_s, vel_y_km_s, vel_z_km_s) = (
-            x_km - p_x_km / dt_sec,
-            y_km - p_y_km / dt_sec,
-            z_km - p_z_km / dt_sec,
+        let state = orbit.to_cartesian_pos_vel() * 1.0E3;
+        let p_state = p_orbit.to_cartesian_pos_vel() * 1.0E3;
+        let (x_m, y_m, z_m) = (state[0], state[1], state[2]);
+        let (p_x_m, p_y_m, p_z_m) = (p_state[0], p_state[1], p_state[2]);
+        let (vel_x_m_s, vel_y_m_s, vel_z_m_s) = (
+            x_m - p_x_m / dt_sec,
+            y_m - p_y_m / dt_sec,
+            z_m - p_z_m / dt_sec,
         );
-        orbit.with_velocity_km_s(Vector3::new(vel_x_km_s, vel_y_km_s, vel_z_km_s))
+        orbit.with_velocity_km_s(Vector3::new(
+            vel_x_m_s / 1.0E3,
+            vel_y_m_s / 1.0E3,
+            vel_z_m_s / 1.0E3,
+        ))
     }
     fn rework_solution(t: Epoch, frame: Frame, cfg: &Config, pvt: &mut PVTSolution) {
         // emphazise we only resolve dt by setting null attitude

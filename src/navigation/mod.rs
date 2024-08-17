@@ -128,6 +128,7 @@ impl Input {
             None => apriori,
         };
 
+        let mut j = 0;
         let mut max = match cfg.sol_type {
             PVTSolutionType::TimeOnly => 1,
             _ => 4,
@@ -135,10 +136,9 @@ impl Input {
         if cfg.fixed_altitude.is_some() {
             max -= 1;
         }
-        let mut i = 0;
 
-        while i < max {
-            match cd[i].matrix_contribution(cfg, i, &mut y, &mut g, apriori) {
+        for i in 0..cd.len() {
+            match cd[i].matrix_contribution(cfg, j, &mut y, &mut g, apriori) {
                 Ok(input) => {
                     sv.insert(cd[i].sv, input);
                 },
@@ -148,15 +148,20 @@ impl Input {
                 },
             }
 
-            // TODO reestablish phase contribution
-            g[(4 + i, 4 + i)] = 1.0_f64;
-            y[4 + i] = y[i];
+            g[(4 + j, 4 + j)] = 1.0_f64;
+            y[4 + j] = y[j];
 
-            //if i > 3 {
-            //    g[(i, i)] = 1.0_f64;
+            j += 1;
+            if j == cd.len() {
+                break;
+            }
+
+            // TODO reestablish phase contribution
+            //if j > 3 {
+            //    g[(j, j)] = 1.0_f64;
 
             //    if cfg.method == Method::PPP {
-            //        let cmb = cd[index]
+            //        let cmb = cd[i]
             //            .phase_if_combination()
             //            .ok_or(Error::PhaseRangeCombination)?;
 
@@ -169,18 +174,18 @@ impl Input {
             //            SPEED_OF_LIGHT_M_S / (f_1 - f_j),
             //        );
 
-            //        let bias = if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
+            //        let bias = if let Some(ambiguity) = ambiguities.get(&(cd[i].sv, cmb.rhs)) {
             //            let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
             //            let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
             //            debug!(
             //                "{} ({}/{}) b_c: {}",
-            //                cd[index].t, cd[index].sv, cmb.rhs, b_c
+            //                cd[i].t, cd[i].sv, cmb.rhs, b_c
             //            );
             //            b_c
             //        } else {
             //            error!(
             //                "{} ({}/{}): unresolved ambiguity",
-            //                cd[index].t, cd[index].sv, cmb.rhs
+            //                cd[i].t, cd[i].sv, cmb.rhs
             //            );
             //            return Err(Error::UnresolvedAmbiguity);
             //        };
@@ -191,7 +196,6 @@ impl Input {
             //        y[i] = cmb.value - rho - models - windup + bias;
             //    }
             //}
-            i += 1;
         }
 
         // TODO: improve matrix formation
