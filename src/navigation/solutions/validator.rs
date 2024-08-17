@@ -31,13 +31,7 @@ pub(crate) struct Validator {
 }
 
 impl Validator {
-    // TODO: rework for RTK &/or PPP
-    pub fn new(
-        apriori_km: Vector3<f64>,
-        pool: &[Candidate],
-        input: &Input,
-        output: &Output,
-    ) -> Self {
+    pub fn new(apriori: Vector3<f64>, pool: &[Candidate], input: &Input, output: &Output) -> Self {
         let gdop = output.gdop;
         let tdop = output.tdop;
         let mut residuals = DVector::<f64>::zeros(pool.len());
@@ -55,9 +49,9 @@ impl Validator {
             let x = output.state.estimate();
 
             let (x, y, z, dt) = (
-                apriori_km[0] + x[0],
-                apriori_km[1] + x[1],
-                apriori_km[2] + x[2],
+                apriori[0] + x[0],
+                apriori[1] + x[1],
+                apriori[2] + x[2],
                 x[3] / SPEED_OF_LIGHT_M_S,
             );
 

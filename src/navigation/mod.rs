@@ -105,7 +105,7 @@ impl Output {
 impl Input {
     /// Forms new Navigation Input
     pub fn new(
-        apriori_km: (f64, f64, f64),
+        apriori: (f64, f64, f64),
         cfg: &Config,
         cd: &[Candidate],
         w: OMatrix<f64, U8, U8>,
@@ -117,15 +117,15 @@ impl Input {
         /*
          * Compensate for ARP (if possible)
          */
-        let apriori_km = match cfg.arp_enu {
+        let apriori = match cfg.arp_enu {
             Some(_) => {
                 //apriori.0 + offset.0,
                 //apriori.1 + offset.1,
                 //apriori.2 + offset.2,
                 warn!("ARP compensation is not feasible yet");
-                apriori_km
+                apriori
             },
-            None => apriori_km,
+            None => apriori,
         };
 
         let mut max = match cfg.sol_type {
@@ -138,7 +138,7 @@ impl Input {
         let mut i = 0;
 
         while i < max {
-            match cd[i].matrix_contribution(cfg, i, &mut y, &mut g, apriori_km) {
+            match cd[i].matrix_contribution(cfg, i, &mut y, &mut g, apriori) {
                 Ok(input) => {
                     sv.insert(cd[i].sv, input);
                 },

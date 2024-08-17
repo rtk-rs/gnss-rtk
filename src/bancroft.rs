@@ -1,6 +1,6 @@
 //! Brancroft solver
 use crate::{prelude::Candidate, solver::Error};
-use log::{error, info};
+use log::error;
 
 use nalgebra::{Matrix4, Vector4};
 use nyx_space::cosmic::SPEED_OF_LIGHT_M_S;
@@ -44,7 +44,6 @@ impl Bancroft {
 
                 if let Some(r_i) = cd[i].prefered_pseudorange() {
                     let r_i = r_i.pseudo.unwrap();
-                    info!("{}({}) PR_i={}", cd[i].t, cd[i].sv, r_i);
                     if let Some(clock_corr) = cd[i].clock_corr {
                         let dt_i = clock_corr.duration.to_seconds();
                         let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
