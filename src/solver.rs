@@ -213,34 +213,54 @@ impl<O: OrbitSource> Solver<O> {
     /// On first deployment, it will require internet access.
     /// We can only rely on lower precision kernels if we cannot access the cloud.
     fn build_almanac() -> Result<(Almanac, Frame), Error> {
-        let almanac = Almanac::default();
+        let almanac = Almanac::until_2035().map_err(|e| Error::Almanac(e))?;
         match almanac.load_from_metafile(Url::nyx_anise_de440s_bsp()) {
-            Ok(almanac) => match almanac.load_from_metafile(Url::jpl_latest_high_prec_bsp()) {
-                Ok(almanac) => {
-                    info!("JPL high precision (daily) kernels loaded.");
-                    let itrf_earth = almanac
-                        .frame_from_uid(EARTH_ITRF93)
-                        .map_err(|_| Error::EarthFrame)?;
-                    info!("High precision context initiated.");
-                    Ok((almanac, itrf_earth))
-                },
-                Err(e) => {
-                    error!("Failed to load JPL high precision kernels: {}", e);
-                    let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
-                    warn!("Relying on lowest precision kernels.");
-                    let iau_earth = almanac
-                        .frame_from_uid(IAU_EARTH_FRAME)
-                        .map_err(|_| Error::EarthFrame)?;
-                    Ok((almanac, iau_earth))
-                },
+            Ok(almanac) => {
+                info!("ANISE DE440S BSP has been loaded");
+                match almanac.load_from_metafile(Url::nyx_anise_pck11_pca()) {
+                    Ok(almanac) => {
+                        info!("ANISE PCK11 PCA has been loaded");
+                        match almanac.load_from_metafile(Url::jpl_latest_high_prec_bpc()) {
+                            Ok(almanac) => {
+                                info!("JPL high precision (daily) kernels loaded.");
+                                if let Ok(itrf93) = almanac.frame_from_uid(EARTH_ITRF93) {
+                                    info!("High precision context initiated.");
+                                    Ok((almanac, itrf93))
+                                } else {
+                                    let iau_earth = almanac
+                                        .frame_from_uid(IAU_EARTH_FRAME)
+                                        .map_err(|_| Error::EarthFrame)?;
+                                    warn!("Failed to build ITRF93: relying on IAU model");
+                                    Ok((almanac, iau_earth))
+                                }
+                            },
+                            Err(e) => {
+                                let iau_earth = almanac
+                                    .frame_from_uid(IAU_EARTH_FRAME)
+                                    .map_err(|_| Error::EarthFrame)?;
+                                error!("Failed to dowload JPL High precision kernels: relying on IAU model");
+                                Ok((almanac, iau_earth))
+                            },
+                        }
+                    },
+                    Err(e) => {
+                        let iau_earth = almanac
+                            .frame_from_uid(IAU_EARTH_FRAME)
+                            .map_err(|_| Error::EarthFrame)?;
+                        error!(
+                            "Failed to dowload JPL High precision kernels: relying on IAU model"
+                        );
+                        Ok((almanac, iau_earth))
+                    },
+                }
             },
             Err(e) => {
                 error!("Failed to load DE440S BSP: {}", e);
-                let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
-                warn!("Relying on lowest precision kernels");
+                //let almanac = Almanac::until_2035().map_err(Error::Almanac)?;
                 let iau_earth = almanac
                     .frame_from_uid(IAU_EARTH_FRAME)
                     .map_err(|_| Error::EarthFrame)?;
+                warn!("Relying on lowest precision kernels");
                 Ok((almanac, iau_earth))
             },
         }

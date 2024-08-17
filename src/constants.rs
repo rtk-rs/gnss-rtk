@@ -6,15 +6,21 @@ use anise::almanac::metaload::MetaFile;
 impl Url {
     pub fn nyx_anise_de440s_bsp() -> MetaFile {
         MetaFile {
-            crc32: None,
+            crc32: Some(1921414410),
             uri: String::from("http://public-data.nyxspace.com/anise/de440s.bsp"),
         }
     }
-    pub fn jpl_latest_high_prec_bsp() -> MetaFile {
+    pub fn nyx_anise_pck11_pca() -> MetaFile {
+        MetaFile {
+            crc32: Some(0xe33f5940),
+            uri: String::from("http://public-data.nyxspace.com/anise/pck11.pca"),
+        }
+    }
+    pub fn jpl_latest_high_prec_bpc() -> MetaFile {
         MetaFile {
             crc32: None,
             uri:
-                "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bsp"
+                "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bpc"
                     .to_string(),
         }
     }
