@@ -301,10 +301,6 @@ impl Candidate {
     pub(crate) fn is_ppp_compatible(&self) -> bool {
         self.orbit.is_some()
     }
-    /// Returns true if attitude is resolved
-    pub(crate) fn resolved_attitude(&self) -> bool {
-        self.elevation_deg.is_some() && self.azimuth_deg.is_some()
-    }
     /// Fills the Matrix and prepare for resolution.
     /// The matrix contribution is highly dependent on the
     /// configuration setup.
