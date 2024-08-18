@@ -426,15 +426,14 @@ impl<O: OrbitSource> Solver<O> {
             self.initial = Some(orbit); // store
         }
 
-        // (local) state
-        // TODO: this will most likely not work for kinematics apps,
-        //       especially when rover moves fast.
-        //let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
-        //    self.initial.unwrap()
-        //} else {
-        //    self.initial.unwrap()
-        //};
-        let rx_orbit = self.initial.unwrap();
+        // (local) rx state
+        let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
+            // prev_sol.state
+            // TODO: this will not work for roaming rovers
+            self.initial.unwrap() // infaillible at this point
+        } else {
+            self.initial.unwrap() // infaillible at this point
+        };
 
         let (rx_lat_deg, rx_long_deg, rx_alt_km) =
             rx_orbit.latlongalt().map_err(|e| Error::Physics(e))?;
@@ -793,26 +792,21 @@ impl<O: OrbitSource> Solver<O> {
     fn update_solution(&self, t: Epoch, sol: &mut PVTSolution) {
         if let Some((prev_t, prev_sol)) = &self.prev_solution {
             let dt_s = (t - *prev_t).to_seconds();
-            // update velocity
-            sol.state = Self::update_velocity(sol.state, prev_sol.state, dt_s);
             // update clock drift
             sol.d_dt = dt_s;
+            // update velocity
+            sol.state = Self::update_velocity(sol.state, prev_sol.state, dt_s);
         }
     }
     fn update_velocity(orbit: Orbit, p_orbit: Orbit, dt_sec: f64) -> Orbit {
-        let state = orbit.to_cartesian_pos_vel() * 1.0E3;
-        let p_state = p_orbit.to_cartesian_pos_vel() * 1.0E3;
-        let (x_m, y_m, z_m) = (state[0], state[1], state[2]);
-        let (p_x_m, p_y_m, p_z_m) = (p_state[0], p_state[1], p_state[2]);
-        let (vel_x_m_s, vel_y_m_s, vel_z_m_s) = (
-            x_m - p_x_m / dt_sec,
-            y_m - p_y_m / dt_sec,
-            z_m - p_z_m / dt_sec,
-        );
+        let state = orbit.to_cartesian_pos_vel();
+        let p_state = p_orbit.to_cartesian_pos_vel();
+        let (x, y, z) = (state[0], state[1], state[2]);
+        let (p_x, p_y, p_z) = (p_state[0], p_state[1], p_state[2]);
         orbit.with_velocity_km_s(Vector3::new(
-            vel_x_m_s / 1.0E3,
-            vel_y_m_s / 1.0E3,
-            vel_z_m_s / 1.0E3,
+            (x - p_x) / dt_sec,
+            (y - p_y) / dt_sec,
+            (z - p_z) / dt_sec,
         ))
     }
     fn rework_solution(t: Epoch, frame: Frame, cfg: &Config, pvt: &mut PVTSolution) {
