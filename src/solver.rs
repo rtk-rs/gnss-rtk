@@ -434,7 +434,7 @@ impl<O: OrbitSource> Solver<O> {
         //} else {
         //    self.initial.unwrap()
         //};
-        let rx_orbit = self.inital.unwrap();
+        let rx_orbit = self.initial.unwrap();
 
         let (rx_lat_deg, rx_long_deg, rx_alt_km) =
             rx_orbit.latlongalt().map_err(|e| Error::Physics(e))?;
@@ -683,7 +683,7 @@ impl<O: OrbitSource> Solver<O> {
                         (current[1] - past[1]) / dt_s,
                         (current[2] - past[2]) / dt_s,
                     );
-                    //*orbit = orbit.with_velocity_km_s(Vector3::new(der.0, der.1, der.2));
+                    *orbit = orbit.with_velocity_km_s(Vector3::new(der.0, der.1, der.2));
                 }
                 // clock
                 if orbit.vmag_km_s() > 0.0 {
