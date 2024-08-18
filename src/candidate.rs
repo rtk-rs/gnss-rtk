@@ -380,6 +380,10 @@ impl Candidate {
             models -= corr.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
         }
 
+        if cfg.modeling.sv_total_group_delay {
+            models -= self.tgd.unwrap_or_default().to_seconds();
+        }
+
         let (pr, frequency) = match cfg.method {
             Method::SPP => {
                 let pr = self
@@ -788,7 +792,7 @@ impl Candidate {
 
         if cfg.modeling.sv_total_group_delay {
             if let Some(tgd) = self.tgd {
-                debug!("{} ({}) tgd   : {}", t, self.sv, tgd);
+                debug!("{} ({}) {} tgd", t, self.sv, tgd);
                 e_tx -= tgd;
             }
         }
