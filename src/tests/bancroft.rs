@@ -1,117 +1,90 @@
 use crate::bancroft::Bancroft;
 use crate::prelude::{
-    Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, IonoComponents,
-    Observation, OrbitalState, TropoComponents, SV,
+    Candidate, Carrier, ClockCorrection, Constellation, Duration, Epoch, Observation, Orbit,
+    EARTH_J2000, SV,
 };
+
+use std::str::FromStr;
 
 #[test]
 fn test() {
-    let (x0, y0, z0) = (3582105.291, 532589.7313, 5232754.8054);
+    let mut pool = Vec::<Candidate>::new();
+    let t0 = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+    let (x0, y0, z0) = (3628427.9118, 562059.0936, 5197872.215);
+    for (i, (pr, dt, sv_x_km, sv_y_km, sv_z_km)) in [
+        (
+            26952639.751,
+            Duration::from_microseconds(-313.498),
+            4577.077035843635,
+            -22996.125649966143,
+            18062.46236437641,
+        ),
+        (
+            23595077.027,
+            Duration::from_microseconds(-368.775),
+            16576.946499220812,
+            -4619.715035111092,
+            24092.50915107983,
+        ),
+        (
+            22579938.261,
+            Duration::from_milliseconds(6.017694),
+            18846.557032585508,
+            16144.709835080192,
+            16160.045068828074,
+        ),
+        (
+            27896986.615,
+            Duration::from_microseconds(401.846),
+            -15921.905530334785,
+            -5399.928036329342,
+            24360.75165958442,
+        ),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let pr = Observation::pseudo_range(Carrier::E1, *pr, None);
+        let mut cd = Candidate::new(
+            SV::new(Constellation::default(), (i + 1) as u8),
+            t0,
+            vec![pr],
+        );
+        cd.set_clock_correction(ClockCorrection::without_relativistic_correction(*dt));
+        cd.set_orbit(Orbit::from_position(
+            *sv_x_km,
+            *sv_y_km,
+            *sv_z_km,
+            t0,
+            EARTH_J2000,
+        ));
+        pool.push(cd);
+    }
 
-    let pr = Observation {
-        snr: None,
-        phase: None,
-        doppler: None,
-        ambiguity: None,
-        pseudo: Some(28776032.260),
-        carrier: Carrier::E1,
-    };
+    let solver =
+        Bancroft::new(&pool).unwrap_or_else(|e| panic!("failed to create Bancroft solver: {}", e));
 
-    let mut cd0 = Candidate::new(
-        SV::new(Constellation::default(), 2),
-        Epoch::default(),
-        vec![pr],
-    );
-    let st =
-        OrbitalState::from_position((24170352.34904016, -16029029.85873581, -5905924.153143198));
-    cd0.set_state(st);
-    cd0.set_clock_correction(ClockCorrection::without_relativistic_correction(
-        Duration::from_seconds(142.784E-6),
-    ));
-
-    let pr = Observation {
-        snr: None,
-        phase: None,
-        doppler: None,
-        ambiguity: None,
-        pseudo: Some(24090441.364),
-        carrier: Carrier::E1,
-    };
-
-    let mut cd1 = Candidate::new(
-        SV::new(Constellation::default(), 3),
-        Epoch::default(),
-        vec![pr],
-    );
-    let st =
-        OrbitalState::from_position((16069642.946692571, -8992001.827692423, 23184746.654093638));
-    cd1.set_state(st);
-    cd1.set_clock_correction(ClockCorrection::without_relativistic_correction(
-        Duration::from_seconds(-313.533E-6),
-    ));
-
-    let pr = Observation {
-        snr: None,
-        phase: None,
-        doppler: None,
-        ambiguity: None,
-        pseudo: Some(24762903.616),
-        carrier: Carrier::E1,
-    };
-
-    let mut cd2 = Candidate::new(
-        SV::new(Constellation::default(), 5),
-        Epoch::default(),
-        vec![pr],
-    );
-    let st =
-        OrbitalState::from_position((26119621.94656989, 7791422.617964384, 11558902.718228433));
-    cd2.set_state(st);
-    cd2.set_clock_correction(ClockCorrection::without_relativistic_correction(
-        Duration::from_seconds(-368.749E-6),
-    ));
-
-    let pr = Observation {
-        snr: None,
-        phase: None,
-        doppler: None,
-        ambiguity: None,
-        pseudo: Some(25537644.454),
-        carrier: Carrier::E1,
-    };
-
-    let mut cd3 = Candidate::new(
-        SV::new(Constellation::default(), 8),
-        Epoch::default(),
-        vec![pr],
-    );
-    let st =
-        OrbitalState::from_position((-3601205.0295727667, -20311399.087870672, 21230831.216778148));
-    cd3.set_state(st);
-    cd3.set_clock_correction(ClockCorrection::without_relativistic_correction(
-        Duration::from_seconds(6.158955E-3),
-    ));
-
-    let pool = vec![cd0, cd1, cd2, cd3];
-    let solver = Bancroft::new(&pool);
-    assert!(
-        solver.is_ok(),
-        "failed to create bancroft solver: {}",
-        solver.err().unwrap()
-    );
-    let solver = solver.unwrap();
-    let output = solver.resolve();
-    assert!(
-        output.is_ok(),
-        "bancroft solver failure: {}",
-        output.err().unwrap()
-    );
-    let output = output.unwrap();
+    let output = solver
+        .resolve()
+        .unwrap_or_else(|e| panic!("Bancroft solver failure: {}", e));
 
     let x_err = (output[0] - x0).abs();
     let y_err = (output[1] - y0).abs();
     let z_err = (output[2] - z0).abs();
-    assert!(x_err < 100.0, "bancroft solver error: x error too large");
-    assert!(y_err < 100.0, "bancroft solver error: x error too large");
-    assert!(z_err < 100.0, "bancroft solver error: x error too large");
+
+    assert!(
+        x_err < 100.0,
+        "bancroft solver error: x error too large: {}",
+        x_err
+    );
+    assert!(
+        y_err < 100.0,
+        "bancroft solver error: y error too large: {}",
+        y_err
+    );
+    assert!(
+        z_err < 100.0,
+        "bancroft solver error: z error too large: {}",
+        z_err
+    );
 }

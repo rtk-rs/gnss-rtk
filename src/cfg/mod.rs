@@ -269,6 +269,7 @@ pub struct Modeling {
     pub cable_delay: bool,
     /// Compensate to crust (solid body) deformation due to moon and star
     /// gravitational effect.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub solid_tides: bool,
 }
 

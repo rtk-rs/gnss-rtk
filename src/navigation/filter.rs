@@ -45,7 +45,7 @@ struct KFState {
 }
 
 #[derive(Debug, Clone)]
-pub enum FilterState {
+pub(crate) enum FilterState {
     Lsq(LSQState),
     Kf(KFState),
 }

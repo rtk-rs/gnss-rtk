@@ -3,17 +3,28 @@ pub use solutions::{InvalidationCause, PVTSolution, PVTSolutionType};
 
 mod filter;
 
-pub use filter::{Filter, FilterState};
+pub use filter::Filter;
+pub(crate) use filter::FilterState;
 
-use log::{debug, error};
+use log::{
+    debug,
+    //error,
+    warn,
+};
 use std::collections::HashMap;
 
 use crate::{
     ambiguity::Ambiguities,
     candidate::Candidate,
     cfg::Config,
-    constants::Constants,
-    prelude::{Duration, Error, IonosphereBias, Method, SV},
+    // constants::Constants,
+    prelude::{
+        Duration,
+        Error,
+        IonosphereBias, //Method,
+        Orbit,
+        SV,
+    },
 };
 
 use nalgebra::{
@@ -21,15 +32,17 @@ use nalgebra::{
     OMatrix, OVector,
 };
 
-use nyx::cosmic::SPEED_OF_LIGHT_M_S;
+// use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 /// SV Navigation information
 #[derive(Debug, Clone, Default)]
 pub struct SVInput {
-    /// SV azimuth angle in degrees
-    pub azimuth: f64,
-    /// SV elevation angle in degrees
+    /// Possible [Orbit] state
+    pub orbit: Option<Orbit>,
+    /// Elevation from RX position
     pub elevation: f64,
+    /// Azimuth from RX position
+    pub azimuth: f64,
     /// Troposphere bias in meters of delay
     pub tropo_bias: Option<f64>,
     /// Ionosphere bias
@@ -53,7 +66,7 @@ pub struct Input {
 
 /// Navigation Output
 #[derive(Debug, Clone, Default)]
-pub struct Output {
+pub(crate) struct Output {
     /// Time Dilution of Precision
     pub tdop: f64,
     /// Geometric Dilution of Precision
@@ -96,7 +109,7 @@ impl Input {
         cfg: &Config,
         cd: &[Candidate],
         w: OMatrix<f64, U8, U8>,
-        ambiguities: &Ambiguities,
+        _: &Ambiguities,
     ) -> Result<Self, Error> {
         let mut y = OVector::<f64, U8>::zeros();
         let mut g = OMatrix::<f64, U8, U8>::zeros();
@@ -104,17 +117,18 @@ impl Input {
         /*
          * Compensate for ARP (if possible)
          */
-        let apriori_ecef_m = match cfg.arp_enu {
-            Some(offset) => (
-                apriori.0 + offset.0,
-                apriori.1 + offset.1,
-                apriori.2 + offset.2,
-            ),
+        let apriori = match cfg.arp_enu {
+            Some(_) => {
+                //apriori.0 + offset.0,
+                //apriori.1 + offset.1,
+                //apriori.2 + offset.2,
+                warn!("ARP compensation is not feasible yet");
+                apriori
+            },
             None => apriori,
         };
 
-        // TODO: remove 8x8 size limitation
-        let mut i = 0;
+        let mut j = 0;
         let mut max = match cfg.sol_type {
             PVTSolutionType::TimeOnly => 1,
             _ => 4,
@@ -122,28 +136,31 @@ impl Input {
         if cfg.fixed_altitude.is_some() {
             max -= 1;
         }
-        while i < max {
-            let mut sv_input = SVInput::default();
 
-            match cd[i].matrix_contribution(cfg, i, &mut y, &mut g, apriori_ecef_m) {
+        for i in 0..cd.len() {
+            match cd[i].matrix_contribution(cfg, j, &mut y, &mut g, apriori) {
                 Ok(input) => {
                     sv.insert(cd[i].sv, input);
+                    g[(4 + j, 4 + j)] = 1.0_f64;
+                    y[4 + j] = y[j];
+
+                    j += 1;
+                    if j == cd.len() {
+                        break;
+                    }
                 },
                 Err(e) => {
-                    debug!("{}({}): cannot contribute - {}", cd[i].t, cd[i].sv, e);
+                    debug!("{}({}) cannot contribute: {}", cd[i].t, cd[i].sv, e);
                     continue;
                 },
             }
 
             // TODO reestablish phase contribution
-            g[(4 + i, 4 + i)] = 1.0_f64;
-            y[4 + i] = y[i];
-            //TODO phase contrib
-            //if i > 3 {
-            //    g[(i, i)] = 1.0_f64;
+            //if j > 3 {
+            //    g[(j, j)] = 1.0_f64;
 
             //    if cfg.method == Method::PPP {
-            //        let cmb = cd[index]
+            //        let cmb = cd[i]
             //            .phase_if_combination()
             //            .ok_or(Error::PhaseRangeCombination)?;
 
@@ -156,18 +173,18 @@ impl Input {
             //            SPEED_OF_LIGHT_M_S / (f_1 - f_j),
             //        );
 
-            //        let bias = if let Some(ambiguity) = ambiguities.get(&(cd[index].sv, cmb.rhs)) {
+            //        let bias = if let Some(ambiguity) = ambiguities.get(&(cd[i].sv, cmb.rhs)) {
             //            let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
             //            let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
             //            debug!(
             //                "{} ({}/{}) b_c: {}",
-            //                cd[index].t, cd[index].sv, cmb.rhs, b_c
+            //                cd[i].t, cd[i].sv, cmb.rhs, b_c
             //            );
             //            b_c
             //        } else {
             //            error!(
             //                "{} ({}/{}): unresolved ambiguity",
-            //                cd[index].t, cd[index].sv, cmb.rhs
+            //                cd[i].t, cd[i].sv, cmb.rhs
             //            );
             //            return Err(Error::UnresolvedAmbiguity);
             //        };
@@ -178,7 +195,6 @@ impl Input {
             //        y[i] = cmb.value - rho - models - windup + bias;
             //    }
             //}
-            i += 1;
         }
 
         // TODO: improve matrix formation

@@ -58,7 +58,7 @@ impl TropoComponents {
         const G_M: f64 = 9.784_f64;
 
         let day_of_year = rtm.t.day_of_year();
-        let (lat_ddeg, _, h) = rtm.apriori_geo;
+        let (lat_ddeg, _, h) = rtm.rx_geo;
 
         let mut lat = 15.0_f64;
         let mut min_delta = 180.0_f64;
@@ -164,7 +164,7 @@ impl TropoComponents {
     fn niel_model(prm: &RuntimeParams) -> f64 {
         const NS: f64 = 324.8;
 
-        let (_, _, h) = prm.apriori_geo;
+        let (_, _, h) = prm.rx_geo;
         let elev_rad = prm.elevation_rad;
         let h_km = h / 1000.0;
 

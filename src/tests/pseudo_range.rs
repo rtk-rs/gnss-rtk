@@ -1,6 +1,4 @@
-use crate::prelude::{
-    Candidate, Carrier, ClockCorrection, Epoch, IonoComponents, Observation, TropoComponents, SV,
-};
+use crate::prelude::{Candidate, Carrier, Epoch, Observation, SV};
 
 #[test]
 fn prefered_pseudorange() {

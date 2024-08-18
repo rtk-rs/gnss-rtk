@@ -14,8 +14,8 @@ use crate::{
     constants::Constants,
     navigation::SVInput,
     prelude::{
-        Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method,
-        OrbitalState, TropoComponents, TropoModel, Vector3, SV,
+        Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method, Orbit,
+        TropoComponents, TropoModel, Vector3, SV,
     },
 };
 
@@ -164,13 +164,13 @@ pub struct Candidate {
     pub sv: SV,
     /// Sampling [Epoch]
     pub t: Epoch,
-    /// State that needs to be resolved
-    pub state: Option<OrbitalState>,
-    /// t_tx Epoch
-    pub(crate) t_tx: Epoch,
-    // SV group delay expressed as a [Duration]
+    /// Dt tx
+    pub(crate) dt_tx: Duration,
+    /// [Orbit], which needs to be resolved for PPP
+    pub(crate) orbit: Option<Orbit>,
+    /// SV group delay expressed as a [Duration]
     pub(crate) tgd: Option<Duration>,
-    // Windup term in cycles
+    /// Windup term in signal cycles
     pub(crate) wind_up: f64,
     /// [ClockCorrection]
     pub(crate) clock_corr: Option<ClockCorrection>,
@@ -178,6 +178,10 @@ pub struct Candidate {
     pub(crate) observations: Vec<Observation>,
     /// Remote [Observation]s
     pub(crate) remote_obs: Vec<Observation>,
+    /// elevation at reception time
+    pub(crate) elevation_deg: Option<f64>,
+    /// azimuth at reception time
+    pub(crate) azimuth_deg: Option<f64>,
     /// Resolved bias
     pub(crate) iono_bias: f64,
     /// Resolved bias
@@ -235,15 +239,17 @@ impl Candidate {
         Self {
             sv,
             t,
-            t_tx: t,
             observations,
             iono_bias: 0.0,
             tropo_bias: 0.0,
             wind_up: 0.0_f64,
             remote_obs: Vec::new(),
-            state: None,
+            azimuth_deg: None,
+            elevation_deg: None,
+            orbit: None,
             tgd: None,
             clock_corr: None,
+            dt_tx: Default::default(),
             iono_components: IonoComponents::Unknown,
             tropo_components: TropoComponents::Unknown,
         }
@@ -293,7 +299,7 @@ impl Candidate {
     }
     /// Returns true if self is compatible with PPP positioning
     pub(crate) fn is_ppp_compatible(&self) -> bool {
-        self.state.is_some()
+        self.orbit.is_some()
     }
     /// Fills the Matrix and prepare for resolution.
     /// The matrix contribution is highly dependent on the
@@ -306,7 +312,7 @@ impl Candidate {
         row: usize,
         y: &mut OVector<f64, U8>,
         g: &mut OMatrix<f64, U8, U8>,
-        apriori_ecef_m: (f64, f64, f64),
+        apriori: (f64, f64, f64),
     ) -> Result<SVInput, Error> {
         // When RTK is feasible, it is always prefered,
         // because it is much easier and has immediate accuracy.
@@ -315,7 +321,7 @@ impl Candidate {
             self.rtk_matrix_contribution(cfg, row, y, g)
         } else {
             debug!("{}({}): ppp resolution attempt", self.t, self.sv);
-            self.ppp_matrix_contribution(cfg, row, y, g, apriori_ecef_m)
+            self.ppp_matrix_contribution(cfg, row, y, g, apriori)
         }
     }
     /// Matrix conribution, in case of PPP resolution.
@@ -329,28 +335,22 @@ impl Candidate {
         row: usize,
         y: &mut OVector<f64, U8>,
         g: &mut OMatrix<f64, U8, U8>,
-        apriori_ecef_m: (f64, f64, f64),
+        apriori: (f64, f64, f64),
     ) -> Result<SVInput, Error> {
         let mut sv_input = SVInput::default();
-        let state = self.state.ok_or(Error::UnresolvedState)?;
-        let (azimuth, elevation) = (state.azimuth, state.elevation);
-        sv_input.azimuth = azimuth;
-        sv_input.elevation = elevation;
+        let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
+        let state = orbit.to_cartesian_pos_vel() * 1.0E3;
 
-        let (x0_ecef_m, y0_ecef_m, z0_ecef_m) = apriori_ecef_m;
-
-        let (sv_x, sv_y, sv_z) = (state.position[0], state.position[1], state.position[2]);
+        let (x0_m, y0_m, z0_m) = apriori;
+        let (sv_x_m, sv_y_m, sv_z_m) = (state[0], state[1], state[2]);
 
         let mut rho =
-            ((sv_x - x0_ecef_m).powi(2) + (sv_y - y0_ecef_m).powi(2) + (sv_z - z0_ecef_m).powi(2))
-                .sqrt();
+            ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
 
         if cfg.modeling.relativistic_path_range {
             let mu = Constants::EARTH_GRAVITATION;
-            let r_sat =
-                (state.position[0].powi(2) + state.position[1].powi(2) + state.position[2].powi(2))
-                    .sqrt();
-            let r_0 = (x0_ecef_m.powi(2) + y0_ecef_m.powi(2) + z0_ecef_m.powi(2)).sqrt();
+            let r_sat = (sv_x_m.powi(2) + sv_y_m.powi(2) + sv_z_m.powi(2)).sqrt();
+            let r_0 = (x0_m.powi(2) + y0_m.powi(2) + z0_m.powi(2)).sqrt();
             let r_sat_0 = r_0 - r_sat;
             let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
@@ -362,9 +362,9 @@ impl Candidate {
         }
 
         let (x_i, y_i, z_i) = (
-            (x0_ecef_m - sv_x) / rho,
-            (y0_ecef_m - sv_y) / rho,
-            (z0_ecef_m - sv_z) / rho,
+            (x0_m - sv_x_m) / rho,
+            (y0_m - sv_y_m) / rho,
+            (z0_m - sv_z_m) / rho,
         );
 
         g[(row, 0)] = x_i;
@@ -378,6 +378,10 @@ impl Candidate {
             let corr = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
             sv_input.clock_correction = Some(corr.duration);
             models -= corr.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
+        }
+
+        if cfg.modeling.sv_total_group_delay {
+            models -= self.tgd.unwrap_or_default().to_seconds();
         }
 
         let (pr, frequency) = match cfg.method {
@@ -432,10 +436,10 @@ impl Candidate {
     /// Matrix contribution, in case of RTK resolution.
     fn rtk_matrix_contribution(
         &self,
-        cfg: &Config,
-        row: usize,
-        y: &mut OVector<f64, U8>,
-        g: &mut OMatrix<f64, U8, U8>,
+        _: &Config,
+        _: usize,
+        _: &mut OVector<f64, U8>,
+        _: &mut OMatrix<f64, U8, U8>,
     ) -> Result<SVInput, Error> {
         Err(Error::MissingRemoteRTKObservation(self.t, self.sv))
     }
@@ -443,39 +447,39 @@ impl Candidate {
 
 // private
 impl Candidate {
-    /// Applies all perturbation models to [Self]
+    /// Applies all perturbation models to [Self].
+    /// This will panic if Orbit has not been resolved!
     pub(crate) fn apply_models(
         &mut self,
         method: Method,
         tropo_modeling: bool,
         iono_modeling: bool,
-        apriori_geo_ddeg: (f64, f64, f64),
-    ) {
-        if let Some(state) = self.state {
-            if let Some(obs) = self.prefered_pseudorange() {
-                let rtm = BiasRuntimeParams {
-                    t: self.t,
-                    elevation_deg: state.elevation,
-                    elevation_rad: state.elevation.to_radians(),
-                    azimuth_deg: state.azimuth,
-                    azimuth_rad: state.azimuth.to_radians(),
-                    frequency: obs.carrier.frequency(),
-                    apriori_geo: apriori_geo_ddeg,
-                    apriori_rad: (
-                        apriori_geo_ddeg.0.to_radians(),
-                        apriori_geo_ddeg.1.to_radians(),
-                    ),
-                };
-                if tropo_modeling {
-                    self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
-                }
-                if iono_modeling {
-                    if method == Method::SPP {
-                        self.iono_bias = self.iono_components.value(&rtm);
-                    }
-                }
+        azimuth_deg: f64,
+        elevation_deg: f64,
+        rx_geo: (f64, f64, f64),
+        rx_rad: (f64, f64),
+    ) -> Result<(), Error> {
+        let pr = self
+            .prefered_pseudorange()
+            .ok_or(Error::MissingPseudoRange)?;
+        let rtm = BiasRuntimeParams {
+            t: self.t,
+            rx_geo,
+            rx_rad,
+            elevation_deg,
+            frequency: pr.carrier.frequency(),
+            azimuth_rad: azimuth_deg.to_radians(),
+            elevation_rad: elevation_deg.to_radians(),
+        };
+        if tropo_modeling {
+            self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
+        }
+        if iono_modeling {
+            if method == Method::SPP {
+                self.iono_bias = self.iono_components.value(&rtm);
             }
         }
+        Ok(())
     }
     // Pseudo range iterator
     fn pseudo_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
@@ -718,7 +722,7 @@ impl Candidate {
     }
     // Computes phase windup term. Self should be fully resolved, otherwse
     // will panic.
-    pub(crate) fn windup_correction(&mut self, ref_enu: Vector3<f64>, sun: Vector3<f64>) -> f64 {
+    pub(crate) fn windup_correction(&mut self, _: Vector3<f64>, _: Vector3<f64>) -> f64 {
         0.0
         // let state = self.state.unwrap();
         // let r_sv = state.to_ecef();
@@ -767,7 +771,6 @@ impl Candidate {
         let (t, ts) = (self.t, self.t.time_scale);
         let seconds_ts = t.to_duration_in_time_scale(t.time_scale).to_seconds();
 
-        // TODO: prefere (when possible) resolved phase range here ?
         let dt_tx = seconds_ts
             - self
                 .prefered_pseudorange()
@@ -789,7 +792,7 @@ impl Candidate {
 
         if cfg.modeling.sv_total_group_delay {
             if let Some(tgd) = self.tgd {
-                debug!("{} ({}) tgd   : {}", t, self.sv, tgd);
+                debug!("{} ({}) {} tgd", t, self.sv, tgd);
                 e_tx -= tgd;
             }
         }
@@ -811,18 +814,40 @@ impl Candidate {
         );
         Ok((e_tx, dt))
     }
+    pub(crate) fn with_orbit(&self, orbit: Orbit) -> Self {
+        let mut s = self.clone();
+        s.orbit = Some(orbit);
+        s
+    }
+    pub(crate) fn attitude(&self) -> Option<(f64, f64)> {
+        let el = self.elevation_deg?;
+        let az = self.azimuth_deg?;
+        Some((el, az))
+    }
+    pub(crate) fn with_elevation_deg(&self, el: f64) -> Self {
+        let mut s = self.clone();
+        s.elevation_deg = Some(el);
+        s
+    }
+    pub(crate) fn with_azimuth_deg(&self, az: f64) -> Self {
+        let mut s = self.clone();
+        s.azimuth_deg = Some(az);
+        s
+    }
+    pub(crate) fn with_propagation_delay(&self, dt: Duration) -> Self {
+        let mut s = self.clone();
+        s.dt_tx = dt;
+        s
+    }
     #[cfg(test)]
-    pub fn set_state(&mut self, state: OrbitalState) {
-        self.state = Some(state);
+    pub fn set_orbit(&mut self, orbit: Orbit) {
+        self.orbit = Some(orbit);
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::{
-        Candidate, Carrier, ClockCorrection, Epoch, IonoComponents, Observation, TropoComponents,
-        SV,
-    };
+    use crate::prelude::{Candidate, Carrier, Epoch, Observation, SV};
     #[test]
     fn cpp_compatibility() {
         for (observations, cpp_compatible) in [(

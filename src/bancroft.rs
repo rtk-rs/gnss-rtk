@@ -1,5 +1,6 @@
 //! Brancroft solver
 use crate::{prelude::Candidate, solver::Error};
+use log::error;
 
 use nalgebra::{Matrix4, Vector4};
 use nyx_space::cosmic::SPEED_OF_LIGHT_M_S;
@@ -31,40 +32,59 @@ impl Bancroft {
         let m = Self::m_matrix();
         let mut a = Vector4::<f64>::default();
         let mut b = Matrix4::<f64>::default();
-        assert!(
-            cd.len() > 3,
-            "can't resolve Bancroft equation: invalid input"
-        );
-
-        for i in 0..4 {
-            let state = cd[i].state.ok_or(Error::UnresolvedState)?;
-            let (x_i, y_i, z_i) = (state.position[0], state.position[1], state.position[2]);
-            let r_i = cd[i]
-                .prefered_pseudorange()
-                .ok_or(Error::MissingPseudoRange)?
-                .pseudo
-                .unwrap();
-
-            let clock_corr = cd[i].clock_corr.ok_or(Error::UnknownClockCorrection)?;
-            let dt_i = clock_corr.duration.to_seconds();
-            let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
-
-            b[(i, 0)] = x_i;
-            b[(i, 1)] = y_i;
-            b[(i, 2)] = z_i;
-            let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
-            b[(i, 3)] = pr_i;
-            a[i] = 0.5 * (x_i.powi(2) + y_i.powi(2) + z_i.powi(2) - pr_i.powi(2));
+        if cd.len() < 4 {
+            return Err(Error::NotEnoughCandidatesBancroft);
         }
-        Ok(Self {
-            a,
-            b,
-            m,
-            ones: Self::one_vector(),
-        })
+
+        let mut j = 0;
+        for i in 0..cd.len() {
+            if let Some(orbit) = cd[i].orbit {
+                let state = orbit.to_cartesian_pos_vel() * 1.0E3;
+                let (x_i, y_i, z_i) = (state[0], state[1], state[2]);
+
+                if let Some(r_i) = cd[i].prefered_pseudorange() {
+                    let r_i = r_i.pseudo.unwrap();
+                    if let Some(clock_corr) = cd[i].clock_corr {
+                        let dt_i = clock_corr.duration.to_seconds();
+                        let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
+                        let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
+                        b[(j, 0)] = x_i;
+                        b[(j, 1)] = y_i;
+                        b[(j, 2)] = z_i;
+                        b[(j, 3)] = pr_i;
+                        a[j] = 0.5 * (x_i.powi(2) + y_i.powi(2) + z_i.powi(2) - pr_i.powi(2));
+                        j += 1;
+                        if j == 4 {
+                            break;
+                        }
+                    } else {
+                        error!(
+                            "{}({}) bancroft needs onboard clock correction",
+                            cd[i].t, cd[i].sv
+                        );
+                    }
+                } else {
+                    error!("{}({}) bancroft needs 1 pseudo range", cd[i].t, cd[i].sv);
+                }
+            } else {
+                error!(
+                    "{}({}) bancroft unresolved orbital state",
+                    cd[i].t, cd[i].sv
+                );
+            }
+        }
+        if j != 4 {
+            Err(Error::BancroftError)
+        } else {
+            Ok(Self {
+                a,
+                b,
+                m,
+                ones: Self::one_vector(),
+            })
+        }
     }
     pub fn resolve(&self) -> Result<Vector4<f64>, Error> {
-        let _output = Vector4::<f64>::default();
         let b_inv = self.b.try_inverse().ok_or(Error::MatrixInversionError)?;
         let b_1 = b_inv * self.ones;
         let b_a = b_inv * self.a;

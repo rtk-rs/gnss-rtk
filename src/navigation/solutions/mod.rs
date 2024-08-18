@@ -1,7 +1,7 @@
 //! PVT Solutions
 use std::collections::HashMap;
 
-use crate::prelude::{Ambiguities, Carrier, Duration, TimeScale, Vector3, SV};
+use crate::prelude::{Ambiguities, Carrier, Duration, Orbit, TimeScale, SV};
 
 use super::SVInput;
 use nalgebra::base::{Matrix3, Matrix4};
@@ -46,10 +46,8 @@ impl std::fmt::Display for PVTSolutionType {
 #[derive(Debug, Clone)]
 // #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
-    /// Position error (in [m] ECEF)
-    pub position: Vector3<f64>,
-    /// Absolute Velocity (in [m/s] ECEF).
-    pub velocity: Vector3<f64>,
+    /// Receiver state, expressed as ECEF [Orbit]
+    pub state: Orbit,
     /// Timescale
     pub timescale: TimeScale,
     /// Offset to timescale

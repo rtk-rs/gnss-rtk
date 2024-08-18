@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-#![cfg_attr(docrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate gnss_rs as gnss;
 extern crate nyx_space as nyx;
@@ -14,7 +14,6 @@ mod cfg;
 mod navigation;
 mod orbit;
 mod position;
-mod rtk;
 mod solver;
 
 pub(crate) mod constants;
@@ -36,15 +35,14 @@ pub mod prelude {
     pub use crate::carrier::Carrier;
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, InvalidationCause, PVTSolution, PVTSolutionType};
-    pub use crate::orbit::{OrbitalState, OrbitalStateProvider};
+    pub use crate::orbit::OrbitSource;
     pub use crate::position::Position;
-    pub use crate::rtk::BaseStation;
     pub use crate::solver::{Error, Solver};
     // re-export
     pub use anise::{
-        constants::frames::{EARTH_J2000, SUN_J2000},
+        constants::frames::{EARTH_ITRF93, EARTH_J2000, IAU_EARTH_FRAME, SUN_J2000},
         naif::SPK,
-        prelude::{Aberration, Almanac, Frame},
+        prelude::{Aberration, Almanac, Frame, Orbit},
     };
     pub use gnss::prelude::{Constellation, SV};
     pub use hifitime::{Duration, Epoch, TimeScale};
