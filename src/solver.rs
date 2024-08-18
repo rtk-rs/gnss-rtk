@@ -1,6 +1,6 @@
 //! PVT solver
 use hifitime::Unit;
-use std::{cmp::Ordering, collections::HashMap};
+use std::collections::HashMap;
 
 use thiserror::Error;
 
@@ -409,7 +409,13 @@ impl<O: OrbitSource> Solver<O> {
                 pool[0].t,
                 self.earth_cef,
             );
-            let (lat_deg, long_deg, alt_km) = orbit.latlongalt().map_err(|e| Error::Physics(e))?;
+            let (lat_deg, long_deg, alt_km) = orbit.latlongalt().unwrap_or_else(|e| {
+                panic!(
+                    "resolved invalid initial position: {}, verify your input",
+                    e
+                )
+            });
+
             info!(
                 "{} estimated initial position lat={:.5}°, lon={:.5}°, alt={:.3}m",
                 pool[0].t,
@@ -421,17 +427,19 @@ impl<O: OrbitSource> Solver<O> {
         }
 
         // (local) state
-        let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
-            // TODO: we may have problems here in kinematics apps
-            //       if latest solution is too old
-            prev_sol.state
-        } else {
-            self.initial.unwrap()
-        };
+        // TODO: this will most likely not work for kinematics apps,
+        //       especially when rover moves fast.
+        //let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
+        //    self.initial.unwrap()
+        //} else {
+        //    self.initial.unwrap()
+        //};
+        let rx_orbit = self.inital.unwrap();
 
-        let rx_geo = rx_orbit.latlongalt().map_err(|e| Error::Physics(e))?;
-
-        let rx_rad = (rx_geo.0.to_radians(), rx_geo.1.to_radians());
+        let (rx_lat_deg, rx_long_deg, rx_alt_km) =
+            rx_orbit.latlongalt().map_err(|e| Error::Physics(e))?;
+        let rx_alt_m = rx_alt_km * 1.0E3;
+        let rx_rad = (rx_lat_deg.to_radians(), rx_long_deg.to_radians());
 
         let rx_pos_vel = rx_orbit.to_cartesian_pos_vel() * 1.0E3;
         let (x0, y0, z0) = (rx_pos_vel[0], rx_pos_vel[1], rx_pos_vel[2]);
@@ -470,7 +478,7 @@ impl<O: OrbitSource> Solver<O> {
                     iono_modeling,
                     az_deg,
                     el_deg,
-                    rx_geo,
+                    (rx_lat_deg, rx_long_deg, rx_alt_m),
                     rx_rad,
                 )?;
             }
@@ -518,7 +526,7 @@ impl<O: OrbitSource> Solver<O> {
         }
 
         let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
-            prev_sol.state
+            self.initial.unwrap()
         } else {
             self.initial.unwrap()
         };
@@ -645,8 +653,8 @@ impl<O: OrbitSource> Solver<O> {
             //}
         }
 
+        // update & store for next time
         self.update_solution(t, &mut solution);
-        // store for next time
         self.prev_solution = Some((t, solution.clone()));
 
         Self::rework_solution(t, self.earth_cef, &self.cfg, &mut solution);
