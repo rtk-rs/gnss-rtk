@@ -374,17 +374,17 @@ impl<O: OrbitSource> Solver<O> {
                 Ok((t_tx, dt_tx)) => {
                     let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    if let Some(mut tx_orbit) =
+                    if let Some(tx_orbit) =
                         orbits.next_at(t_tx, cd.sv, self.earth_cef, interp_order)
                     {
-                        let tx_orbit = if modeling.earth_rotation {
-                            // TODO: missing rotate_by
-                            // tx_orbit.with_position_rotated_by(Self::direct_cosine_rot3(dt_tx))
-                            tx_orbit
-                        } else {
-                            tx_orbit
-                        };
-                        Some(cd.with_orbit(tx_orbit).with_propagation_delay(dt_tx))
+                        let orbit = Self::rotate_orbit_dcm3x3(
+                            cd.t,
+                            dt_tx,
+                            tx_orbit,
+                            modeling.earth_rotation,
+                            self.earth_cef,
+                        );
+                        Some(cd.with_orbit(orbit).with_propagation_delay(dt_tx))
                     } else {
                         // preserve: may still apply to RTK
                         Some(cd.clone())
@@ -523,7 +523,7 @@ impl<O: OrbitSource> Solver<O> {
             self.initial.unwrap()
         };
 
-        Self::retain_best_elevation(rx_orbit, &self.almanac, &mut pool, min_required);
+        Self::retain_best_elevation(&mut pool, min_required);
 
         pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
 
@@ -556,6 +556,8 @@ impl<O: OrbitSource> Solver<O> {
         };
 
         let sol_x = output.state.estimate();
+        debug!("x: {}", sol_x);
+
         let sol_dt = sol_x[3] / SPEED_OF_LIGHT_M_S;
         let (sol_x, sol_y, sol_z) = (sol_x[0] + x0, sol_x[1] + y0, sol_x[2] + z0);
 
@@ -576,7 +578,6 @@ impl<O: OrbitSource> Solver<O> {
 
         // Form Solution
         let mut solution = PVTSolution {
-            // bias,
             state: Orbit::from_position(
                 sol_x / 1.0E3,
                 sol_y / 1.0E3,
@@ -674,7 +675,7 @@ impl<O: OrbitSource> Solver<O> {
                         (current[1] - past[1]) / dt_s,
                         (current[2] - past[2]) / dt_s,
                     );
-                    *orbit = orbit.with_velocity_km_s(Vector3::new(der.0, der.1, der.2));
+                    //*orbit = orbit.with_velocity_km_s(Vector3::new(der.0, der.1, der.2));
                 }
                 // clock
                 if orbit.vmag_km_s() > 0.0 {
@@ -686,10 +687,8 @@ impl<O: OrbitSource> Solver<O> {
                                 let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
                                 let ea_rad = ea_deg.to_radians();
                                 let gm = (w_e * mu).sqrt();
-                                let bias = -2.0_f64
-                                    * orbit.ecc().map_err(Error::Physics)?
-                                    * ea_rad.sin()
-                                    * gm
+                                let ecc = orbit.ecc().map_err(Error::Physics)?;
+                                let bias = -2.0_f64 * ecc * ea_rad.sin() * gm
                                     / SPEED_OF_LIGHT_M_S
                                     / SPEED_OF_LIGHT_M_S
                                     * Unit::Second;
@@ -700,10 +699,9 @@ impl<O: OrbitSource> Solver<O> {
                     } //clockbias
                 } //velocity
 
-                // orbit..
                 let rx_orbit = Orbit::from_cartesian_pos_vel(
                     rx_orbit.to_cartesian_pos_vel(),
-                    cd.t - cd.dt_tx,
+                    cd.t, // - cd.dt_tx, // tx
                     self.earth_cef,
                 );
 
@@ -759,10 +757,30 @@ impl<O: OrbitSource> Solver<O> {
             }
         }
     }
-    fn direct_cosine_rot3(dt: Duration) -> Matrix3 {
+    fn rotate_orbit_dcm3x3(
+        t: Epoch,
+        dt: Duration,
+        orbit: Orbit,
+        modeling: bool,
+        frame: Frame,
+    ) -> Orbit {
         let we = Constants::EARTH_ANGULAR_VEL_RAD * dt.to_seconds();
         let (we_sin, we_cos) = we.sin_cos();
-        Matrix3::new(we_cos, we_sin, 0.0, -we_sin, we_cos, 0.0, 0.0, 0.0, 1.0)
+        let dcm3 = if modeling {
+            Matrix3::new(we_cos, we_sin, 0.0, -we_sin, we_cos, 0.0, 0.0, 0.0, 1.0)
+        } else {
+            Matrix3::new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        };
+        let state = orbit.to_cartesian_pos_vel() * 1.0E3;
+        let position = Vector3::new(state[0], state[1], state[2]);
+        let position = dcm3 * position;
+        Orbit::from_position(
+            position[0] / 1.0E3,
+            position[1] / 1.0E3,
+            position[2] / 1.0E3,
+            t,
+            frame,
+        )
     }
     fn update_solution(&self, t: Epoch, sol: &mut PVTSolution) {
         if let Some((prev_t, prev_sol)) = &self.prev_solution {
@@ -800,39 +818,11 @@ impl<O: OrbitSource> Solver<O> {
         // to emphasize that it is being used
         if let Some(_alt_m) = cfg.fixed_altitude {}
     }
-    fn retain_best_elevation(
-        rx_orbit: Orbit,
-        almanac: &Almanac,
-        pool: &mut Vec<Candidate>,
-        min_required: usize,
-    ) {
+    fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
         pool.sort_by(|cd_a, cd_b| {
-            if let Some(orbit_a) = cd_a.orbit {
-                let elev_a_deg =
-                    if let Ok(elazrg) = almanac.azimuth_elevation_range_sez(rx_orbit, orbit_a) {
-                        elazrg.elevation_deg
-                    } else {
-                        0.0
-                    };
-                if let Some(orbit_b) = cd_b.orbit {
-                    let elev_b_deg = if let Ok(elazrg) =
-                        almanac.azimuth_elevation_range_sez(rx_orbit, orbit_b)
-                    {
-                        elazrg.elevation_deg
-                    } else {
-                        0.0
-                    };
-                    elev_a_deg.partial_cmp(&elev_b_deg).unwrap()
-                } else {
-                    Ordering::Greater
-                }
-            } else {
-                if cd_b.orbit.is_some() {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
-                }
-            }
+            let elev_a_deg = cd_a.elevation_deg.unwrap_or_default();
+            let elev_b_deg = cd_b.elevation_deg.unwrap_or_default();
+            elev_a_deg.partial_cmp(&elev_b_deg).unwrap()
         });
 
         let mut index = 0;

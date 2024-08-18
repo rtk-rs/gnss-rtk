@@ -141,19 +141,18 @@ impl Input {
             match cd[i].matrix_contribution(cfg, j, &mut y, &mut g, apriori) {
                 Ok(input) => {
                     sv.insert(cd[i].sv, input);
+                    g[(4 + j, 4 + j)] = 1.0_f64;
+                    y[4 + j] = y[j];
+
+                    j += 1;
+                    if j == cd.len() {
+                        break;
+                    }
                 },
                 Err(e) => {
                     debug!("{}({}) cannot contribute: {}", cd[i].t, cd[i].sv, e);
                     continue;
                 },
-            }
-
-            g[(4 + j, 4 + j)] = 1.0_f64;
-            y[4 + j] = y[j];
-
-            j += 1;
-            if j == cd.len() {
-                break;
             }
 
             // TODO reestablish phase contribution

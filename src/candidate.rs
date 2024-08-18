@@ -767,7 +767,6 @@ impl Candidate {
         let (t, ts) = (self.t, self.t.time_scale);
         let seconds_ts = t.to_duration_in_time_scale(t.time_scale).to_seconds();
 
-        // TODO: prefere (when possible) resolved phase range here ?
         let dt_tx = seconds_ts
             - self
                 .prefered_pseudorange()
