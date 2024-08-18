@@ -164,8 +164,6 @@ pub struct Candidate {
     pub sv: SV,
     /// Sampling [Epoch]
     pub t: Epoch,
-    /// Dt tx
-    pub(crate) dt_tx: Duration,
     /// [Orbit], which needs to be resolved for PPP
     pub(crate) orbit: Option<Orbit>,
     /// SV group delay expressed as a [Duration]
@@ -249,7 +247,6 @@ impl Candidate {
             orbit: None,
             tgd: None,
             clock_corr: None,
-            dt_tx: Default::default(),
             iono_components: IonoComponents::Unknown,
             tropo_components: TropoComponents::Unknown,
         }
@@ -834,11 +831,11 @@ impl Candidate {
         s.azimuth_deg = Some(az);
         s
     }
-    pub(crate) fn with_propagation_delay(&self, dt: Duration) -> Self {
-        let mut s = self.clone();
-        s.dt_tx = dt;
-        s
-    }
+    //pub(crate) fn with_propagation_delay(&self, dt: Duration) -> Self {
+    //    let mut s = self.clone();
+    //    s.dt_tx = dt;
+    //    s
+    //}
     #[cfg(test)]
     pub fn set_orbit(&mut self, orbit: Orbit) {
         self.orbit = Some(orbit);

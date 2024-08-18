@@ -384,7 +384,7 @@ impl<O: OrbitSource> Solver<O> {
                             modeling.earth_rotation,
                             self.earth_cef,
                         );
-                        Some(cd.with_orbit(orbit).with_propagation_delay(dt_tx))
+                        Some(cd.with_orbit(orbit))
                     } else {
                         // preserve: may still apply to RTK
                         Some(cd.clone())
@@ -708,7 +708,7 @@ impl<O: OrbitSource> Solver<O> {
 
                 let rx_orbit = Orbit::from_cartesian_pos_vel(
                     rx_orbit.to_cartesian_pos_vel(),
-                    cd.t, // - cd.dt_tx, // tx
+                    cd.t,
                     self.earth_cef,
                 );
 
