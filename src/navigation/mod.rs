@@ -244,6 +244,10 @@ impl Navigation {
             pending: Default::default(),
         }
     }
+    pub fn reset(&mut self) {
+        self.filter_state = None;
+        self.pending = Default::default();
+    }
     pub fn resolve(&mut self, input: &Input) -> Result<Output, Error> {
         let out = self.filter.resolve(input, self.filter_state.clone())?;
         self.pending = out.clone();
