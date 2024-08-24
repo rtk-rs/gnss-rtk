@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     navigation::Filter,
-    prelude::{PVTSolutionType, Position, TimeScale},
+    prelude::{PVTSolutionType, TimeScale},
 };
 
 use nalgebra::{base::dimension::U8, OMatrix};
@@ -177,7 +177,7 @@ pub struct InternalDelay {
     pub frequency: f64,
 }
 
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct SolverOpts {
     /// GDOP threshold to invalidate ongoing GDOP
@@ -196,6 +196,18 @@ pub struct SolverOpts {
     /// at the expense of more calculations.
     #[cfg_attr(feature = "serde", serde(default = "default_postfit_kf"))]
     pub postfit_kf: bool,
+}
+
+impl Default for SolverOpts {
+    fn default() -> Self {
+        Self {
+            filter: Filter::default(),
+            gdop_threshold: default_gdop_threshold(),
+            tdop_threshold: default_tdop_threshold(),
+            filter_opts: default_filter_opts(),
+            postfit_kf: default_postfit_kf(),
+        }
+    }
 }
 
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -290,7 +302,7 @@ impl Default for Modeling {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Config {
     /// Type of solutions to form.
@@ -306,9 +318,9 @@ pub struct Config {
     /// [Profile] defines the type of application.
     #[cfg_attr(feature = "serde", serde(default))]
     pub profile: Profile,
-    /// Possible reference site static coordinates.
+    /// Possible remote reference site coordinates, in ECEF [m].
     /// Must be defined in case RTK navigation is selected.
-    pub remote_site: Option<Position>,
+    pub remote_site: Option<(f64, f64, f64)>,
     /// Interpolation order
     #[cfg_attr(feature = "serde", serde(default = "default_interp"))]
     pub interp_order: usize,
@@ -375,94 +387,56 @@ pub struct Config {
 }
 
 impl Config {
-    /// Returns a basic [Config] that is consistent with given Positioning [Method]
-    /// and a static GNSS receiver.
-    pub fn static_preset(method: Method) -> Self {
-        match method {
-            Method::SPP => Self {
-                method,
-                profile: Profile::Static,
-                sol_type: PVTSolutionType::default(),
-                remote_site: None,
-                arp_enu: None,
-                fixed_altitude: None,
-                timescale: default_timescale(),
-                interp_order: default_interp(),
-                code_smoothing: default_smoothing(),
-                min_snr: None,
-                min_sv_elev: Some(10.0),
-                min_sv_azim: None,
-                max_sv_azim: None,
-                min_sv_sunlight_rate: None,
-                max_tropo_bias: max_tropo_bias(),
-                max_iono_bias: max_iono_bias(),
-                modeling: Modeling::default(),
-                int_delay: Default::default(),
-                externalref_delay: Default::default(),
-                solver: SolverOpts {
-                    filter: Filter::LSQ,
-                    gdop_threshold: default_gdop_threshold(),
-                    tdop_threshold: default_tdop_threshold(),
-                    filter_opts: default_filter_opts(),
-                    postfit_kf: default_postfit_kf(),
-                },
-            },
-            Method::CPP => Self {
-                method,
-                profile: Profile::Static,
-                sol_type: PVTSolutionType::default(),
-                arp_enu: None,
-                remote_site: None,
-                fixed_altitude: None,
-                timescale: default_timescale(),
-                interp_order: default_interp(),
-                code_smoothing: default_smoothing(),
-                min_snr: None,
-                min_sv_elev: Some(10.0),
-                min_sv_azim: None,
-                max_sv_azim: None,
-                min_sv_sunlight_rate: None,
-                max_tropo_bias: max_tropo_bias(),
-                max_iono_bias: max_iono_bias(),
-                modeling: Modeling::default(),
-                int_delay: Default::default(),
-                externalref_delay: Default::default(),
-                solver: SolverOpts {
-                    filter: Filter::LSQ,
-                    gdop_threshold: default_gdop_threshold(),
-                    tdop_threshold: default_tdop_threshold(),
-                    filter_opts: default_filter_opts(),
-                    postfit_kf: default_postfit_kf(),
-                },
-            },
-            Method::PPP => Self {
-                method,
-                profile: Profile::Static,
-                sol_type: PVTSolutionType::default(),
-                arp_enu: None,
-                remote_site: None,
-                fixed_altitude: None,
-                timescale: default_timescale(),
-                interp_order: default_interp(),
-                code_smoothing: default_smoothing(),
-                min_snr: None,
-                min_sv_elev: Some(10.0),
-                min_sv_azim: None,
-                max_sv_azim: None,
-                min_sv_sunlight_rate: None,
-                max_tropo_bias: max_tropo_bias(),
-                max_iono_bias: max_iono_bias(),
-                modeling: Modeling::default(),
-                int_delay: Default::default(),
-                externalref_delay: Default::default(),
-                solver: SolverOpts {
-                    filter: Filter::LSQ,
-                    gdop_threshold: default_gdop_threshold(),
-                    tdop_threshold: default_tdop_threshold(),
-                    filter_opts: default_filter_opts(),
-                    postfit_kf: default_postfit_kf(),
-                },
-            },
-        }
+    /// Returns [Config] for static PPP positioning, with desired [Method].
+    /// You can then customize [Self] as you will.
+    pub fn static_ppp_preset(method: Method) -> Self {
+        let mut s = Self::default();
+        s.profile = Profile::Static;
+        s.method = method;
+        s.min_sv_elev = Some(15.0);
+        s.max_tropo_bias = max_tropo_bias();
+        s.max_iono_bias = max_iono_bias();
+        s
+    }
+    /// Returns [Config] for dynamic PPP positioning, with desired [Method]
+    /// and rover [Profile]. You can then customize [Self] as you will.
+    pub fn dynamic_ppp_preset(profile: Profile, method: Method) -> Self {
+        let mut s = Self::default();
+        s.profile = profile;
+        s.method = method;
+        s.min_sv_elev = Some(15.0);
+        s.max_tropo_bias = max_tropo_bias();
+        s.max_iono_bias = max_iono_bias();
+        s
+    }
+    /// Returns [Config] for static RTK positioning, with desired [Method],
+    /// Remote site coordinates expressed in meters ECEF.
+    /// You can then customize [Self] as you will.
+    pub fn static_rtk_preset(method: Method, remote_site_ecef_m: (f64, f64, f64)) -> Self {
+        let mut s = Self::default();
+        s.profile = Profile::Static;
+        s.method = method;
+        s.remote_site = Some(remote_site_ecef_m);
+        s.min_sv_elev = Some(15.0);
+        s.max_tropo_bias = max_tropo_bias();
+        s.max_iono_bias = max_iono_bias();
+        s
+    }
+    /// Returns [Config] for dynamic RTK positioning, with desired [Method],
+    /// rover [Profile] and reference Remote Site coordinates expressed
+    /// as meters ECEF. You can then customize [Self] as you will.
+    pub fn dynamic_rtk_preset(
+        profile: Profile,
+        method: Method,
+        remote_site_ecef_m: (f64, f64, f64),
+    ) -> Self {
+        let mut s = Self::default();
+        s.profile = profile;
+        s.method = method;
+        s.remote_site = Some(remote_site_ecef_m);
+        s.min_sv_elev = Some(15.0);
+        s.max_tropo_bias = max_tropo_bias();
+        s.max_iono_bias = max_iono_bias();
+        s
     }
 }
