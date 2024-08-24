@@ -17,7 +17,7 @@ thiserror = "1"
 map_3d = "0.1.5"
 polyfit-rs = "0.2"
 nalgebra = "0.32.3"
-itertools = "0.12.0"
+itertools = "0.13.0"
 nyx-space = "2.0.0-rc"
 gnss-rs = { version = "2.2.3", features = ["serde"] }
 anise = { version = "0.4.2", features = ["embed_ephem"] }
