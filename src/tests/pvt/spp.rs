@@ -16,7 +16,7 @@ fn spp_lsq_static_survey() {
         EARTH_J2000,
     );
     let tester = Tester::static_survey(TimeScale::GPST, orbit, (1.0, 1.0, 1.0));
-    let mut cfg = Config::static_preset(Method::SPP);
+    let mut cfg = Config::static_ppp_preset(Method::SPP);
     cfg.min_snr = None;
     cfg.min_sv_elev = None;
     cfg.solver.filter = Filter::LSQ;
