@@ -39,4 +39,4 @@ jobs:
           TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           cargo login $TOKEN
-          cargo publish -p cggtts
+          cargo publish
