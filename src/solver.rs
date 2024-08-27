@@ -426,14 +426,9 @@ impl<O: OrbitSource> Solver<O> {
             self.initial = Some(orbit); // store
         }
 
-        // (local) rx state
-        let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
-            // prev_sol.state
-            // TODO: this will not work for roaming rovers
-            self.initial.unwrap() // infaillible at this point
-        } else {
-            self.initial.unwrap() // infaillible at this point
-        };
+        // (local) rx state: infaillble at this point
+        let rx_orbit = self.initial
+            .unwrap();
 
         let (rx_lat_deg, rx_long_deg, rx_alt_km) =
             rx_orbit.latlongalt().map_err(|e| Error::Physics(e))?;

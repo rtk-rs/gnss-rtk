@@ -70,7 +70,7 @@ pub fn main() {
 
     // The preset API is useful to quickly deploy depending on your application.
     // Static presets target static positioning.
-    let cfg = Config::static_preset(Method::SPP); // Single Freq. Pseudo Range based
+    let cfg = Config::static_ppp_preset(Method::SPP); // Single Freq. Pseudo Range based
 
     // The API is pretty straightforward, it requires the Configuration preset to be
     // built ahead of time. The only difficulty is the design your data source and SV state provider. We interact with the SV state provider by means of a function pointer.

@@ -13,7 +13,6 @@ mod carrier;
 mod cfg;
 mod navigation;
 mod orbit;
-mod position;
 mod solver;
 
 pub(crate) mod constants;
@@ -36,7 +35,6 @@ pub mod prelude {
     pub use crate::cfg::{Config, Method};
     pub use crate::navigation::{Filter, InvalidationCause, PVTSolution, PVTSolutionType};
     pub use crate::orbit::OrbitSource;
-    pub use crate::position::Position;
     pub use crate::solver::{Error, Solver};
     // re-export
     pub use anise::{
