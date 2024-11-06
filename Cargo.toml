@@ -22,7 +22,7 @@ serde = [
 
 [dependencies]
 log = "0.4"
-thiserror = "1"
+thiserror = "2"
 polyfit-rs = "0.2"
 nalgebra = "=0.32.3"
 itertools = "0.13.0"
