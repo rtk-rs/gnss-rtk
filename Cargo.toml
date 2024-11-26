@@ -24,7 +24,7 @@ serde = [
 log = "0.4"
 thiserror = "2"
 polyfit-rs = "0.2"
-nalgebra = "=0.32.3"
+nalgebra = "=0.33.2"
 itertools = "0.13"
 nyx-space = "2.0.0-rc"
 anise = { version = "=0.4.2", features = ["embed_ephem"] }
