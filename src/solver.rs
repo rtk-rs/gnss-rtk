@@ -1,20 +1,27 @@
 //! PVT solver
 use hifitime::Unit;
-use std::collections::HashMap;
-
+use nalgebra::Vector3;
 use thiserror::Error;
 
-use log::{debug, error, info, warn};
-use nalgebra::Vector3;
-//use nalgebra::Matrix3;
-
 use nyx::cosmic::{
-    eclipse::{eclipse_state, EclipseState},
+    // eclipse::EclipseLocator,
     SPEED_OF_LIGHT_M_S,
 };
 
+use std::{
+    collections::HashMap,
+    fs::{create_dir_all, File},
+    io::Write,
+};
+
+use log::{debug, error, info, warn};
+
 use anise::{
-    constants::frames::{EARTH_ITRF93, EARTH_J2000, IAU_EARTH_FRAME, SUN_J2000},
+    almanac::{
+        metaload::{MetaAlmanac, MetaAlmanacError, MetaFile},
+        planetary::PlanetaryDataError,
+    },
+    constants::frames::{EARTH_ITRF93, IAU_EARTH_FRAME, SUN_J2000},
     errors::{AlmanacError, PhysicsError},
     math::Matrix3,
     prelude::{Almanac, Frame},
@@ -25,7 +32,7 @@ use crate::{
     bancroft::Bancroft,
     candidate::Candidate,
     cfg::{Config, Method},
-    constants::{Constants, Url},
+    constants::Constants,
     navigation::{
         solutions::validator::{InvalidationCause, Validator as SolutionValidator},
         Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
@@ -123,9 +130,12 @@ pub enum Error {
     /// [Solver] requires [Almanac] determination at build up and may wind-up here this step is in failure.
     #[error("issue with Almanac: {0}")]
     Almanac(AlmanacError),
+    /// [Solver] uses local [Almanac] storage for efficient deployments
+    #[error("almanac setup issue: {0}")]
+    MetaAlmanac(MetaAlmanacError),
     /// [Solver] requires to determine a [Frame] from [Almanac] and we wind-up here if this step is in failure.
-    #[error("failed to retrieve Earth reference Frame")]
-    EarthFrame,
+    #[error("frame model error: {0}")]
+    EarthFrame(PlanetaryDataError),
     /// Any physical non sense detected by ANISE will cause us to abort with this error.
     #[error("physics issue: {0}")]
     Physics(PhysicsError),
@@ -206,67 +216,101 @@ fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
 }
 
 impl<O: OrbitSource> Solver<O> {
-    /// Infaillible method to either download, retrieve or create
-    /// a basic [Almanac] and reference [Frame] to work with.
-    /// We always prefer the highest precision scenario.
-    /// On first deployment, it will require internet access.
-    /// We can only rely on lower precision kernels if we cannot access the cloud.
-    fn build_almanac() -> Result<(Almanac, Frame), Error> {
-        let almanac = Almanac::until_2035().map_err(|e| Error::Almanac(e))?;
-        match almanac.load_from_metafile(Url::nyx_anise_de440s_bsp()) {
-            Ok(almanac) => {
-                info!("ANISE DE440S BSP has been loaded");
-                match almanac.load_from_metafile(Url::nyx_anise_pck11_pca()) {
-                    Ok(almanac) => {
-                        info!("ANISE PCK11 PCA has been loaded");
-                        match almanac.load_from_metafile(Url::jpl_latest_high_prec_bpc()) {
-                            Ok(almanac) => {
-                                info!("JPL high precision (daily) kernels loaded.");
-                                match almanac.frame_from_uid(EARTH_ITRF93) {
-                                    Ok(itrf93) => {
-                                        info!("Deployed with highest precision context available.");
-                                        Ok((almanac, itrf93))
-                                    },
-                                    Err(e) => {
-                                        error!("Failed to build ITRF93: {}", e);
-                                        let iau_earth = almanac
-                                            .frame_from_uid(IAU_EARTH_FRAME)
-                                            .map_err(|_| Error::EarthFrame)?;
-                                        warn!("Relying on IAU frame model.");
-                                        Ok((almanac, iau_earth))
-                                    },
-                                }
-                            },
-                            Err(e) => {
-                                let iau_earth = almanac
-                                    .frame_from_uid(IAU_EARTH_FRAME)
-                                    .map_err(|_| Error::EarthFrame)?;
-                                error!("Failed to download JPL High precision kernels: {}", e);
-                                warn!("Relying on IAU frame model.");
-                                Ok((almanac, iau_earth))
-                            },
-                        }
-                    },
-                    Err(e) => {
-                        error!("Failed to download PCK11 PCA: {}", e);
-                        let iau_earth = almanac
-                            .frame_from_uid(IAU_EARTH_FRAME)
-                            .map_err(|_| Error::EarthFrame)?;
-                        warn!("Relying on IAU frame model.");
-                        Ok((almanac, iau_earth))
-                    },
-                }
-            },
-            Err(e) => {
-                error!("Failed to load DE440S BSP: {}", e);
-                let iau_earth = almanac
-                    .frame_from_uid(IAU_EARTH_FRAME)
-                    .map_err(|_| Error::EarthFrame)?;
-                warn!("Relying on IAU frame model.");
-                Ok((almanac, iau_earth))
-            },
+    const ALMANAC_LOCAL_STORAGE: &str = ".cache";
+
+    fn nyx_anise_de440s_bsp() -> MetaFile {
+        MetaFile {
+            crc32: Some(1921414410),
+            uri: String::from("http://public-data.nyxspace.com/anise/de440s.bsp"),
         }
     }
+
+    fn nyx_anise_pck11_pca() -> MetaFile {
+        MetaFile {
+            crc32: Some(0x8213b6e9),
+            uri: String::from("http://public-data.nyxspace.com/anise/v0.5/pck11.pca"),
+        }
+    }
+
+    fn nyx_anise_jpl_bpc() -> MetaFile {
+        MetaFile {
+            crc32: None,
+            uri:
+                "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bpc"
+                    .to_string(),
+        }
+    }
+
+    /// Builds an [Almanac] and [Frame] model, with prefered
+    /// high precision models. We only use Earth centered [Frame],
+    /// so this library is currently limited Earth ground navigation.
+    /// We always prefer the highest precision model, which requires daily internet access.
+    /// If internet access is in failure, the [Almanac] relies on an offline model.
+    fn build_almanac_frame_model() -> Result<(Almanac, Frame), Error> {
+        let mut initial_setup = false;
+
+        // Meta almanac for local storage management
+        let local_storage = format!(
+            "{}/{}/anise.dhall",
+            env!("CARGO_MANIFEST_DIR"),
+            Self::ALMANAC_LOCAL_STORAGE
+        );
+
+        let mut meta_almanac = match MetaAlmanac::new(local_storage.clone()) {
+            Ok(meta) => {
+                debug!("(anise) from local storage");
+                meta
+            },
+            Err(_) => {
+                debug!("(anise) local storage setup");
+                initial_setup = true;
+                MetaAlmanac {
+                    files: vec![
+                        Self::nyx_anise_de440s_bsp(),
+                        Self::nyx_anise_pck11_pca(),
+                        Self::nyx_anise_jpl_bpc(),
+                    ],
+                }
+            },
+        };
+
+        // download (if need be)
+        let almanac = meta_almanac.process(true).map_err(|e| Error::Almanac(e))?;
+
+        if initial_setup {
+            let updated = meta_almanac.dumps().map_err(|e| Error::MetaAlmanac(e))?;
+
+            let _ = create_dir_all(&format!(
+                "{}/{}",
+                env!("CARGO_MANIFEST_DIR"),
+                Self::ALMANAC_LOCAL_STORAGE
+            ));
+
+            let mut fd = File::create(&local_storage)
+                .unwrap_or_else(|e| panic!("almanac storage setup error: {}", e));
+
+            fd.write_all(updated.as_bytes())
+                .unwrap_or_else(|e| panic!("almanac storage setup error: {}", e));
+        }
+
+        match almanac.frame_from_uid(EARTH_ITRF93) {
+            Ok(itrf93) => {
+                info!("highest precision context setup");
+                return Ok((almanac, itrf93));
+            },
+            Err(e) => {
+                error!("(anise) jpl_bpc: {}", e);
+            },
+        }
+
+        let earth_cef = almanac
+            .frame_from_uid(IAU_EARTH_FRAME)
+            .map_err(|e| Error::EarthFrame(e))?;
+
+        warn!("deployed with offline model");
+        Ok((almanac, earth_cef))
+    }
+
     /// Create a new Position [Solver] with desired [Almanac] and [Frame] to work with.
     /// The specified [Frame] needs to be one of the available ECEF for the following process to work
     /// correctly. Prefer this method over others, if you already have [Almanac] and [Frame] (ECEF)
@@ -280,15 +324,20 @@ impl<O: OrbitSource> Solver<O> {
         frame: Frame,
     ) -> Self {
         // Print more information
-        if cfg.method == Method::SPP && cfg.min_sv_sunlight_rate.is_some() {
-            warn!("Eclipse filter is not meaningful in SPP mode");
+        if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
+            warn!("occultation filter is not meaningful in SPP mode");
         }
+
         if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
             warn!("RF cable delay compensation is either incomplete or not entirely enabled");
         }
         if !cfg.int_delay.is_empty() && !cfg.modeling.cable_delay {
             warn!("RF cable delay compensation is either incomplete or not entirely enabled");
         }
+
+        // let eclipse = EclipseLocator::cislunar(Arc::new(almanac.clone()));
+        // let almanac = Arc::new(almanac);
+
         Self {
             orbit,
             almanac,
@@ -314,7 +363,7 @@ impl<O: OrbitSource> Solver<O> {
     ///   or Time Only modes.
     /// - orbit: [OrbitSource] must be provided for Direct (1D) PPP
     pub fn new(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
-        let (almanac, earth_cef) = Self::build_almanac()?;
+        let (almanac, earth_cef) = Self::build_almanac_frame_model()?;
         Ok(Self::new_almanac_frame(
             cfg, initial, orbit, almanac, earth_cef,
         ))
@@ -427,8 +476,7 @@ impl<O: OrbitSource> Solver<O> {
         }
 
         // (local) rx state: infaillble at this point
-        let rx_orbit = self.initial
-            .unwrap();
+        let rx_orbit = self.initial.unwrap();
 
         let (rx_lat_deg, rx_long_deg, rx_alt_km) =
             rx_orbit.latlongalt().map_err(|e| Error::Physics(e))?;
@@ -439,22 +487,30 @@ impl<O: OrbitSource> Solver<O> {
         let (x0, y0, z0) = (rx_pos_vel[0], rx_pos_vel[1], rx_pos_vel[2]);
 
         // apply eclipse filter (if need be)
-        if let Some(min_rate) = self.cfg.min_sv_sunlight_rate {
+        if let Some(max_occultation_rate) = self.cfg.max_sv_occultation_percent {
             pool.retain(|cd| {
-                if let Some(orbit) = cd.orbit {
-                    let eclipse_state =
-                        eclipse_state(orbit, SUN_J2000, EARTH_J2000, &self.almanac).unwrap();
-                    let eclipsed = match eclipse_state {
-                        EclipseState::Umbra => true,
-                        EclipseState::Visibilis => false,
-                        EclipseState::Penumbra(r) => r < min_rate,
-                    };
-                    if eclipsed {
-                        debug!("{} ({}): eclipsed", cd.t, cd.sv);
+                if let Some(sv_orbit) = cd.orbit {
+                    match self
+                        .almanac
+                        .occultation(SUN_J2000, self.earth_cef, sv_orbit, None)
+                    {
+                        Ok(occultation) => {
+                            if occultation.percentage > max_occultation_rate {
+                                false // filter out
+                            } else {
+                                true // preserve
+                            }
+                        },
+                        Err(e) => {
+                            error!("(anise) eclipse: {}", e);
+                            // discard in this situation
+                            false
+                        },
                     }
-                    !eclipsed
                 } else {
-                    true // preserve for possible RTK
+                    // undefined orbital state
+                    // needs to be preversed for some RTK scenarios
+                    true
                 }
             });
         }
@@ -654,6 +710,7 @@ impl<O: OrbitSource> Solver<O> {
         Self::rework_solution(t, self.earth_cef, &self.cfg, &mut solution);
         Ok((t, solution))
     }
+
     fn fix_sv_states(&mut self, rx_orbit: Orbit, pool: &mut Vec<Candidate>) -> Result<(), Error> {
         // clear loss of sight
         let svnn = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
@@ -709,7 +766,7 @@ impl<O: OrbitSource> Solver<O> {
 
                 let elazrg = self
                     .almanac
-                    .azimuth_elevation_range_sez(*orbit, rx_orbit)
+                    .azimuth_elevation_range_sez(*orbit, rx_orbit, None, None)
                     .map_err(|e| Error::Almanac(e))?;
 
                 cd.azimuth_deg = Some(elazrg.azimuth_deg);

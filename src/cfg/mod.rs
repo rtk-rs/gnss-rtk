@@ -350,12 +350,12 @@ pub struct Config {
     /// is also turned on.
     #[cfg_attr(feature = "serde", serde(default))]
     pub externalref_delay: Option<f64>,
-    /// Minimal rate of Sun light rate one SV must receive for not to be considered Eclipsed from the Sun by Earth.
-    /// Closer to 0 means we exit Eclipsed state faster.
-    /// Closer to 1 means stringent condition and only completely illuminated SV are considered.
-    /// This criteria is not meaningful unless you're using centimetric positioning strategies like [Method::PPP].
+    /// Maximal Earth / Sun occultation tolerated for each satellite in orbit.
+    /// This is percentage, > 99.9 means total darkness.
+    /// 20.0% for example, would mean partially eclipsed satellites are to be discarded
+    /// by the solver.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub min_sv_sunlight_rate: Option<f64>,
+    pub max_sv_occultation_percent: Option<f64>,
     /// Minimal SV elevation angle for an SV to contribute to the solution.
     /// Use this as a simple quality criteria.
     #[cfg_attr(feature = "serde", serde(default))]

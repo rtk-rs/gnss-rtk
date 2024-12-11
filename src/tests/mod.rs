@@ -149,11 +149,14 @@ impl Tester {
                     Error::UnresolvedAmbiguity => {
                         panic!("navigation attempt while some ambiguities still remain");
                     },
+                    Error::MetaAlmanac(e) => {
+                        panic!("almanac setup error: {}", e);
+                    },
                     Error::Almanac(e) => {
                         panic!("almanac determination error: {}", e);
                     },
-                    Error::EarthFrame => {
-                        panic!("earth frame error");
+                    Error::EarthFrame(e) => {
+                        panic!("earth frame error: {}", e);
                     },
                 },
             }
