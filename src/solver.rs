@@ -320,6 +320,9 @@ impl Solver {
         almanac: Almanac,
         frame: Frame,
     ) -> Self {
+
+        debug!("Deployed with {:#?}", cfg);
+
         // Print more information
         if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
             warn!("occultation filter is not meaningful in SPP mode");
