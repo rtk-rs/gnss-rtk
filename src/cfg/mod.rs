@@ -302,7 +302,7 @@ impl Default for Modeling {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Config {
     /// Type of solutions to form.
@@ -438,5 +438,32 @@ impl Config {
         s.max_tropo_bias = max_tropo_bias();
         s.max_iono_bias = max_iono_bias();
         s
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            interp_order: 11,
+            max_tropo_bias: 30.0,
+            max_iono_bias: 30.0,
+            min_sv_elev: Some(10.0),
+            timescale: TimeScale::GPST,
+            sol_type: Default::default(),
+            method: Default::default(),
+            profile: Default::default(),
+            remote_site: Default::default(),
+            fixed_altitude: Default::default(),
+            code_smoothing: Default::default(),
+            int_delay: Default::default(),
+            arp_enu: Default::default(),
+            solver: Default::default(),
+            externalref_delay: Default::default(),
+            max_sv_occultation_percent: Default::default(),
+            min_sv_azim: Default::default(),
+            max_sv_azim: Default::default(),
+            min_snr: Default::default(),
+            modeling: Default::default(),
+        }
     }
 }

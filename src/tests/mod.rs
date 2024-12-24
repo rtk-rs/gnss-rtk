@@ -3,16 +3,35 @@ use crate::prelude::{
     Solver, TimeScale, SV,
 };
 
+use std::cell::RefCell;
+
 mod bancroft;
 mod data;
 mod pseudo_range;
 mod pvt;
 
+pub mod cfg;
+use cfg::TestConfig;
+
+pub mod output;
+use output::TestOutput;
+
+use std::collections::HashMap;
+
 use data::{gps::test_data as gps_test_data, interp::interp_data};
 
-struct Orbits {}
+#[derive(Debug, Clone)]
+pub struct OrbitKey {
+    t: Epoch,
+    sv: SV,
+}
 
-impl OrbitSource for Orbits {
+#[derive(Debug, Clone)]
+struct OrbitDataBase {
+    inner: HashMap<OrbitKey, Orbit>,
+}
+
+impl OrbitSource for OrbitDataBase {
     fn next_at(&mut self, t: Epoch, sv: SV, fr: Frame, _: usize) -> Option<Orbit> {
         Some(
             interp_data()
@@ -29,81 +48,46 @@ struct SolverInput {
     pool: Vec<Candidate>,
 }
 
-#[derive(Debug, Default, Clone)]
-struct Tester {
-    kinematic: bool,
-    timescale: TimeScale,
-    max_gdop: Option<f64>,
-    max_tdop: Option<f64>,
-    reference: Option<Orbit>,
-    max_xyz_err_m: (f64, f64, f64),
-    max_velocity_m_s: (f64, f64, f64),
+struct Test {
+    pub cfg: TestConfig,
+    pub input: Vec<SolverInput>,
+    pub orbit_db: OrbitDataBase,
+    pub solver: Solver,
 }
 
-impl Tester {
-    /// Builds new Static Survey tester, for given ECEF [m]
-    pub fn static_survey(
-        timescale: TimeScale,
-        reference: Orbit,
-        max_xyz_err_m: (f64, f64, f64),
-    ) -> Self {
-        let mut s = Self::default();
-        s.kinematic = false;
-        s.timescale = timescale;
-        s.max_xyz_err_m = max_xyz_err_m;
-        s.reference = Some(reference);
-        // on static applications, we tolerate this "erroneous" motion
-        s.max_velocity_m_s = (1.0E-5, 1.0E-5, 1.0E-5);
-        s
-    }
-    /// Set max tdop criteria
-    pub fn with_max_tdop(&self, tdop: f64) -> Self {
-        let mut s = self.clone();
-        s.max_tdop = Some(tdop);
-        s
-    }
-    /// Set max gdop criteria
-    pub fn with_max_gdop(&self, gdop: f64) -> Self {
-        let mut s = self.clone();
-        s.max_gdop = Some(gdop);
-        s
-    }
-    pub fn deploy(&self, cfg: &Config) {
-        self.deploy_without_apriori(cfg);
-        if self.reference.is_some() {
-            self.deploy_with_apriori(cfg);
+impl Test {
+    pub fn run_test(&mut self) -> TestOutput {
+        let mut output = TestOutput::default();
+
+        while let Some(input) = self.input.iter_mut().next() {
+            let (t_rx, pool) = (input.t_rx, &mut input.pool);
+
+            println!("running test: {} [{}]", input.t_rx, pool.len());
+
+            if let Some(solution) =
+                Self::test_iter(&mut self.solver, t_rx, pool, self.orbit_db.clone())
+            {
+                output.nb_solutions += 1;
+            }
+
+            output.nb_iter += 1;
         }
+
+        output
     }
-    fn deploy_without_apriori(&self, cfg: &Config) {
-        let orbits = Orbits {};
-        let mut solver = Solver::new_survey(&cfg, orbits)
-            .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
-        println!("deployed with {:#?}", cfg);
-        self.run(&mut solver, cfg);
-    }
-    fn deploy_with_apriori(&self, cfg: &Config) {
-        let orbits = Orbits {};
-        let mut solver =
-            Solver::new(&cfg, None, orbits) // TODO
-                .unwrap_or_else(|e| panic!("failed to deploy solver with {:#?}: error={}", cfg, e));
-        println!("deployed with {:#?}", cfg);
-        self.run(&mut solver, cfg);
-    }
-    fn run<O: OrbitSource>(&self, solver: &mut Solver<O>, cfg: &Config) {
-        for (data_index, data) in gps_test_data().iter_mut().enumerate() {
-            match solver.resolve(data.t_rx, &mut data.pool) {
-                Ok((_, solution)) => {
-                    let state = solution.state;
-                    let state = state.to_cartesian_pos_vel();
-                    let (x_km, y_km, z_km, vel_x, vel_y, vel_z) =
-                        (state[0], state[1], state[2], state[3], state[4], state[5]);
-                    println!(
-                        "iter={}, 3d=(x={}km, y={}km, z={}km) vel=(x={}km/s, y={}km/s, z={}km/s)",
-                        data_index, x_km, y_km, z_km, vel_x, vel_y, vel_z,
-                    );
-                    self.static_run(&cfg, solution);
-                },
-                Err(e) => match e {
+
+    fn test_iter(
+        solver: &mut Solver,
+        t_rx: Epoch,
+        pool: &mut Vec<Candidate>,
+        orbit: OrbitDataBase,
+    ) -> Option<PVTSolution> {
+        match solver.resolve(t_rx, pool, orbit) {
+            Ok((_, solution)) => {
+                return Some(solution);
+            },
+            Err(e) => {
+                match e {
                     Error::NotEnoughCandidates => {},
                     Error::NotEnoughCandidatesBancroft => {},
                     Error::NotEnoughPreFitCandidates => {},
@@ -158,46 +142,9 @@ impl Tester {
                     Error::EarthFrame(e) => {
                         panic!("earth frame error: {}", e);
                     },
-                },
-            }
+                }
+            },
         }
-    }
-    fn static_run(&self, _cfg: &Config, sol: PVTSolution) {
-        //let reference = self.reference.as_ref().unwrap();
-        //// let (x0, y0, z0) = (xyz_ecef_m[0], xyz_ecef_m[1], xyz_ecef_m[2]);
-        //let orbit = sol.state;
-        //let state = orbit.to_cartesian_pos_vel();
-        //let (x_km, y_km, z_km, vel_x_km, vel_y_km, vel_z_km) = (
-        //    state[0],
-        //    state[1],
-        //    state[2],
-        //    state[3],
-        //    state[4],
-        //    state[5],
-        //);
-        //let (x_err, y_err, z_err) = ((x_km * 1.0E3 - x0).abs(), (y_km * 1.0E3 - y0).abs(), (z_km * 1.0E3 - z0).abs());
-        assert_eq!(
-            sol.timescale, self.timescale,
-            "solution expressed in wrong timescale"
-        );
-        //if let Some(max_gdop) = self.max_gdop {
-        //    assert!(
-        //        sol.gdop.abs() < max_gdop,
-        //        "{} gdop limit exceeded",
-        //        max_gdop
-        //    );
-        //}
-        //if let Some(max_tdop) = self.max_tdop {
-        //    assert!(
-        //        sol.tdop.abs() < max_tdop,
-        //        "{} tdop limit exceeded",
-        //        max_tdop
-        //    );
-        //}
-        //assert!(
-        //    vel_x_km.abs() <= self.max_velocity_m_s.0,
-        //    "{} vel_x component above tolerance",
-        //    vel_x_km.abs()
-        //);
+        None
     }
 }

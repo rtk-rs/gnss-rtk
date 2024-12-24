@@ -8,7 +8,7 @@ use gnss_rtk::prelude::{
 // Orbit source example
 struct Orbits {}
 
-impl OrbitSource for Orbits {
+impl OrbitSource for &mut Orbits {
     // For each requested "t" and "sv",
     // if we can, we should resolve the SV [Orbit].
     // If interpolation is to be used (depending on your apps), you can
@@ -66,7 +66,7 @@ impl MyDataSource {
 
 pub fn main() {
     // Build the Orbit source
-    let orbits = Orbits {};
+    let mut orbits = Orbits {};
 
     // The preset API is useful to quickly deploy depending on your application.
     // Static presets target static positioning.
@@ -79,7 +79,6 @@ pub fn main() {
         // We deploy without apriori knowledge.
         // The solver will initialize itself.
         None, // Tie the Orbit source
-        orbits,
     );
 
     // The solver needs to be mutable, due to the iteration process.
@@ -89,7 +88,7 @@ pub fn main() {
 
     // Browse your data source (This is an Example)
     while let Some((epoch, candidates)) = source.next() {
-        match solver.resolve(epoch, &candidates) {
+        match solver.resolve(epoch, &candidates, &mut orbits) {
             Ok((_epoch, solution)) => {
                 // Receiver offset to preset timescale
                 let (_clock_offset, _timescale) = (solution.dt, solution.timescale);
