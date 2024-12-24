@@ -151,9 +151,7 @@ pub enum Error {
 }
 
 /// [Solver] to resolve [PVTSolution]s.
-pub struct Solver<O: OrbitSource> {
-    /// [OrbitSource]
-    orbit: O,
+pub struct Solver {
     /// Solver parametrization
     pub cfg: Config,
     /// Initial [Orbit] either forwarded by User
@@ -215,7 +213,7 @@ fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
     })
 }
 
-impl<O: OrbitSource> Solver<O> {
+impl Solver {
     const ALMANAC_LOCAL_STORAGE: &str = ".cache";
 
     fn nyx_anise_de440s_bsp() -> MetaFile {
@@ -319,7 +317,6 @@ impl<O: OrbitSource> Solver<O> {
     pub fn new_almanac_frame(
         cfg: &Config,
         initial: Option<Orbit>,
-        orbit: O,
         almanac: Almanac,
         frame: Frame,
     ) -> Self {
@@ -339,7 +336,6 @@ impl<O: OrbitSource> Solver<O> {
         // let almanac = Arc::new(almanac);
 
         Self {
-            orbit,
             almanac,
             earth_cef: frame,
             initial,
@@ -362,31 +358,30 @@ impl<O: OrbitSource> Solver<O> {
     ///   You have to take that into account, especially when operating in Fixed Altitude
     ///   or Time Only modes.
     /// - orbit: [OrbitSource] must be provided for Direct (1D) PPP
-    pub fn new(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
+    pub fn new(cfg: &Config, initial: Option<Orbit>) -> Result<Self, Error> {
         let (almanac, earth_cef) = Self::build_almanac_frame_model()?;
-        Ok(Self::new_almanac_frame(
-            cfg, initial, orbit, almanac, earth_cef,
-        ))
+        Ok(Self::new_almanac_frame(cfg, initial, almanac, earth_cef))
     }
     /// Create new Position [Solver] without knowledge of apriori position (full survey)
-    pub fn new_survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
-        Self::new(cfg, None, orbit)
+    pub fn new_survey(cfg: &Config) -> Result<Self, Error> {
+        Self::new(cfg, None)
     }
     /// Create new Position [Solver] without knowledge of apriori position (full survey)
     /// and prefered [Almanac] and [Frame] to work with
-    pub fn new_survey_almanac_frame(
-        cfg: &Config,
-        orbit: O,
-        almanac: Almanac,
-        frame: Frame,
-    ) -> Self {
-        Self::new_almanac_frame(cfg, None, orbit, almanac, frame)
+    pub fn new_survey_almanac_frame(cfg: &Config, almanac: Almanac, frame: Frame) -> Self {
+        Self::new_almanac_frame(cfg, None, almanac, frame)
     }
+
     /// [PVTSolution] resolution attempt.
     /// ## Inputs
     /// - t: desired [Epoch]
     /// - pool: list of [Candidate]
-    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
+    pub fn resolve<O: OrbitSource>(
+        &mut self,
+        t: Epoch,
+        pool: &[Candidate],
+        mut orbit: O,
+    ) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = self.min_sv_required();
         if pool.len() < min_required {
             // no need to proceed further
@@ -421,10 +416,8 @@ impl<O: OrbitSource> Solver<O> {
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
-                    let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    if let Some(tx_orbit) =
-                        orbits.next_at(t_tx, cd.sv, self.earth_cef, interp_order)
+                    if let Some(tx_orbit) = orbit.next_at(t_tx, cd.sv, self.earth_cef, interp_order)
                     {
                         let orbit = Self::rotate_orbit_dcm3x3(
                             cd.t,
@@ -556,7 +549,10 @@ impl<O: OrbitSource> Solver<O> {
             if retained {
                 debug!("{}({}) - tropo delay {:.3E}[m]", cd.t, cd.sv, cd.tropo_bias);
             } else {
-                debug!("{}({}) - rejected (extreme tropo delay)", cd.t, cd.sv);
+                debug!(
+                    "{}({}) - rejected (extreme tropo delay={:.3e})",
+                    cd.t, cd.sv, cd.tropo_bias
+                );
             }
             retained
         });
