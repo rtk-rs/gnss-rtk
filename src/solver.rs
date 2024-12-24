@@ -320,7 +320,6 @@ impl Solver {
         almanac: Almanac,
         frame: Frame,
     ) -> Self {
-
         debug!("Deployed with {:#?}", cfg);
 
         // Print more information
@@ -383,7 +382,7 @@ impl Solver {
         &mut self,
         t: Epoch,
         pool: &[Candidate],
-        mut orbit: O,
+        ref mut orbit: O,
     ) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = self.min_sv_required();
         if pool.len() < min_required {
