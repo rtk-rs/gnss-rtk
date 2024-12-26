@@ -28,8 +28,10 @@ nalgebra = "0.33"
 itertools = "0.13"
 hifitime = { version = "4.0", features = ["std"] }
 anise = { version = "0.5.0", features = ["embed_ephem"] }
+map_3d = "0.1.5"
 nyx-space = { git = "https://github.com/nyx-space/nyx", branch = "master" }
 serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
+
 
 # gnss-rs = { version = "2.2.4" }
 gnss-rs = { git = "https://github.com/rtk-rs/gnss", branch = "main" }
