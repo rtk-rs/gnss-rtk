@@ -32,6 +32,5 @@ map_3d = "0.1.5"
 nyx-space = "2.0.0"
 serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
 
-
 # gnss-rs = { version = "2.2.4" }
 gnss-rs = { git = "https://github.com/rtk-rs/gnss", branch = "main" }
