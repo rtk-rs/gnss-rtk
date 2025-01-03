@@ -575,11 +575,9 @@ impl<O: OrbitSource> Solver<O> {
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
-        let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
-            self.initial.unwrap()
-        } else {
-            self.initial.unwrap()
-        };
+        // NB: always using initial orbit
+        // that has been solved at this point (infaillible)
+        let rx_orbit = self.initial.unwrap();
 
         Self::retain_best_elevation(&mut pool, min_required);
 
@@ -594,7 +592,14 @@ impl<O: OrbitSource> Solver<O> {
                                                  //     }
                                                  // }
 
-        let input = match NavigationInput::new((x0, y0, z0), &self.cfg, &pool, w, &ambiguities) {
+        let input = match NavigationInput::new(
+            rx_orbit,
+            &self.almanac,
+            &self.cfg,
+            &pool,
+            w,
+            &ambiguities,
+        ) {
             Ok(input) => input,
             Err(e) => {
                 error!("Failed to form navigation matrix: {}", e);

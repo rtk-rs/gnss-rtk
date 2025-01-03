@@ -1,8 +1,7 @@
 //! Position solving candidate
 use hifitime::Unit;
 use itertools::Itertools;
-use log::debug;
-use map_3d::{ecef2aer, ecef2geodetic, Ellipsoid};
+use log::{debug, error};
 use std::cmp::Ordering;
 use std::f64::consts::PI;
 
@@ -16,8 +15,8 @@ use crate::{
     constants::Constants,
     navigation::SVInput,
     prelude::{
-        Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method, Orbit,
-        TropoComponents, TropoModel, Vector3, SV,
+        Almanac, Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method,
+        Orbit, TropoComponents, TropoModel, Vector3, SV,
     },
 };
 
@@ -308,10 +307,11 @@ impl Candidate {
     pub(crate) fn matrix_contribution(
         &self,
         cfg: &Config,
+        almanac: &Almanac,
         row: usize,
         y: &mut OVector<f64, U8>,
         g: &mut OMatrix<f64, U8, U8>,
-        apriori: (f64, f64, f64),
+        apriori: Orbit,
     ) -> Result<SVInput, Error> {
         // When RTK is feasible, it is always prefered,
         // because it is much easier and has immediate accuracy.
@@ -320,9 +320,10 @@ impl Candidate {
             self.rtk_matrix_contribution(cfg, row, y, g)
         } else {
             debug!("{}({}): ppp resolution attempt", self.t, self.sv);
-            self.ppp_matrix_contribution(cfg, row, y, g, apriori)
+            self.ppp_matrix_contribution(cfg, almanac, row, y, g, apriori)
         }
     }
+
     /// Matrix conribution, in case of PPP resolution.
     /// The only requirement being that orbital state needs
     /// to be fully resolved. This contribution's accuracy
@@ -331,23 +332,47 @@ impl Candidate {
     fn ppp_matrix_contribution(
         &self,
         cfg: &Config,
+        almanac: &Almanac,
         row: usize,
         y: &mut OVector<f64, U8>,
         g: &mut OMatrix<f64, U8, U8>,
-        apriori: (f64, f64, f64),
+        apriori: Orbit,
     ) -> Result<SVInput, Error> {
+
+        // build sv snapshot
         let mut sv_input = SVInput::default();
+
+        // when using ANISE: both time instants need to match.
+        // This needs to be improved: it means we need to provide here
+        // the rx_orbit state shifted back in time to cd.t TX instant
+        let mut apriori = apriori.clone();
+        apriori.epoch = self.t;
+
+        let rx_state = apriori.to_cartesian_pos_vel() * 1.0E3;
+        let (x0_m, y0_m, z0_m) = (rx_state[0], rx_state[1], rx_state[2]);
+
+        debug!("aprori: {:?}", (x0_m, y0_m, z0_m));
+
+        // orbital state needs to be fully resolved
         let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
         let state = orbit.to_cartesian_pos_vel() * 1.0E3;
 
-        let (x0_m, y0_m, z0_m) = apriori;
         let (sv_x_m, sv_y_m, sv_z_m) = (state[0], state[1], state[2]);
 
-        let (lat0, lon0, alt0) = ecef2geodetic(x0_m, y0_m, z0_m, Ellipsoid::WGS84);
-        let (azimuth, elevation, _) =
-            ecef2aer(sv_x_m, sv_y_m, sv_z_m, lat0, lon0, alt0, Ellipsoid::WGS84);
-        sv_input.elevation = elevation.to_degrees();
-        sv_input.azimuth = azimuth.to_degrees();
+        let (lat, long, _) = orbit.latlongalt().map_err(|e| {
+            error!("(anise): lat_long_alt: {}", e);
+            Error::UnresolvedState
+        })?;
+
+        let azelrg = almanac
+            .azimuth_elevation_range_sez(orbit, apriori, None, None)
+            .map_err(|e| {
+                error!("(anise): azim_elev_sez: {}", e);
+                Error::UnresolvedState
+            })?;
+
+        sv_input.elevation = azelrg.elevation_deg;
+        sv_input.azimuth = azelrg.azimuth_deg;
 
         let mut rho =
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();

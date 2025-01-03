@@ -19,6 +19,7 @@ use crate::{
     cfg::Config,
     // constants::Constants,
     prelude::{
+        Almanac,
         Duration,
         Error,
         IonosphereBias, //Method,
@@ -105,7 +106,8 @@ impl Output {
 impl Input {
     /// Forms new Navigation Input
     pub fn new(
-        apriori: (f64, f64, f64),
+        apriori: Orbit,
+        almanac: &Almanac,
         cfg: &Config,
         cd: &[Candidate],
         w: OMatrix<f64, U8, U8>,
@@ -138,7 +140,7 @@ impl Input {
         }
 
         for i in 0..cd.len() {
-            match cd[i].matrix_contribution(cfg, j, &mut y, &mut g, apriori) {
+            match cd[i].matrix_contribution(cfg, almanac, j, &mut y, &mut g, apriori) {
                 Ok(input) => {
                     sv.insert(cd[i].sv, input);
                     g[(4 + j, 4 + j)] = 1.0_f64;
