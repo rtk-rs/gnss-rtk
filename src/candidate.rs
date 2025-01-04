@@ -2,7 +2,9 @@
 use hifitime::Unit;
 use itertools::Itertools;
 use log::debug;
+use map_3d::{ecef2aer, ecef2geodetic, Ellipsoid};
 use std::cmp::Ordering;
+use std::f64::consts::PI;
 
 use nyx::{
     cosmic::SPEED_OF_LIGHT_M_S,
@@ -340,6 +342,12 @@ impl Candidate {
 
         let (x0_m, y0_m, z0_m) = apriori;
         let (sv_x_m, sv_y_m, sv_z_m) = (state[0], state[1], state[2]);
+
+        let (lat0, lon0, alt0) = ecef2geodetic(x0_m, y0_m, z0_m, Ellipsoid::WGS84);
+        let (azimuth, elevation, _) =
+            ecef2aer(sv_x_m, sv_y_m, sv_z_m, lat0, lon0, alt0, Ellipsoid::WGS84);
+        sv_input.elevation = elevation.to_degrees();
+        sv_input.azimuth = azimuth.to_degrees();
 
         let mut rho =
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
