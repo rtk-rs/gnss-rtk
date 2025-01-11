@@ -14,10 +14,10 @@ pub use validator::InvalidationCause;
 pub type InstrumentBias = HashMap<(SV, Carrier), f64>;
 
 #[cfg(feature = "serde")]
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum PVTSolutionType {
     /// Default, complete solution with Position,
     /// Velocity and Time components. Requires either

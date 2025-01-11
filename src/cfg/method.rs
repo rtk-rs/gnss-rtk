@@ -1,11 +1,11 @@
 use crate::prelude::Error;
 
 #[cfg(feature = "serde")]
-use serde::Deserialize; //, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// Solving method
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Method {
     /// Single Point Positioning (SPP).
     /// Code based navigation on a single carrier frequency.
