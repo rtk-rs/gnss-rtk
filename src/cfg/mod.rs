@@ -22,7 +22,7 @@ pub enum Error {
 
 /// Geometry strategy
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum GeometryStrategy {
     /// Algorithm selects best elevation angles
     #[default]
@@ -35,7 +35,7 @@ pub enum GeometryStrategy {
 /// selects appropriate settings. Failing to select
 /// the apropriate [Profile] will degrade the solutions.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Profile {
     /// Receiver held in static.
     /// Typically used in Geodetic surveys (GNSS stations Referencing)
@@ -47,7 +47,7 @@ pub enum Profile {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ElevationMappingFunction {
     /// a + b * e-elev/c
     pub a: f64,
@@ -64,7 +64,7 @@ impl ElevationMappingFunction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum WeightMatrix {
     /// a + b e-elev/c
     MappingFunction(ElevationMappingFunction),
@@ -162,7 +162,7 @@ fn default_tdop_threshold() -> Option<f64> {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// System Internal Delay as defined by BIPM in
 /// "GPS Receivers Accurate Time Comparison" : the (frequency dependent)
 /// time delay introduced by the combination of:
@@ -178,7 +178,7 @@ pub struct InternalDelay {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SolverOpts {
     /// GDOP threshold to invalidate ongoing GDOP
     #[cfg_attr(feature = "serde", serde(default = "default_gdop_threshold"))]
@@ -211,7 +211,7 @@ impl Default for SolverOpts {
 }
 
 #[derive(Default, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct FilterOpts {
     /// Weight Matrix
     #[cfg_attr(feature = "serde", serde(default = "default_weight_matrix"))]
@@ -303,7 +303,7 @@ impl Default for Modeling {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
     /// Type of solutions to form.
     #[cfg_attr(feature = "serde", serde(default))]

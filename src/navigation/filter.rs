@@ -1,14 +1,14 @@
 use nalgebra::{base::dimension::U8, OMatrix, OVector, Vector3};
 
 #[cfg(feature = "serde")]
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Input, Output};
 use crate::prelude::{Epoch, Error};
 
 /// Navigation Filter.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Filter {
     /// None: solver filter completely bypassed. Lighter calculations, no iterative behavior.
     None,
