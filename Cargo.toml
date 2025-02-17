@@ -1,6 +1,6 @@
 [package]
 name = "gnss-rtk"
-version = "0.7.5"
+version = "0.7.6"
 license = "MPL-2.0"
 authors = ["Guillaume W. Bres <guillaume.bressaix@gmail.com>"]
 description = "GNSS position solver"
