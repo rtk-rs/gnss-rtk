@@ -6,10 +6,9 @@ GNSS-RTK
 [![crates.io](https://docs.rs/gnss-rtk/badge.svg)](https://docs.rs/gnss-rtk)
 [![rustc](https://img.shields.io/badge/rustc-1.64%2B-blue.svg)](https://img.shields.io/badge/rustc-1.64%2B-blue.svg)
 
-Precise positioning calculations, in Rust
+[![License](https://img.shields.io/badge/license-MPL_2.0-orange?style=for-the-badge&logo=mozilla)](https://github.com/rtk-rs/qc-traits/blob/main/LICENSE)
 
-PPP / RTK
-=========
+Position Velocity Time (PVT) solution solver in Rust.
 
 GNSS-RTK is an easy and efficient navigation solver that supports both PPP and RTK navigation. 
 This makes it the ideal solution for most navigation applications.  
@@ -55,7 +54,7 @@ Examples and more information
 at least in basic setups
 * [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework, at a high level
 
-Ecosystem
+Framework
 =========
 
 GNSS-RTK includes itself within and is closely tied to the following libraries:
@@ -65,6 +64,12 @@ GNSS-RTK includes itself within and is closely tied to the following libraries:
 * [Hifitime](https://github.com/nyx-space/hifitime) for timing
 * [GNSS-rs](https://github.com/rtk-rs/gnss) for basic GNSS definitions
 * Nalgebra for all calculations
+
+Licensing
+=========
+
+This library is part of the [RTK-rs framework](https://github.com/rtk-rs) which
+is delivered under the [Mozilla V2 Public](https://www.mozilla.org/en-US/MPL/2.0) license.
 
 Work in Progress
 ================
