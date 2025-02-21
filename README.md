@@ -6,53 +6,52 @@ GNSS-RTK
 [![crates.io](https://img.shields.io/crates/v/gnss-rtk.svg)](https://crates.io/crates/gnss-rtk)
 [![crates.io](https://docs.rs/gnss-rtk/badge.svg)](https://docs.rs/gnss-rtk)
 
-[![License](https://img.shields.io/badge/license-MPL_2.0-orange?style=for-the-badge&logo=mozilla)](https://github.com/rtk-rs/qc-traits/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-MPL_2.0-orange?style=for-the-badge&logo=mozilla)](https://github.com/rtk-rs/gnss-rtk/blob/main/LICENSE)
 
-Position Velocity Time (PVT) solution solver in Rust.
+Position Velocity Time (PVT) solution solver.
 
-GNSS-RTK is an easy and efficient navigation solver that supports both PPP and RTK navigation. 
-This makes it the ideal solution for most navigation applications.  
-It is easy to deploy, the configuration is simple and even the default setup will exhibit good results
-(no tweaking involved!).
+GNSS-RTK is an efficient easy-to-use navigation solutions solver.  
+Compared to other solutions, the solver configuration is simple and easy to deploy.  
+This meaks it the ideal solution for most navigation applications.
 
-GNSS-RTK is flexible and efficient:
+## Flexibily & efficienty
 
-* you can navigate with a single signal in sight
-* you don't have to sample L1 and can navigate with modern signals
-* it supports navigation without phase range
-* a special CPP method for dual frequency pseudo range (no phase range)
-which behaves like a slow converging PPP method
-* is a true surveying tool because it can operate without apriori knowledge
-* it can fulfill the challenging task of RTK / Geodetic reference station calibration
-by deploying a complete PPP survey
+Positioning is a complex task with many steps and details. Yet, we
+strive to provide a flexible and efficient library, without performance compromises:
 
-Other cool features:
-  * works in all supported timescales
-  * can navigate using a conic azimuth mask (min and max azimuth angle).
-  In this case, we only select vehicles from that very region of the compass.
-  * could potentially apply to other Planets, if we make some function more generic
-  and propose better atmosphere interfaces.
-
-GNSS-RTK does not care about SV or signal modulations. It cares
-about physics, distances, frequencies and environmental phenomena.
-This means you operate it from whatever data source you have at your disposal,
-as long as you can provide the required inputs.
+* This library is physics oriented, not application driven.
+You can operate the solver with whatever data source you have at your disposal.
+* The library allows navigation with a single signal in sight,
+which makes it compatible with degraded environment or setups
+* It is not particularly oriented towards PPP, which just happens to be one
+of the available options. In particular, it is possible to navigate without raw signal phase.
+* All supported signals may apply. You don't have to use L1 
+in single scenario. You don't have to use L1+L2 or L1+L5 but L2+L5 for example should be
+feasibile in the PPP scenario as well.
+* Works with all supported timescales
+* We strive to make true RTK feasible also
+* A special CPP method for dual frequency yet pseudo range (no phase) technique was developped.
+* This is a true surveying tool, in the sense it can operate without apriori knowledge
+  - in this sense, it can fulfill the challenging task of RTK or Geodetic reference stations calibration
+* Can apply a speecial conic azimuth mask during navigation process, which may apply in exotic applications
+* Could theoretically apply to other Planets but is currently focused on Earth ground application scenario
 
 Applications
 ============
 
 GNSS-RTK is used by the following applications
 
-* [Post processed PPP with RINEX-Cli (app)](https://github.com/georust/rinex) 
-* [Post processed Common View Timing with RINEX-Cli (app)](https://github.com/georust/rinex) 
-* [Real Time PPP with RT-NAVI (app)](https://github.com/rtk-rs/rt-navi)
+* [PPP solutions solving with RINEX-Cli](https://github.com/rtk-rs/rinex-cli)
+* [CGGTTS solutions solving with RINEX-Cli](https://github.com/rtk-rs/rinex-cli)
+* [Real-Time PPP solutions solving RT-NAVI](https://github.com/rtk-rs/rt-navi)
 
 Examples and more information
 =============================
 
-* Some examples are shipped with this repo, they will teach you how to deploy the solver,
-at least in basic setups
-* [The RINEX Wiki](https://github.com/georust/rinex/wiki) describes extensive application of this framework, at a high level
+* Refer to the examples shipped with the library to understand the API and
+learn how to deploy the solver.
+
+* [RINEX-Cli (app)](https://github.com/rtk-rs/rinex-cli/) describes extensive application of this framework, at a higher level
 
 Framework
 =========
@@ -62,7 +61,7 @@ GNSS-RTK includes itself within and is closely tied to the following libraries:
 * [ANISE](https://github.com/nyx-space/anise) for orbital calculations
 * [Nyx-space](https://github.com/nyx-space/nyx) for advanced navigation
 * [Hifitime](https://github.com/nyx-space/hifitime) for timing
-* [GNSS-rs](https://github.com/rtk-rs/gnss) for basic GNSS definitions
+* [Our GNSS library](https://github.com/rtk-rs/gnss) for basic GNSS definitions
 * Nalgebra for all calculations
 
 Licensing
