@@ -1,4 +1,6 @@
-#![doc(html_logo_url = "https://github.com/rtk-rs/.github/blob/c458a3e2ce136793d281bc2e0f3161e69a663a2e/logos/logo2.jpg")]
+#![doc(
+    html_logo_url = "https://github.com/rtk-rs/.github/blob/c458a3e2ce136793d281bc2e0f3161e69a663a2e/logos/logo2.jpg"
+)]
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
