@@ -60,12 +60,14 @@ impl FilterState {
     fn lsq(state: LSQState) -> Self {
         Self::Lsq(state)
     }
+
     //fn as_lsq(&self) -> Option<&LSQState> {
     //    match self {
     //        Self::LSQ(state) => Some(state),
     //        _ => None,
     //    }
     //}
+
     pub fn ambiguities(&self) -> Vec<f64> {
         let x = match self {
             Self::Lsq(state) => state.x,
@@ -77,15 +79,18 @@ impl FilterState {
         }
         r
     }
+
     fn kf(state: KFState) -> Self {
         Self::Kf(state)
     }
+
     //fn as_kf(&self) -> Option<&KFState> {
     //    match self {
     //        Self::KF(state) => Some(state),
     //        _ => None,
     //    }
     //}
+
     pub(crate) fn estimate(&self) -> OVector<f64, U8> {
         match self {
             Self::Lsq(state) => state.x,

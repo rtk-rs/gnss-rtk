@@ -38,28 +38,39 @@ pub struct SVInput {
 #[derive(Debug, Clone)]
 pub(crate) struct Navigation {
     filter: Filter,
-    pending: Output,
     filter_state: Option<FilterState>,
 }
 
 impl Navigation {
+    /// Create new [Navigation] filter with desired [Filter] type
     pub fn new(filter: Filter) -> Self {
         Self {
             filter,
             filter_state: None,
-            pending: Default::default(),
         }
     }
+
+    /// Reset [Navigation] filter
     pub fn reset(&mut self) {
         self.filter_state = None;
-        self.pending = Default::default();
     }
-    pub fn resolve(&mut self, input: &Input) -> Result<Output, Error> {
+
+    /// Resolve using provided input
+    pub fn resolve(
+        &self,
+        cfg: &Config,
+        apriori: (f64, f64, f64),
+        cd: &[Candidate],
+        w: MatrixXx4<f64>,
+        ambiguities: &Ambiguities,
+    ) -> Result<Output, Error> {
+        let input = Input::new(cfg, apriori, cd, w, amgiguities);
         let out = self.filter.resolve(input, self.filter_state.clone())?;
         self.pending = out.clone();
         Ok(out)
     }
-    pub fn validate(&mut self) {
-        self.filter_state = Some(self.pending.state.clone());
-    }
+
+    //pub fn validate(&mut self) {
+    //    self.filter_state = Some(self.pending.state.clone());
+    //}
 }
