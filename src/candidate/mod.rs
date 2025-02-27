@@ -1,21 +1,14 @@
 //! Position solving candidate
 use hifitime::Unit;
 use log::debug;
-use map_3d::{ecef2aer, ecef2geodetic, Ellipsoid};
-use std::cmp::Ordering;
 
-use nyx::{
-    cosmic::SPEED_OF_LIGHT_M_S,
-    linalg::{OMatrix, OVector, U8},
-};
+use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 use crate::{
     bias::RuntimeParams as BiasRuntimeParams,
-    constants::Constants,
-    navigation::SVInput,
     prelude::{
-        Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method, Orbit,
-        TropoComponents, TropoModel, Vector3, SV,
+        Config, Duration, Epoch, Error, IonoComponents, Method, Orbit, TropoComponents, TropoModel,
+        Vector3, SV,
     },
 };
 

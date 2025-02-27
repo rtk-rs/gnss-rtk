@@ -1,22 +1,16 @@
 //! Position solving candidate
-use hifitime::Unit;
-use itertools::Itertools;
 use log::debug;
 use map_3d::{ecef2aer, ecef2geodetic, Ellipsoid};
 
 use nyx::{
     cosmic::SPEED_OF_LIGHT_M_S,
-    linalg::{DVector, OMatrix, OVector, U8},
+    linalg::{DVector, MatrixXx4, OMatrix, OVector, U8},
 };
 
 use crate::{
-    bias::RuntimeParams as BiasRuntimeParams,
     constants::Constants,
     navigation::SVInput,
-    prelude::{
-        Candidate, Carrier, Config, Duration, Epoch, Error, IonoComponents, IonosphereBias, Method,
-        Orbit, TropoComponents, TropoModel, Vector3, SV,
-    },
+    prelude::{Candidate, Config, Error, IonosphereBias, Method},
 };
 
 impl Candidate {
@@ -30,13 +24,13 @@ impl Candidate {
         cfg: &Config,
         row: usize,
         y: &mut DVector<f64>,
-        g: &mut OMatrixXx4<f64>,
+        g: &mut MatrixXx4<f64>,
         apriori: (f64, f64, f64),
     ) -> Result<SVInput, Error> {
         // When RTK is feasible, it is always prefered,
         // because it is much easier and has immediate accuracy.
         if self.is_rtk_compatible() {
-            self.rtk_matrix_contribution(cfg, row, y, g)
+            self.rtk_matrix_contribution(cfg, row, y, g, apriori)
         } else {
             self.ppp_matrix_contribution(cfg, row, y, g, apriori)
         }
@@ -51,8 +45,8 @@ impl Candidate {
         &self,
         cfg: &Config,
         row: usize,
-        y: &mut OVector<f64, U8>,
-        g: &mut OMatrix<f64, U8, U8>,
+        y: &mut DVector<f64>,
+        g: &mut MatrixXx4<f64>,
         apriori: (f64, f64, f64),
     ) -> Result<SVInput, Error> {
         let mut sv_input = SVInput::default();
@@ -163,8 +157,9 @@ impl Candidate {
         &self,
         _: &Config,
         _: usize,
-        _: &mut OVector<f64, U8>,
-        _: &mut OMatrix<f64, U8, U8>,
+        _: &mut DVector<f64>,
+        _: &mut MatrixXx4<f64>,
+        _: (f64, f64, f64),
     ) -> Result<SVInput, Error> {
         Err(Error::MissingRemoteRTKObservation(self.t, self.sv))
     }

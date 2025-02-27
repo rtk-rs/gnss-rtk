@@ -1,10 +1,3 @@
-use hifitime::Unit;
-use log::debug;
-use map_3d::{ecef2aer, ecef2geodetic, Ellipsoid};
-use std::cmp::Ordering;
-
-use nyx::linalg::{OMatrix, OVector, U8};
-
 use crate::prelude::{Candidate, Carrier};
 
 /// Signal combination

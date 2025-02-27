@@ -1,12 +1,6 @@
 //! Position solving candidate
-use hifitime::Unit;
 use itertools::Itertools;
 use std::cmp::Ordering;
-
-use nyx::{
-    cosmic::SPEED_OF_LIGHT_M_S,
-    linalg::{OMatrix, OVector, U8},
-};
 
 use crate::prelude::{Candidate, Carrier};
 

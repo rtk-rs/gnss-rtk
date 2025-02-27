@@ -4,7 +4,6 @@ use itertools::Itertools;
 use log::debug;
 use map_3d::{ecef2aer, ecef2geodetic, Ellipsoid};
 use std::cmp::Ordering;
-use std::f64::consts::PI;
 
 use nyx::{
     cosmic::SPEED_OF_LIGHT_M_S,
