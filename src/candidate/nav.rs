@@ -4,7 +4,10 @@ use map_3d::{ecef2aer, ecef2geodetic, Ellipsoid};
 
 use nyx::{
     cosmic::SPEED_OF_LIGHT_M_S,
-    linalg::{DVector, MatrixXx4, OMatrix, OVector, U8},
+    linalg::{
+        allocator::Allocator, Const, DVector, DefaultAllocator, DimName, MatrixXx4, OMatrix,
+        OVector, U4, U8,
+    },
 };
 
 use crate::{
@@ -14,53 +17,44 @@ use crate::{
 };
 
 impl Candidate {
-    /// Fills the Matrix and prepare for resolution.
-    /// The matrix contribution is highly dependent on the
-    /// configuration setup.
-    /// This contribution's accuracy depends on the current
-    /// conditions and data quality.
-    pub(crate) fn matrix_contribution(
+    /// Fills state [OMatrix] and [OVector] vector from [Candidate] state.
+    /// ## Input
+    ///  - i: matrix row
+    ///  - cfg: [Config] preset
+    ///  - x0_y0_z0: apriori triplet (m ECEF)
+    pub(crate) fn nav_matrix_contribution<N: DimName>(
         &self,
+        i: usize,
         cfg: &Config,
-        row: usize,
-        y: &mut DVector<f64>,
-        g: &mut MatrixXx4<f64>,
-        apriori: (f64, f64, f64),
-    ) -> Result<SVInput, Error> {
-        // When RTK is feasible, it is always prefered,
-        // because it is much easier and has immediate accuracy.
-        if self.is_rtk_compatible() {
-            self.rtk_matrix_contribution(cfg, row, y, g, apriori)
-        } else {
-            self.ppp_matrix_contribution(cfg, row, y, g, apriori)
-        }
+        y: &mut OVector<f64, N>,
+        g: &mut OMatrix<f64, U4, N>,
+        x0_y0_z0_m: (f64, f64, f64),
+    ) where
+        DefaultAllocator: Allocator<N>,
+        DefaultAllocator: Allocator<Const<4>, N>,
+    {
     }
 
-    /// Matrix conribution, in case of PPP resolution.
-    /// The only requirement being that orbital state needs
-    /// to be fully resolved. This contribution's accuracy
-    /// (to the general process) depends on the current setup
-    /// and provided data (condition and quality).
-    fn ppp_matrix_contribution(
+    /// Fills state [OMatrix] and [OVector] vector from [Candidate] state for PPP Navigation.
+    /// ## Input
+    ///  - i: matrix row
+    ///  - cfg: [Config] preset
+    ///  - x0_y0_z0: apriori triplet (m ECEF)
+    fn ppp_matrix_contribution<N: DimName>(
         &self,
+        i: usize,
         cfg: &Config,
-        row: usize,
-        y: &mut DVector<f64>,
-        g: &mut MatrixXx4<f64>,
-        apriori: (f64, f64, f64),
-    ) -> Result<SVInput, Error> {
-        let mut sv_input = SVInput::default();
+        y: &mut OVector<f64, N>,
+        g: &mut OMatrix<f64, U4, N>,
+        x0_y0_z0_m: (f64, f64, f64),
+    ) where
+        DefaultAllocator: Allocator<N>,
+        DefaultAllocator: Allocator<Const<4>, N>,
+    {
         let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
-        let state = orbit.to_cartesian_pos_vel() * 1.0E3;
 
-        let (x0_m, y0_m, z0_m) = apriori;
-        let (sv_x_m, sv_y_m, sv_z_m) = (state[0], state[1], state[2]);
-
-        let (lat0, lon0, alt0) = ecef2geodetic(x0_m, y0_m, z0_m, Ellipsoid::WGS84);
-        let (azimuth, elevation, _) =
-            ecef2aer(sv_x_m, sv_y_m, sv_z_m, lat0, lon0, alt0, Ellipsoid::WGS84);
-        sv_input.elevation = elevation.to_degrees();
-        sv_input.azimuth = azimuth.to_degrees();
+        let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
+        let (sv_x_m, sv_y_m, sv_z_m) = orbit.to_cartesian_pos_vel() * 1.0E3;
 
         let mut rho =
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
@@ -72,95 +66,93 @@ impl Candidate {
             let r_sat_0 = r_0 - r_sat;
             let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
+
             debug!(
                 "{}({}) relativistic path range {:.3E}m",
                 self.t, self.sv, dr
             );
+
             rho += dr;
         }
 
-        let (x_i, y_i, z_i) = (
+        let (dx_m, dy_m, dz_m) = (
             (x0_m - sv_x_m) / rho,
             (y0_m - sv_y_m) / rho,
             (z0_m - sv_z_m) / rho,
         );
 
-        g[(row, 0)] = x_i;
-        g[(row, 1)] = y_i;
-        g[(row, 2)] = z_i;
-        g[(row, 3)] = 1.0_f64;
+        h[(i, 0)] = dx_m;
+        h[(i, 1)] = dy_m;
+        h[(i, 2)] = dz_m;
+        h[(i, 3)] = SPEED_OF_LIGHT_M_S;
 
-        let mut models = 0.0_f64;
+        let mut iono_compensated = false;
 
-        if cfg.modeling.sv_clock_bias {
-            let corr = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
-            sv_input.clock_correction = Some(corr.duration);
-            models -= corr.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
-        }
-
-        if cfg.modeling.sv_total_group_delay {
-            models -= self.tgd.unwrap_or_default().to_seconds();
-        }
-
-        let (pr, frequency) = match cfg.method {
-            Method::SPP => {
-                let pr = self
-                    .prefered_pseudorange()
-                    .ok_or(Error::MissingPseudoRange)?;
-                (pr.pseudo.unwrap(), pr.carrier.frequency())
+        let range_m = match method {
+            Method::SPP => self
+                .prefered_pseudorange()
+                .ok_or(Error::MissingPseudoRange)?,
+            Method::CPP => {
+                // TODO
+                self.prefered_pseudorange()
+                    .ok_or(Error::MissingPseudoRange)?
             },
-            Method::CPP | Method::PPP => {
-                let pr = self
-                    .code_if_combination()
-                    .ok_or(Error::PseudoRangeCombination)?;
-                (pr.value, pr.rhs.frequency())
+            Method::PPP => {
+                // TODO
+                self.prefered_pseudorange()
+                    .ok_or(Error::MissingPseudoRange)?
             },
         };
 
-        // cable delays
+        let mut bias_m = 0.0;
+
+        if cfg.modeling.sv_clock_bias {
+            let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
+            bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
+        }
+
+        if cfg.modeling.sv_total_group_delay {
+            // TODO c * dt ?
+            bias_m -= self.tgd.unwrap_or_default().to_seconds() * SPEED_OF_LIGHT_M_S;
+        }
+
         if cfg.modeling.cable_delay {
             if let Some(delay) = cfg.externalref_delay {
-                models -= delay * SPEED_OF_LIGHT_M_S;
+                bias_m -= delay * SPEED_OF_LIGHT_M_S;
             }
-            // TODO: frequency dependent delays
-            for delay in &cfg.int_delay {
-                if delay.frequency == frequency {
-                    models += delay.delay * SPEED_OF_LIGHT_M_S;
-                }
+
+            for _ in cfg.int_delay.iter() {
+                // TODO frequency dependent delays
             }
         }
 
-        // tropo
+        if cfg.modeling.iono_delay && !iono_compensated {
+            bias_m += self.iono_bias_m;
+        }
+
         if cfg.modeling.tropo_delay {
-            let bias = self.tropo_bias;
-            models += bias;
-            sv_input.tropo_bias = Some(bias);
+            bias_m += self.tropo_bias_m;
         }
 
-        // iono
-        if cfg.modeling.iono_delay {
-            let bias = self.iono_bias;
-            models += bias;
-            if cfg.method == Method::SPP {
-                sv_input.iono_bias = Some(IonosphereBias::modeled(bias));
-            } else {
-                sv_input.iono_bias = Some(IonosphereBias::measured(bias));
-            }
-        }
-
-        y[row] = pr - rho - models;
-        Ok(sv_input)
+        b[i] = range_m - rho - bias_m;
     }
 
-    /// Matrix contribution, in case of RTK resolution.
-    fn rtk_matrix_contribution(
+    /// Fills state [OMatrix] and [OVector] vector from [Candidate] state for RTK Navigation.
+    /// ## Input
+    ///  - i: matrix row
+    ///  - cfg: [Config] preset
+    ///  - x0_y0_z0: apriori triplet (m ECEF)
+    fn rtk_matrix_contribution<N: DimName>(
         &self,
-        _: &Config,
         _: usize,
-        _: &mut DVector<f64>,
-        _: &mut MatrixXx4<f64>,
+        _: &Config,
+        _: &mut OVector<f64, N>,
+        _: &mut OMatrix<f64, U4, N>,
         _: (f64, f64, f64),
-    ) -> Result<SVInput, Error> {
-        Err(Error::MissingRemoteRTKObservation(self.t, self.sv))
+    ) where
+        DefaultAllocator: Allocator<N>,
+        DefaultAllocator: Allocator<Const<4>, N>,
+    {
+        panic!("rtk not available yet");
     }
 }

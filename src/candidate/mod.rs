@@ -7,8 +7,8 @@ use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 use crate::{
     bias::RuntimeParams as BiasRuntimeParams,
     prelude::{
-        Config, Duration, Epoch, Error, IonoComponents, Method, Orbit, TropoComponents, TropoModel,
-        Vector3, SV,
+        Config, Duration, Epoch, Error, IonosphereComponents, Method, Orbit, TropoModel,
+        TroposphereComponents, Vector3, SV,
     },
 };
 
@@ -44,10 +44,10 @@ pub struct Candidate {
     pub(crate) elevation_deg: Option<f64>,
     /// azimuth at reception time
     pub(crate) azimuth_deg: Option<f64>,
-    /// Resolved bias
-    pub(crate) iono_bias: f64,
-    /// Resolved bias
-    pub(crate) tropo_bias: f64,
+    /// Bias in meters.
+    pub(crate) iono_bias_m: f64,
+    /// Bias in meters.
+    pub(crate) tropo_bias_m: f64,
     /// [IonoComponents]
     pub(crate) iono_components: IonoComponents,
     /// [TropoComponents]
@@ -77,17 +77,17 @@ impl Candidate {
             sv,
             t,
             observations,
-            iono_bias: 0.0,
-            tropo_bias: 0.0,
-            wind_up: 0.0_f64,
-            remote_obs: Vec::new(),
-            azimuth_deg: None,
-            elevation_deg: None,
-            orbit: None,
-            tgd: None,
-            clock_corr: None,
-            iono_components: IonoComponents::Unknown,
-            tropo_components: TropoComponents::Unknown,
+            tgd: Default::default(),
+            orbit: Default::default(),
+            wind_up: Default::default(),
+            remote_obs: Default::default(),
+            azimuth_deg: Default::default(),
+            elevation_deg: Default::default(),
+            clock_corr: Default::default(),
+            iono_bias_m: Default::default(),
+            tropo_bias_m: Default::default(),
+            iono_components: Default::default(),
+            tropo_components: Default::default(),
         }
     }
 
@@ -110,7 +110,7 @@ impl Candidate {
     /// internal Meteorological table model. Accurate Tropospheric perturbation compensation
     /// will increase your PPP accuracy by tens of meters. This has no effect
     /// when its compensation is turned off.
-    pub fn set_tropo_components(&mut self, tropo: TropoComponents) {
+    pub fn set_troposphere_components(&mut self, tropo: TroposphereComponents) {
         self.tropo_components = tropo;
     }
 
@@ -119,7 +119,7 @@ impl Candidate {
     /// will increase your PPP accuracy by a few meters. This has no effect
     /// when its compensation is turned off. This has no effect when selected
     /// navigation mode allows direct compensation of this effect, which is always prefered.
-    pub fn set_iono_components(&mut self, iono: IonoComponents) {
+    pub fn set_ionosphere_components(&mut self, iono: IonosphereComponents) {
         self.iono_components = iono;
     }
 

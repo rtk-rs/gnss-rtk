@@ -31,7 +31,7 @@ mod tests;
 pub mod prelude {
     pub use crate::ambiguity::Ambiguities;
     pub use crate::bias::{
-        BdModel, IonoComponents, IonosphereBias, KbModel, NgModel, TropoComponents, TropoModel,
+        Bias, BiasRuntime, IonosphereBias, IonosphereModel, KbModel, TroposphereModel,
     };
     pub use crate::candidate::{Candidate, ClockCorrection, Observation};
     pub use crate::carrier::Carrier;

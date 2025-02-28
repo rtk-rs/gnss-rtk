@@ -5,19 +5,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     navigation::Filter,
-    prelude::{PVTSolutionType, TimeScale},
+    prelude::{Carrier, PVTSolutionType, TimeScale},
 };
 
 use nalgebra::{base::dimension::U8, OMatrix};
 
 mod method;
-pub use method::Method;
+mod modeling;
+mod profile;
+mod signal;
+
+pub use crate::cfg::{method::Method, modeling::Modeling, profile::Profile, signal::Signal};
 
 /// Configuration Error
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("unknown tropo model")]
-    UnknownTropoModel,
+    #[error("invalid troposphere model")]
+    InvalidTroposphereModel,
 }
 
 /// Geometry strategy
@@ -29,21 +33,6 @@ pub enum GeometryStrategy {
     BestElevation,
     /// Spread geometry algorithm (aims at minimizing geometric error)
     SpreadAzimuth,
-}
-
-/// Rover or receiver use case Profile, to the [Solver]
-/// selects appropriate settings. Failing to select
-/// the apropriate [Profile] will degrade the solutions.
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum Profile {
-    /// Receiver held in static.
-    /// Typically used in Geodetic surveys (GNSS stations Referencing)
-    /// and laboratories applications.
-    #[default]
-    Static,
-    /// Roaming: Pedestrian (5 to 10 km/h)
-    Pedestrian,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -241,89 +230,35 @@ impl SolverOpts {
     }
 }
 
-/// Atmospherical, Physical and Environmental modeling
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Modeling {
-    /// Compensate for onboard clock offset to system time (+/- 100km)
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub sv_clock_bias: bool,
-    /// Compensate for onboard circuitry delay (+/- 1m)
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub sv_total_group_delay: bool,
-    /// Compensate for relativistic effect on onboard clock (+/- 1m)
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub relativistic_clock_bias: bool,
-    /// Compensate for relativistic effect on signal propagation (+/- 0.1 m)
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub relativistic_path_range: bool,
-    /// Compensate for troposphere negative impact (+/- 10m)
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub tropo_delay: bool,
-    /// Compensate for ionosphere negative impact (+/- 10m).
-    /// If Method is not [Method::SPP], this is
-    /// natively taken care of and option is actually disregarded.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub iono_delay: bool,
-    /// Compensate for Earth rotation during signal propagation
-    /// (static +5/+10m eastern error).
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub earth_rotation: bool,
-    /// Compensate for signal phase windup. This only impacts
-    /// strategies that use raw phase like [Method::PPP].
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub phase_windup: bool,
-    /// Setup cable delay compensation.
-    /// Only effective if the (RF) cable delay of your setup
-    /// are known and defined in [Config]. Only careful
-    /// cable delay specs will allow differential timing analysis.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub cable_delay: bool,
-    /// Compensate to crust (solid body) deformation due to moon and star
-    /// gravitational effect.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub solid_tides: bool,
-}
-
-impl Default for Modeling {
-    fn default() -> Self {
-        Self {
-            sv_clock_bias: default_sv_clock(),
-            iono_delay: default_iono(),
-            tropo_delay: default_tropo(),
-            sv_total_group_delay: default_sv_tgd(),
-            earth_rotation: default_earth_rot(),
-            phase_windup: default_phase_windup(),
-            solid_tides: default_solid_tides(),
-            cable_delay: default_cable_delay(),
-            relativistic_clock_bias: default_relativistic_clock_bias(),
-            relativistic_path_range: default_relativistic_path_range(),
-        }
-    }
-}
-
 #[derive(Default, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Config {
-    /// Type of solutions to form.
+    /// Type of Solutions to resolve, defined as [PVTSolutionType].
+    /// [PVTSolutionType::PositionVelocityTime] is the default.
     #[cfg_attr(feature = "serde", serde(default))]
     pub sol_type: PVTSolutionType,
     /// Time scale in which we express the PVT solutions,
     /// [TimeScale::GPST] is the default value.
     #[cfg_attr(feature = "serde", serde(default = "default_timescale"))]
     pub timescale: TimeScale,
-    /// Solver method (strategy) used.
+    /// Navigation [Method] (technique) to be used.
     #[cfg_attr(feature = "serde", serde(default))]
     pub method: Method,
     /// [Profile] defines the type of application.
     #[cfg_attr(feature = "serde", serde(default))]
     pub profile: Profile,
+    /// Select a prefered signal.
+    /// When defined, this signal will strictly be used in the navigation process.
+    /// When undefined, the algorithm will prefer the best SNR available, and the
+    /// signal frequency being used might change.
+    /// When [Method] is [Method::SPP] this should be a single frequency.
+    /// When [Method] is not [Method::SPP] and [Modeling] enables Ionospheric
+    /// bias compensation,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub prefered_signal: Option<PreferedSignal>,
     /// Possible remote reference site coordinates, in ECEF [m].
     /// Must be defined in case RTK navigation is selected.
     pub remote_site: Option<(f64, f64, f64)>,
-    /// Interpolation order
-    #[cfg_attr(feature = "serde", serde(default = "default_interp"))]
-    pub interp_order: usize,
     /// Fixed altitude: reduces the need of 4 to 3 SV to obtain 3D solutions.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fixed_altitude: Option<f64>,

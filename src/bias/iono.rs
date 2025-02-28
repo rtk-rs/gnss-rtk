@@ -1,23 +1,36 @@
-use crate::{bias::RuntimeParams, prelude::TimeScale};
+use crate::{
+    bias::{Bias, BiasRuntime},
+    prelude::TimeScale,
+};
+
 use std::f64::consts::PI;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// Ionopheric delay components to attach to any attempt.
+/// Ionopheric delay components that we propose.
 #[derive(Default, Clone, Copy)]
-pub enum IonoComponents {
+pub enum IonosphereModel {
     /// Unknown
     #[default]
     Unknown,
     /// Provide a [KbModel]
     KbModel(KbModel),
-    /// Provide a [NgModel]
-    NgModel(NgModel),
-    /// Provide a [BdModel]
-    BdModel(BdModel),
-    /// Provide Slant Total Electron Density [TECu]
-    Stec(f64),
+    // /// Provide a [NgModel]
+    // NgModel(NgModel),
+    // /// Provide a [BdModel]
+    // BdModel(BdModel),
+}
+
+impl Bias for IonosphereModel {
+    fn bias_m(&self, rtm: &BiasRuntime) -> f64 {
+        match self {
+            Self::Unknown => 0.0,
+            Self::KbModel(kb) => kb.bias_m(rtm),
+            // Self::BdModel(bd) => bd.bias_m(rtm),
+            // Self::NgModel(ng) => ng.bias_m(rtm),
+        }
+    }
 }
 
 /// Klobuchar Model
@@ -31,16 +44,24 @@ pub struct KbModel {
     pub h_km: f64,
 }
 
-impl KbModel {
-    pub(crate) fn value(&self, rtm: &RuntimeParams) -> f64 {
+impl Bias for KbModel {
+    fn bias_m(&self, rtm: &BiasRuntime) -> f64 {
         const PHI_P: f64 = 78.3;
         const R_EARTH: f64 = 6378.0;
         const LAMBDA_P: f64 = 291.0;
         const L1_F: f64 = 1575.42E6;
 
-        let (phi_u, lambda_u) = rtm.rx_rad;
+        let (phi_u, lambda_u) = (
+            rtm.rx_lat_long_alt_deg_deg_km.0.to_radians(),
+            rtm.rx_lat_long_alt_deg_deg_km.1.to_radians(),
+        );
+
         let fract = R_EARTH / (R_EARTH + self.h_km);
-        let (elev_rad, azim_rad) = (rtm.elevation_rad, rtm.azimuth_rad);
+
+        let (elev_rad, azim_rad) = (
+            rtm.sv_elevation_azimuth_deg_deg.0.to_radians(),
+            rtm.sv_elevation_azimuth_deg_deg.1.to_radians(),
+        );
 
         let t_gpst = rtm
             .t
@@ -84,51 +105,39 @@ impl KbModel {
             false => f * 5.0 * 10E-9,
         };
 
-        i_1 * (L1_F / rtm.frequency).powi(2)
+        i_1 * (L1_F / rtm.frequency_hz).powi(2)
     }
 }
 
-/// Nequick-G Model: is not supported yet.
-#[derive(Clone, Copy, Default, Debug)]
-pub struct NgModel {
-    /// alpha coefficients
-    pub a: (f64, f64, f64),
-}
+// /// Nequick-G Model: is not supported yet.
+// #[derive(Clone, Copy, Default, Debug)]
+// pub struct NgModel {
+//     /// alpha coefficients
+//     pub a: (f64, f64, f64),
+// }
 
-impl NgModel {
-    pub(crate) fn value(&self, _rtm: &RuntimeParams) -> f64 {
-        //let phi = deg2rad(rtm.apriori_geo.0);
-        //let mu = inclination / phi.cos().sqrt();
-        0.0
-    }
-}
+// impl NgModel {
+//     pub(crate) fn bias_m(&self, _rtm: &RuntimeParams) -> f64 {
+//         //let phi = deg2rad(rtm.apriori_geo.0);
+//         //let mu = inclination / phi.cos().sqrt();
+//         0.0
+//     }
+// }
 
-/// BDGIM Model: is not supported yet.
-#[derive(Clone, Copy, Default, Debug)]
-pub struct BdModel {
-    /// Alpha coefficients in TECu
-    pub alpha: (f64, f64, f64, f64, f64, f64, f64, f64, f64),
-}
+// /// BDGIM Model: is not supported yet.
+// #[derive(Clone, Copy, Default, Debug)]
+// pub struct BdModel {
+//     /// Alpha coefficients in TECu
+//     pub alpha: (f64, f64, f64, f64, f64, f64, f64, f64, f64),
+// }
 
-impl BdModel {
-    pub(crate) fn value(&self, _rtm: &RuntimeParams) -> f64 {
-        //let phi = deg2rad(rtm.apriori_geo.0);
-        //let mu = inclination / phi.cos().sqrt();
-        0.0
-    }
-}
-
-impl IonoComponents {
-    pub(crate) fn value(&self, rtm: &RuntimeParams) -> f64 {
-        match self {
-            Self::Unknown => 0.0,
-            Self::KbModel(model) => model.value(rtm),
-            Self::NgModel(model) => model.value(rtm),
-            Self::BdModel(model) => model.value(rtm),
-            Self::Stec(..) => 0.0, //TODO
-        }
-    }
-}
+// impl BdModel {
+//     pub(crate) fn value(&self, _rtm: &RuntimeParams) -> f64 {
+//         //let phi = deg2rad(rtm.apriori_geo.0);
+//         //let mu = inclination / phi.cos().sqrt();
+//         0.0
+//     }
+// }
 
 /// Modeled (estimated) or measured bias
 #[derive(Debug, Copy, Clone)]

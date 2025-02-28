@@ -518,8 +518,9 @@ impl Candidate {
             })
             .map(|c| c.snr)?
     }
+
     /// Returns one pseudo range observation [m], whatever the frequency.
-    pub(crate) fn prefered_pseudorange(&self) -> Option<Observation> {
+    pub(crate) fn prefered_pseudorange(&self) -> Option<f64> {
         if let Some(c1) = self
             .observations
             .iter()
@@ -531,7 +532,7 @@ impl Candidate {
             })
             .reduce(|k, _| k)
         {
-            Some(c1.clone())
+            Some(c1.pseudo)
         } else {
             self.observations
                 .iter()
@@ -546,6 +547,7 @@ impl Candidate {
                 .cloned()
         }
     }
+
     // True if Self is Method::CPP compatible
     pub(crate) fn cpp_compatible(&self) -> bool {
         self.dual_pseudorange()

@@ -5,7 +5,7 @@ use crate::{
 
 use nalgebra::{
     base::dimension::{U4, U8},
-    OMatrix, OVector,
+    OMatrix,
 };
 
 // use nyx::cosmic::SPEED_OF_LIGHT_M_S;

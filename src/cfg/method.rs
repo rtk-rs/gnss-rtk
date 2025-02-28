@@ -9,19 +9,20 @@ use serde::Deserialize; //, Serialize};
 pub enum Method {
     /// Single Point Positioning (SPP).
     /// Code based navigation on a single carrier frequency.
-    /// Phase observations are not required, and Ionosphere model must be provided
-    /// for best results. Exhibits metric accuracy on high quality data.
+    /// Phase observations are completely discarded and are not required from the RX side.
+    /// When prefered signal is defined, we expect a pseudo range on that particular frequency.
+    /// When prefered signal is not defined, we might switch depending on the best SNR.
+    /// Expect +/- 10m accuracy is you correctly tune other parameters.
+    /// You might hope for +/- 5m on high quality data.
     SPP,
     /// Code based Precise Point Positioning (CPP).
-    /// Code based navigation on dual carrier frequencies.
-    /// Both phase observations and Ionosphere modeling are not required.
-    /// Exhibits metric accuracy on high quality data.
+    /// Code based dual carrier frequency technique.
+    /// Phase observations are completely discarded and are not required from the RX side.
+    /// Expect +/- 5m accuracy is you correctly tune other parameters.
+    /// You might hope for +/- 1m on high quality data.
     #[default]
     CPP,
     /// Precise Point Positioning (PPP).
-    /// Code and Carrier based navigation, requires Pseudo range and
-    /// Carrier phase observations on two frequencies.
-    /// Exhibits centimetric accuracy on high quality data.
     PPP,
 }
 

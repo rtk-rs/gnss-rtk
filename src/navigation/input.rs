@@ -29,8 +29,6 @@ pub struct Input {
     pub y: DVector<f64>,
     /// NAV Matrix
     pub g: OMatrix<f64, U8, U8>,
-    /// Weight Diagonal Matrix
-    pub w: OMatrix<f64, U8, U8>,
     /// SV dependent data
     pub sv: HashMap<SV, SVInput>,
 }

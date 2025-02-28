@@ -43,14 +43,14 @@ use crate::{
 
 #[derive(Debug, PartialEq, Error)]
 pub enum Error {
-    /// Not enough candidates were proposed: we do not attempt resolution
+    /// Not enough candidates were proposed, with respect to navigation parameters.
     #[error("not enough candidates provided")]
     NotEnoughCandidates,
     /// Survey initialization (no apriori = internal guess)
     /// requires at least 4 SV in sight temporarily, whatever
     /// your navigation technique.
-    #[error("needs 4 SV in sight at least temporarily")]
-    NotEnoughCandidatesBancroft,
+    #[error("survey initialization requires at least 4 SV temporarily")]
+    NotEnoughInitializationCandidates,
     /// PreFit (signal quality, other..) criterias
     /// have been applied but we're left with not enough vehicles that match
     /// the navigation technique: no attempt.
@@ -64,12 +64,16 @@ pub enum Error {
     /// Failed to parse navigation method
     #[error("non supported/invalid strategy")]
     InvalidStrategy,
+    #[error("not enough post-fit candidates to form a matrix")]
+    MatrixMinimalDimension,
+    #[error("internal error: invalid alloc size")]
+    MatrixDimension,
     #[error("failed to form matrix (invalid input or not enough data)")]
     MatrixFormationError,
     /// Invalid orbital states or bad signal data may cause the algebric calculations
     /// to wind up here.
     #[error("failed to invert matrix")]
-    MatrixInversionError,
+    MatrixInversion,
     /// Invalid orbital states or bad signal data may cause the algebric calculations
     /// to wind up here.
     #[error("resolved time is `nan` (invalid value(s))")]

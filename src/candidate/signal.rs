@@ -132,7 +132,7 @@ impl Candidate {
     }
 
     /// Returns one pseudo range observation [m], whatever the frequency.
-    pub(crate) fn prefered_pseudorange(&self) -> Option<Observation> {
+    pub(crate) fn prefered_pseudorange(&self) -> Option<f64> {
         if let Some(c1) = self
             .observations
             .iter()
@@ -144,7 +144,7 @@ impl Candidate {
             })
             .reduce(|k, _| k)
         {
-            Some(c1.clone())
+            Some(c1.pseudo)
         } else {
             self.observations
                 .iter()
@@ -162,16 +162,16 @@ impl Candidate {
 
     /// True if Self is Method::CPP compatible
     pub(crate) fn cpp_compatible(&self) -> bool {
-        self.dual_pseudorange()
+        self.has_dual_pseudorange()
     }
 
     /// True if Self is Method::PPP compatible
     pub(crate) fn ppp_compatible(&self) -> bool {
-        self.dual_pseudorange() && self.dual_phase()
+        self.has_dual_pseudorange() && self.has_dual_phase()
     }
 
     /// True if dual PR is present
-    pub(crate) fn dual_pseudorange(&self) -> bool {
+    pub(crate) fn has_dual_pseudorange(&self) -> bool {
         self.pseudo_range_iter()
             .map(|(signal, _)| signal)
             .unique()
@@ -180,7 +180,7 @@ impl Candidate {
     }
 
     /// True if dual phase is present
-    pub(crate) fn dual_phase(&self) -> bool {
+    pub(crate) fn has_dual_phase(&self) -> bool {
         self.phase_range_iter()
             .map(|(signal, _)| signal)
             .unique()
