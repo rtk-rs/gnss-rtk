@@ -1,4 +1,5 @@
 use hifitime::Unit;
+use log::error;
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 pub mod solutions;
@@ -131,7 +132,6 @@ impl Navigation {
     /// ## Returns
     /// - [Navigation], [Error]
     pub fn new(cfg: &Config, state: &State, candidates: &[Candidate]) -> Result<Self, Error> {
-        const MIN_SIZE: usize = 4;
         let size = candidates.len();
 
         match cfg.solution {
@@ -153,13 +153,22 @@ impl Navigation {
         let mut b = DVector::<f64>::zeros(size);
         let mut h = MatrixXx4::<f64>::zeros(size);
 
+        let mut j = 0;
+
         for i in 0..candidates.len() {
-            let contribution = candidates[i].spp_matrix_contribution(i, cfg, state.pos_m);
-            h[(i, 0)] = contribution.h[(0, 0)];
-            h[(i, 1)] = contribution.h[(0, 1)];
-            h[(i, 2)] = contribution.h[(0, 2)];
-            h[(i, 3)] = contribution.h[(0, 3)];
-            b[i] = contribution.b;
+            match candidates[i].spp_matrix_contribution(cfg, state.pos_m) {
+                Ok(contribution) => {
+                    h[(j, 0)] = contribution.h[(0, 0)];
+                    h[(j, 1)] = contribution.h[(0, 1)];
+                    h[(j, 2)] = contribution.h[(0, 2)];
+                    h[(j, 3)] = contribution.h[(0, 3)];
+                    b[j] = contribution.b;
+                    j += 1;
+                },
+                Err(e) => {
+                    error!("({}) does not contribute: {}", candidates[i].sv, e);
+                },
+            }
         }
 
         Ok(Self {
@@ -171,7 +180,7 @@ impl Navigation {
     }
 
     /// Iterates this [Navigation] filter, updating provided state
-    pub fn iter(&mut self) -> Result<(), Error> {
+    pub fn iterate(&mut self) -> Result<(), Error> {
         let ht = self.h.transpose();
         let ht_h = ht.clone() * self.h.clone();
         let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
@@ -182,5 +191,297 @@ impl Navigation {
         self.dx = ht_h_inv * ht_b;
         self.iter += 1;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    use anise::{constants::frames::EARTH_J2000, math::Vector6};
+
+    use crate::{
+        navigation::{Navigation, State},
+        prelude::{
+            Almanac, Candidate, Carrier, Config, Epoch, Error, Observation, Orbit, Vector3, SV,
+        },
+    };
+
+    use nalgebra::{Matrix4, Vector4};
+
+    #[test]
+    fn pvt_navi_failures() {
+        let cfg = Config::default();
+        let (x0_m, y0_m, z0_m) = (0.0_f64, 0.0_f64, 0.0_f64);
+
+        let almanac = Almanac::until_2035().unwrap();
+        let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+
+        let state = &State::from_ecef_m(Vector3::new(x0_m, y0_m, z0_m), Default::default(), frame);
+
+        let t = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+        let g01 = SV::from_str("G01").unwrap();
+        let g02 = SV::from_str("G02").unwrap();
+        let g03 = SV::from_str("G03").unwrap();
+        let g04 = SV::from_str("G04").unwrap();
+
+        let mut candidates = vec![Candidate::new(
+            g01,
+            t,
+            vec![Observation {
+                snr_dbhz: None,
+                carrier: Carrier::L1,
+                pseudo_range_m: Some(1.0),
+                phase_range_m: None,
+                doppler: None,
+                ambiguity: None,
+            }],
+        )];
+
+        match Navigation::new(&cfg, state, &candidates) {
+            Err(e) => match e {
+                Error::MatrixMinimalDimension => {},
+                e => panic!("failed with invalid error: {}", e),
+            },
+            _ => panic!("should have failed 1x4"),
+        }
+
+        candidates.push(Candidate::new(
+            g02,
+            t,
+            vec![Observation {
+                snr_dbhz: None,
+                carrier: Carrier::L1,
+                pseudo_range_m: Some(1.0),
+                phase_range_m: None,
+                doppler: None,
+                ambiguity: None,
+            }],
+        ));
+
+        match Navigation::new(&cfg, state, &candidates) {
+            Err(e) => match e {
+                Error::MatrixMinimalDimension => {},
+                e => panic!("failed with invalid error: {}", e),
+            },
+            _ => panic!("should have failed 2x4"),
+        }
+
+        candidates.push(Candidate::new(
+            g03,
+            t,
+            vec![Observation {
+                snr_dbhz: None,
+                carrier: Carrier::L1,
+                pseudo_range_m: Some(1.0),
+                phase_range_m: None,
+                doppler: None,
+                ambiguity: None,
+            }],
+        ));
+
+        match Navigation::new(&cfg, state, &candidates) {
+            Err(e) => match e {
+                Error::MatrixMinimalDimension => {},
+                e => panic!("failed with invalid error: {}", e),
+            },
+            _ => panic!("should have failed 3x4"),
+        }
+
+        let candidates = vec![
+            Candidate::new(
+                g01,
+                t,
+                vec![Observation {
+                    snr_dbhz: None,
+                    carrier: Carrier::L1,
+                    pseudo_range_m: Some(1.0),
+                    phase_range_m: None,
+                    doppler: None,
+                    ambiguity: None,
+                }],
+            ),
+            Candidate::new(
+                g02,
+                t,
+                vec![Observation {
+                    snr_dbhz: None,
+                    carrier: Carrier::L1,
+                    pseudo_range_m: Some(1.0),
+                    phase_range_m: None,
+                    doppler: None,
+                    ambiguity: None,
+                }],
+            ),
+            Candidate::new(
+                g03,
+                t,
+                vec![Observation {
+                    snr_dbhz: None,
+                    carrier: Carrier::L1,
+                    pseudo_range_m: Some(1.0),
+                    phase_range_m: None,
+                    doppler: None,
+                    ambiguity: None,
+                }],
+            ),
+            Candidate::new(
+                g04,
+                t,
+                vec![Observation {
+                    snr_dbhz: None,
+                    carrier: Carrier::L1,
+                    pseudo_range_m: Some(1.0),
+                    phase_range_m: None,
+                    doppler: None,
+                    ambiguity: None,
+                }],
+            ),
+        ];
+
+        let mut nav = Navigation::new(&cfg, &state, &candidates).unwrap();
+
+        assert_eq!(nav.b, Vector4::zeros(), "Only unresolved states!");
+        assert_eq!(nav.h, Matrix4::zeros(), "Only unresolved states!");
+
+        match nav.iterate() {
+            Ok(_) => panic!("should have failed (due to unresolved state"),
+            Err(e) => match e {
+                Error::MatrixInversion => {},
+                e => panic!("failed with unexpected error: {}", e),
+            },
+        }
+    }
+
+    #[test]
+    fn pvt_navi_noclock_nobias() {
+        let mut cfg = Config::default();
+
+        cfg.modeling.sv_clock_bias = false;
+        cfg.modeling.iono_delay = false;
+        cfg.modeling.sv_total_group_delay = false;
+
+        let (x0_m, y0_m, z0_m) = (1.0_f64, 2.0_f64, 3.0_f64);
+
+        let almanac = Almanac::until_2035().unwrap();
+        let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+
+        let state = &State::from_ecef_m(Vector3::new(x0_m, y0_m, z0_m), Default::default(), frame);
+
+        let t = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+        let g01 = SV::from_str("G01").unwrap();
+        let g02 = SV::from_str("G02").unwrap();
+        let g03 = SV::from_str("G03").unwrap();
+        let g04 = SV::from_str("G04").unwrap();
+
+        let mut candidates = vec![
+            Candidate::new(
+                g01,
+                t,
+                vec![Observation {
+                    snr_dbhz: None,
+                    carrier: Carrier::L1,
+                    pseudo_range_m: Some(1.0),
+                    phase_range_m: None,
+                    doppler: None,
+                    ambiguity: None,
+                }],
+            ),
+            Candidate::new(
+                g02,
+                t,
+                vec![Observation {
+                    snr_dbhz: None,
+                    carrier: Carrier::L1,
+                    pseudo_range_m: Some(2.0),
+                    phase_range_m: None,
+                    doppler: None,
+                    ambiguity: None,
+                }],
+            ),
+            Candidate::new(
+                g03,
+                t,
+                vec![Observation {
+                    snr_dbhz: None,
+                    carrier: Carrier::L1,
+                    pseudo_range_m: Some(3.0),
+                    phase_range_m: None,
+                    doppler: None,
+                    ambiguity: None,
+                }],
+            ),
+            Candidate::new(
+                g04,
+                t,
+                vec![Observation {
+                    snr_dbhz: None,
+                    carrier: Carrier::L1,
+                    pseudo_range_m: Some(4.0),
+                    phase_range_m: None,
+                    doppler: None,
+                    ambiguity: None,
+                }],
+            ),
+        ];
+
+        let sv_coords_m = vec![
+            (10.0, 20.0, 30.0),
+            (11.0, 21.0, 31.0),
+            (12.0, 22.0, 32.0),
+            (13.0, 23.0, 33.0),
+        ];
+
+        for (nth, coords) in sv_coords_m.iter().enumerate() {
+            let pos_vel_m = Vector6::new(coords.0, coords.1, coords.2, 0.0, 0.0, 0.0);
+            let orbit = Orbit::from_cartesian_pos_vel(pos_vel_m / 1.0E3, t, frame);
+            candidates[nth].set_orbit(orbit);
+        }
+
+        let mut nav = Navigation::new(&cfg, state, &candidates).unwrap();
+
+        let r_i = vec![
+            candidates[0].l1_pseudo_range().unwrap(),
+            candidates[1].l1_pseudo_range().unwrap(),
+            candidates[2].l1_pseudo_range().unwrap(),
+            candidates[3].l1_pseudo_range().unwrap(),
+        ];
+
+        let rho = vec![
+            ((sv_coords_m[0].0 - x0_m).powi(2)
+                + (sv_coords_m[0].1 - y0_m).powi(2)
+                + (sv_coords_m[0].2 - z0_m).powi(2))
+            .sqrt(),
+            ((sv_coords_m[1].0 - x0_m).powi(2)
+                + (sv_coords_m[1].1 - y0_m).powi(2)
+                + (sv_coords_m[1].2 - z0_m).powi(2))
+            .sqrt(),
+            ((sv_coords_m[2].0 - x0_m).powi(2)
+                + (sv_coords_m[2].1 - y0_m).powi(2)
+                + (sv_coords_m[2].2 - z0_m).powi(2))
+            .sqrt(),
+            ((sv_coords_m[3].0 - x0_m).powi(2)
+                + (sv_coords_m[3].1 - y0_m).powi(2)
+                + (sv_coords_m[3].2 - z0_m).powi(2))
+            .sqrt(),
+        ];
+
+        for i in 0..4 {
+            let (dx_m, dy_m, dz_m) = (
+                (x0_m - sv_coords_m[0].0) / rho[i],
+                (y0_m - sv_coords_m[0].1) / rho[i],
+                (z0_m - sv_coords_m[0].2) / rho[i],
+            );
+
+            assert_eq!(nav.h[(i, 0)], dx_m);
+            assert_eq!(nav.h[(i, 1)], dy_m);
+            assert_eq!(nav.h[(i, 2)], dz_m);
+            assert_eq!(nav.h[(i, 3)], dx_m);
+        }
+
+        assert_eq!(nav.b, Vector4::zeros());
+        nav.iterate().unwrap();
     }
 }

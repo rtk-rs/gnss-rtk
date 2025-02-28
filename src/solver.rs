@@ -435,7 +435,7 @@ impl<O: OrbitSource> Solver<O> {
 
         let mut i = 0;
         loop {
-            match nav.iter() {
+            match nav.iterate() {
                 Ok(_) => {
                     debug!("iter={} {:?}", i, nav.dx);
 

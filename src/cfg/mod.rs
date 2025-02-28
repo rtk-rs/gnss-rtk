@@ -13,10 +13,11 @@ use nalgebra::{base::dimension::U8, OMatrix};
 mod method;
 mod modeling;
 mod profile;
-mod signal;
+mod solver;
 
-pub use crate::cfg::{
-    method::Method, modeling::Modeling, profile::Profile, signal::PreferedSignal,
+pub use crate::{
+    carrier::Signal,
+    cfg::{method::Method, modeling::Modeling, profile::Profile},
 };
 
 /// Configuration Error
@@ -26,68 +27,12 @@ pub enum Error {
     InvalidTroposphereModel,
 }
 
-/// Geometry strategy
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum GeometryStrategy {
-    /// Algorithm selects best elevation angles
-    #[default]
-    BestElevation,
-    /// Spread geometry algorithm (aims at minimizing geometric error)
-    SpreadAzimuth,
-}
-
-#[derive(Default, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct ElevationMappingFunction {
-    /// a + b * e-elev/c
-    pub a: f64,
-    /// a + b * e-elev/c
-    pub b: f64,
-    /// a + b * e-elev/c
-    pub c: f64,
-}
-
-impl ElevationMappingFunction {
-    pub(crate) fn eval(&self, elev_sv: f64) -> f64 {
-        self.a + self.b * (elev_sv / self.c).exp()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum WeightMatrix {
-    /// a + b e-elev/c
-    MappingFunction(ElevationMappingFunction),
-    /// Advanced measurement noise covariance matrix
-    Covar,
-}
-
 fn default_timescale() -> TimeScale {
     TimeScale::GPST
 }
 
-fn default_interp() -> usize {
-    11
-}
-
 fn default_smoothing() -> bool {
     false
-}
-
-fn default_postfit_kf() -> bool {
-    false
-}
-
-fn default_weight_matrix() -> Option<WeightMatrix> {
-    None
-    //Some(WeightMatrix::MappingFunction(
-    //    ElevationMappingFunction {
-    //        a: 5.0,
-    //        b: 0.0,
-    //        c: 10.0,
-    //    },
-    //))
 }
 
 fn max_tropo_bias() -> f64 {
@@ -96,20 +41,6 @@ fn max_tropo_bias() -> f64 {
 
 fn max_iono_bias() -> f64 {
     10.0
-}
-
-fn default_filter_opts() -> Option<FilterOpts> {
-    Some(FilterOpts {
-        weight_matrix: default_weight_matrix(),
-    })
-}
-
-fn default_gdop_threshold() -> Option<f64> {
-    None
-}
-
-fn default_tdop_threshold() -> Option<f64> {
-    None
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -128,71 +59,7 @@ pub struct InternalDelay {
     pub frequency: f64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct SolverOpts {
-    /// GDOP threshold to invalidate ongoing GDOP
-    #[cfg_attr(feature = "serde", serde(default = "default_gdop_threshold"))]
-    pub gdop_threshold: Option<f64>,
-    /// TDOP threshold to invalidate ongoing TDOP
-    #[cfg_attr(feature = "serde", serde(default = "default_tdop_threshold"))]
-    pub tdop_threshold: Option<f64>,
-    // /// Filter to use
-    // #[cfg_attr(feature = "serde", serde(default))]
-    // pub filter: Filter,
-    /// Filter options
-    #[cfg_attr(feature = "serde", serde(default = "default_filter_opts"))]
-    pub filter_opts: Option<FilterOpts>,
-    /// Deploy a post-fit denoising Kalman Filter to denoise and further improve PVT solutions,
-    /// at the expense of more calculations.
-    #[cfg_attr(feature = "serde", serde(default = "default_postfit_kf"))]
-    pub postfit_kf: bool,
-}
-
-impl Default for SolverOpts {
-    fn default() -> Self {
-        Self {
-            // filter: Filter::default(),
-            gdop_threshold: default_gdop_threshold(),
-            tdop_threshold: default_tdop_threshold(),
-            filter_opts: default_filter_opts(),
-            postfit_kf: default_postfit_kf(),
-        }
-    }
-}
-
-#[derive(Default, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct FilterOpts {
-    /// Weight Matrix
-    #[cfg_attr(feature = "serde", serde(default = "default_weight_matrix"))]
-    pub weight_matrix: Option<WeightMatrix>,
-}
-
-impl SolverOpts {
-    /*
-     * form the weight matrix to be used in the solving process
-     */
-    pub(crate) fn weight_matrix(&self) -> OMatrix<f64, U8, U8> {
-        let mat = OMatrix::<f64, U8, U8>::identity();
-        if let Some(opts) = &self.filter_opts {
-            match &opts.weight_matrix {
-                Some(WeightMatrix::Covar) => panic!("not implemented yet"),
-                Some(WeightMatrix::MappingFunction(_)) => panic!("mapf: not implemented yet"),
-                //                Some(WeightMatrix::MappingFunction(mapf)) => {
-                //                    for i in 0..8 {
-                //                        let sigma = mapf.a + mapf.b * ((-sv_elev[i]) / mapf.c).exp();
-                //                        mat[(i, i)] = 1.0 / sigma.powi(2);
-                //                    }
-                //                },
-                None => {},
-            }
-        }
-        mat
-    }
-}
-
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Config {
     /// Type of Solutions to resolve, defined as [PVTSolutionType].
@@ -217,7 +84,7 @@ pub struct Config {
     /// When [Method] is not [Method::SPP] and [Modeling] enables Ionospheric
     /// bias compensation,
     #[cfg_attr(feature = "serde", serde(default))]
-    pub prefered_signal: Option<PreferedSignal>,
+    pub prefered_signal: Option<Signal>,
     /// Possible remote reference site coordinates, in ECEF [m].
     /// Must be defined in case RTK navigation is selected.
     pub remote_site: Option<(f64, f64, f64)>,

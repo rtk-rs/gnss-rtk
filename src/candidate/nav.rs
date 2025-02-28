@@ -9,7 +9,7 @@ use nyx::{
 use crate::{
     constants::Constants,
     navigation::MatrixContribution,
-    prelude::{Candidate, Config, Method},
+    prelude::{Candidate, Config, Error, Method},
 };
 
 impl Candidate {
@@ -20,13 +20,14 @@ impl Candidate {
     ///  - x0_y0_z0: apriori triplet (m ECEF)
     pub(crate) fn spp_matrix_contribution(
         &self,
-        i: usize,
         cfg: &Config,
         x0_y0_z0_m: (f64, f64, f64),
-    ) -> MatrixContribution {
+    ) -> Result<MatrixContribution, Error> {
+        let mu = Constants::EARTH_GRAVITATION;
+
         let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
 
-        let orbit = self.orbit.expect("internal error: unresolved state");
+        let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
 
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let (sv_x_m, sv_y_m, sv_z_m) = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
@@ -37,10 +38,11 @@ impl Candidate {
         let mut h = Matrix1x4::zeros();
 
         if cfg.modeling.relativistic_path_range {
-            let mu = Constants::EARTH_GRAVITATION;
             let r_sat = (sv_x_m.powi(2) + sv_y_m.powi(2) + sv_z_m.powi(2)).sqrt();
             let r_0 = (x0_m.powi(2) + y0_m.powi(2) + z0_m.powi(2)).sqrt();
+
             let r_sat_0 = r_0 - r_sat;
+
             let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
@@ -58,35 +60,33 @@ impl Candidate {
             (z0_m - sv_z_m) / rho,
         );
 
-        h[(i, 0)] = dx_m;
-        h[(i, 1)] = dy_m;
-        h[(i, 2)] = dz_m;
-        h[(i, 3)] = SPEED_OF_LIGHT_M_S;
+        h[(0, 0)] = dx_m;
+        h[(0, 1)] = dy_m;
+        h[(0, 2)] = dz_m;
+        h[(0, 3)] = SPEED_OF_LIGHT_M_S;
 
         let iono_compensated = false;
 
         let range_m = match cfg.method {
             Method::SPP => self
                 .best_snr_pseudo_range_m()
-                .expect("internal error: missing pseudo range"),
+                .ok_or(Error::MissingPseudoRange)?,
             Method::CPP => {
                 // TODO
                 self.best_snr_pseudo_range_m()
-                    .expect("internal error: missing pseudo range")
+                    .ok_or(Error::MissingPseudoRange)?
             },
             Method::PPP => {
                 // TODO
                 self.best_snr_pseudo_range_m()
-                    .expect("internal error: missing pseudo range")
+                    .ok_or(Error::MissingPseudoRange)?
             },
         };
 
         let mut bias_m = 0.0;
 
         if cfg.modeling.sv_clock_bias {
-            let dt = self
-                .clock_corr
-                .expect("internal error: missing clock correction");
+            let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
 
             bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
         }
@@ -114,10 +114,10 @@ impl Candidate {
             bias_m += self.tropo_bias_m;
         }
 
-        MatrixContribution {
+        Ok(MatrixContribution {
             h,
             b: range_m - rho - bias_m,
-        }
+        })
     }
 
     /// Fills state [OMatrix] and [OVector] vector from [Candidate] state for RTK Navigation.

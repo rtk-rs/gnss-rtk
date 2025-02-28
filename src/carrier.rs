@@ -1,6 +1,10 @@
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub enum Carrier {
     /// L1 (GPS/QZSS/SBAS) same frequency as E1 and B1aB1c
     #[default]
@@ -77,17 +81,15 @@ impl Carrier {
 
 /// Signal used in [PVTSolution] resolution
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub enum Signal {
     Single(Carrier),
     Dual((Carrier, Carrier)),
 }
 
-impl Signal {
-    pub(crate) fn single(carrier: Carrier) -> Self {
-        Self::Single(carrier)
-    }
-    pub(crate) fn dual(lhs: Carrier, rhs: Carrier) -> Self {
-        Self::Dual((lhs, rhs))
+impl Default for Signal {
+    fn default() -> Self {
+        Self::Single(Default::default())
     }
 }
 
@@ -97,5 +99,14 @@ impl std::fmt::Display for Signal {
             Self::Single(carrier) => write!(f, "{}", carrier),
             Self::Dual((lhs, rhs)) => write!(f, "{}/{}", rhs, lhs),
         }
+    }
+}
+
+impl Signal {
+    pub(crate) fn single(carrier: Carrier) -> Self {
+        Self::Single(carrier)
+    }
+    pub(crate) fn dual(lhs: Carrier, rhs: Carrier) -> Self {
+        Self::Dual((lhs, rhs))
     }
 }

@@ -45,13 +45,11 @@ pub struct Candidate {
 }
 
 impl Candidate {
-    /// Basic candidate definition. Each candidate
-    /// is to be proposed to the navigation solver.
+    /// Basic candidate definition, to propose to the navigation solver. Each candidate is to be
     /// This is the most simplistic definition (bare minimum).
     /// It is certainly not enough for PPP navigation and will require
     /// you provide more information (see other customization methods),
     /// especially if you want to achieve accurate results.
-    /// Pure RTK navigation being the easiest scenario, you will only have to attach remote observations to this definition.
     /// ## Input
     /// - sv: [SV] Identity
     /// - t: sampling [Epoch]
