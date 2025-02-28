@@ -3,11 +3,14 @@ use log::debug;
 
 use nyx::{
     cosmic::SPEED_OF_LIGHT_M_S,
-    linalg::{allocator::Allocator, Const, DefaultAllocator, DimName, OMatrix, OVector, U4},
+    linalg::{
+        allocator::Allocator, Const, DefaultAllocator, DimName, Matrix1x4, OMatrix, OVector, U4,
+    },
 };
 
 use crate::{
     constants::Constants,
+    navigation::MatrixContribution,
     prelude::{Candidate, Config, Error, Method},
 };
 
@@ -17,26 +20,24 @@ impl Candidate {
     ///  - i: matrix row
     ///  - cfg: [Config] preset
     ///  - x0_y0_z0: apriori triplet (m ECEF)
-    pub(crate) fn spp_matrix_contribution<N: DimName>(
+    pub(crate) fn spp_matrix_contribution(
         &self,
         i: usize,
         cfg: &Config,
-        b: &mut OVector<f64, N>,
-        h: &mut OMatrix<f64, U4, N>,
         x0_y0_z0_m: (f64, f64, f64),
-    ) -> Result<(), Error>
-    where
-        DefaultAllocator: Allocator<N>,
-        DefaultAllocator: Allocator<Const<4>, N>,
-    {
+    ) -> MatrixContribution {
         let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
 
-        let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
+        let orbit = self.orbit.expect("internal error: unresolved state");
+
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let (sv_x_m, sv_y_m, sv_z_m) = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
 
         let mut rho =
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
+
+        let mut h = Matrix1x4::zeros();
+        let mut b = 0.0;
 
         if cfg.modeling.relativistic_path_range {
             let mu = Constants::EARTH_GRAVITATION;
@@ -70,19 +71,19 @@ impl Candidate {
         let range_m = match cfg.method {
             Method::SPP => {
                 self.l1_pseudorange_m_freq_hz()
-                    .ok_or(Error::MissingPseudoRange)?
+                    .expect("internal error: missing pseudo range")
                     .0
             },
             Method::CPP => {
                 // TODO
                 self.l1_pseudorange_m_freq_hz()
-                    .ok_or(Error::MissingPseudoRange)?
+                    .expect("internal error: missing pseudo range")
                     .0
             },
             Method::PPP => {
                 // TODO
                 self.l1_pseudorange_m_freq_hz()
-                    .ok_or(Error::MissingPseudoRange)?
+                    .expect("internal error: missing pseudo range")
                     .0
             },
         };
@@ -90,7 +91,10 @@ impl Candidate {
         let mut bias_m = 0.0;
 
         if cfg.modeling.sv_clock_bias {
-            let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
+            let dt = self
+                .clock_corr
+                .expect("internal error: missing clock correction");
+
             bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
         }
 
@@ -117,8 +121,10 @@ impl Candidate {
             bias_m += self.tropo_bias_m;
         }
 
-        b[i] = range_m - rho - bias_m;
-        Ok(())
+        MatrixContribution {
+            h,
+            b: range_m - rho - bias_m,
+        }
     }
 
     /// Fills state [OMatrix] and [OVector] vector from [Candidate] state for RTK Navigation.
@@ -130,14 +136,8 @@ impl Candidate {
         &self,
         _: usize,
         _: &Config,
-        _: &mut OVector<f64, N>,
-        _: &mut OMatrix<f64, U4, N>,
         _: (f64, f64, f64),
-    ) -> Result<(), Error>
-    where
-        DefaultAllocator: Allocator<N>,
-        DefaultAllocator: Allocator<Const<4>, N>,
-    {
+    ) -> MatrixContribution {
         panic!("rtk not available yet");
     }
 }

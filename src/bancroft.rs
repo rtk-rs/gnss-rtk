@@ -1,5 +1,5 @@
 //! Brancroft solver
-use crate::{constants::Constants, prelude::Candidate, solver::Error};
+use crate::{constants::Constants, error::Error, prelude::Candidate};
 use log::error;
 
 use nalgebra::{Matrix4, Vector4};

@@ -6,6 +6,7 @@ use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 use crate::prelude::{Config, Duration, Epoch, Error, Method, Orbit, Vector3, SV};
 
+mod bias;
 mod nav;
 mod signal;
 
@@ -115,42 +116,6 @@ impl Candidate {
 
 // private
 impl Candidate {
-    /// Applies all perturbation models to [Self].
-    /// This will panic if Orbit has not been resolved!
-    pub(crate) fn apply_models(
-        &mut self,
-        method: Method,
-        tropo_modeling: bool,
-        iono_modeling: bool,
-        azimuth_deg: f64,
-        elevation_deg: f64,
-        rx_geo: (f64, f64, f64),
-        rx_rad: (f64, f64),
-    ) -> Result<(), Error> {
-        let pr = self
-            .prefered_pseudorange()
-            .ok_or(Error::MissingPseudoRange)?;
-
-        let rtm = BiasRuntimeParams {
-            t: self.t,
-            rx_geo,
-            rx_rad,
-            elevation_deg,
-            frequency: pr.carrier.frequency(),
-            azimuth_rad: azimuth_deg.to_radians(),
-            elevation_rad: elevation_deg.to_radians(),
-        };
-        if tropo_modeling {
-            self.tropo_bias = self.tropo_components.value(TropoModel::Niel, &rtm);
-        }
-        if iono_modeling {
-            if method == Method::SPP {
-                self.iono_bias = self.iono_components.value(&rtm);
-            }
-        }
-        Ok(())
-    }
-
     /// Computes phase windup term. Self should be fully resolved, otherwse
     /// will panic.
     pub(crate) fn windup_correction(&mut self, _: Vector3<f64>, _: Vector3<f64>) -> f64 {
@@ -187,48 +152,51 @@ impl Candidate {
     /// - "dt_ttx" elapsed [Duration] in said timescale
     //TODO: remove dt_ttx and simply use t_tx.duration (newly available)
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, Duration), Error> {
-        let (t, ts) = (self.t, self.t.time_scale);
-        let seconds_ts = t.to_duration_in_time_scale(t.time_scale).to_seconds();
+        let total_seconds = self.t.duration.to_seconds();
 
-        let dt_tx = seconds_ts
-            - self
-                .prefered_pseudorange()
-                .ok_or(Error::MissingPseudoRange)?
-                / SPEED_OF_LIGHT_M_S;
+        let (pr, _) = self
+            .l1_pseudorange_m_freq_hz()
+            .ok_or(Error::MissingPseudoRange)?;
 
-        let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);
+        let dt_tx = total_seconds - pr / SPEED_OF_LIGHT_M_S;
+
+        let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, self.t.time_scale);
 
         if cfg.modeling.sv_clock_bias {
             let clock_corr = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
             debug!(
                 "{} ({}) clock correction: {}",
-                t, self.sv, clock_corr.duration
+                self.t, self.sv, clock_corr.duration,
             );
+
             e_tx -= clock_corr.duration;
         }
 
         if cfg.modeling.sv_total_group_delay {
             if let Some(tgd) = self.tgd {
-                debug!("{} ({}) {} tgd", t, self.sv, tgd);
+                debug!("{} ({}) {} tgd", self.t, self.sv, tgd);
                 e_tx -= tgd;
             }
         }
 
-        let dt_secs = (t - e_tx).to_seconds();
+        let dt_secs = (self.t - e_tx).to_seconds();
         let dt = Duration::from_seconds(dt_secs);
+
         assert!(
             dt_secs.is_sign_positive(),
             "Physical non sense - RX {:?} prior TX {:?}",
-            t,
+            self.t,
             e_tx
         );
+
         assert!(
             dt_secs <= 0.2,
             "{}({}): {} Space/Earth propagation delay is unrealistic: invalid input",
-            t,
+            self.t,
             self.sv,
             dt
         );
+
         Ok((e_tx, dt))
     }
 

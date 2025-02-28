@@ -12,7 +12,7 @@ use data::{gps::test_data as gps_test_data, interp::interp_data};
 struct Orbits {}
 
 impl OrbitSource for Orbits {
-    fn next_at(&mut self, t: Epoch, sv: SV, fr: Frame, _: usize) -> Option<Orbit> {
+    fn next_at(&mut self, t: Epoch, sv: SV, _: Frame) -> Option<Orbit> {
         Some(
             interp_data()
                 .iter()
