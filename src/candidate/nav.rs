@@ -1,60 +1,39 @@
 //! Position solving candidate
 use log::debug;
-use map_3d::{ecef2aer, ecef2geodetic, Ellipsoid};
 
 use nyx::{
     cosmic::SPEED_OF_LIGHT_M_S,
-    linalg::{
-        allocator::Allocator, Const, DVector, DefaultAllocator, DimName, MatrixXx4, OMatrix,
-        OVector, U4, U8,
-    },
+    linalg::{allocator::Allocator, Const, DefaultAllocator, DimName, OMatrix, OVector, U4},
 };
 
 use crate::{
     constants::Constants,
-    navigation::SVInput,
-    prelude::{Candidate, Config, Error, IonosphereBias, Method},
+    prelude::{Candidate, Config, Error, Method},
 };
 
 impl Candidate {
-    /// Fills state [OMatrix] and [OVector] vector from [Candidate] state.
+    /// Fills state [OMatrix] and [OVector] vector from [Candidate] state for (SPP/CPP) Navigation.
     /// ## Input
     ///  - i: matrix row
     ///  - cfg: [Config] preset
     ///  - x0_y0_z0: apriori triplet (m ECEF)
-    pub(crate) fn nav_matrix_contribution<N: DimName>(
+    pub(crate) fn spp_matrix_contribution<N: DimName>(
         &self,
         i: usize,
         cfg: &Config,
-        y: &mut OVector<f64, N>,
-        g: &mut OMatrix<f64, U4, N>,
+        b: &mut OVector<f64, N>,
+        h: &mut OMatrix<f64, U4, N>,
         x0_y0_z0_m: (f64, f64, f64),
-    ) where
+    ) -> Result<(), Error>
+    where
         DefaultAllocator: Allocator<N>,
         DefaultAllocator: Allocator<Const<4>, N>,
     {
-    }
-
-    /// Fills state [OMatrix] and [OVector] vector from [Candidate] state for PPP Navigation.
-    /// ## Input
-    ///  - i: matrix row
-    ///  - cfg: [Config] preset
-    ///  - x0_y0_z0: apriori triplet (m ECEF)
-    fn ppp_matrix_contribution<N: DimName>(
-        &self,
-        i: usize,
-        cfg: &Config,
-        y: &mut OVector<f64, N>,
-        g: &mut OMatrix<f64, U4, N>,
-        x0_y0_z0_m: (f64, f64, f64),
-    ) where
-        DefaultAllocator: Allocator<N>,
-        DefaultAllocator: Allocator<Const<4>, N>,
-    {
-        let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
-
         let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
-        let (sv_x_m, sv_y_m, sv_z_m) = orbit.to_cartesian_pos_vel() * 1.0E3;
+
+        let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
+        let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
+        let (sv_x_m, sv_y_m, sv_z_m) = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
 
         let mut rho =
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
@@ -86,21 +65,25 @@ impl Candidate {
         h[(i, 2)] = dz_m;
         h[(i, 3)] = SPEED_OF_LIGHT_M_S;
 
-        let mut iono_compensated = false;
+        let iono_compensated = false;
 
-        let range_m = match method {
-            Method::SPP => self
-                .prefered_pseudorange()
-                .ok_or(Error::MissingPseudoRange)?,
+        let range_m = match cfg.method {
+            Method::SPP => {
+                self.l1_pseudorange_m_freq_hz()
+                    .ok_or(Error::MissingPseudoRange)?
+                    .0
+            },
             Method::CPP => {
                 // TODO
-                self.prefered_pseudorange()
+                self.l1_pseudorange_m_freq_hz()
                     .ok_or(Error::MissingPseudoRange)?
+                    .0
             },
             Method::PPP => {
                 // TODO
-                self.prefered_pseudorange()
+                self.l1_pseudorange_m_freq_hz()
                     .ok_or(Error::MissingPseudoRange)?
+                    .0
             },
         };
 
@@ -135,6 +118,7 @@ impl Candidate {
         }
 
         b[i] = range_m - rho - bias_m;
+        Ok(())
     }
 
     /// Fills state [OMatrix] and [OVector] vector from [Candidate] state for RTK Navigation.
@@ -142,14 +126,15 @@ impl Candidate {
     ///  - i: matrix row
     ///  - cfg: [Config] preset
     ///  - x0_y0_z0: apriori triplet (m ECEF)
-    fn rtk_matrix_contribution<N: DimName>(
+    pub(crate) fn rtk_matrix_contribution<N: DimName>(
         &self,
         _: usize,
         _: &Config,
         _: &mut OVector<f64, N>,
         _: &mut OMatrix<f64, U4, N>,
         _: (f64, f64, f64),
-    ) where
+    ) -> Result<(), Error>
+    where
         DefaultAllocator: Allocator<N>,
         DefaultAllocator: Allocator<Const<4>, N>,
     {

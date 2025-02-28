@@ -1,6 +1,5 @@
 use crate::prelude::{
-    Candidate, Config, Epoch, Error, Frame, InvalidationCause, Orbit, OrbitSource, PVTSolution,
-    Solver, TimeScale, SV,
+    Candidate, Config, Epoch, Error, Frame, Orbit, OrbitSource, PVTSolution, Solver, TimeScale, SV,
 };
 
 mod bancroft;
@@ -56,24 +55,28 @@ impl Tester {
         s.max_velocity_m_s = (1.0E-5, 1.0E-5, 1.0E-5);
         s
     }
+
     /// Set max tdop criteria
     pub fn with_max_tdop(&self, tdop: f64) -> Self {
         let mut s = self.clone();
         s.max_tdop = Some(tdop);
         s
     }
+
     /// Set max gdop criteria
     pub fn with_max_gdop(&self, gdop: f64) -> Self {
         let mut s = self.clone();
         s.max_gdop = Some(gdop);
         s
     }
+
     pub fn deploy(&self, cfg: &Config) {
         self.deploy_without_apriori(cfg);
         if self.reference.is_some() {
             self.deploy_with_apriori(cfg);
         }
     }
+
     fn deploy_without_apriori(&self, cfg: &Config) {
         let orbits = Orbits {};
         let mut solver = Solver::new_survey(&cfg, orbits)
@@ -81,6 +84,7 @@ impl Tester {
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
+
     fn deploy_with_apriori(&self, cfg: &Config) {
         let orbits = Orbits {};
         let mut solver =
@@ -89,6 +93,7 @@ impl Tester {
         println!("deployed with {:#?}", cfg);
         self.run(&mut solver, cfg);
     }
+
     fn run<O: OrbitSource>(&self, solver: &mut Solver<O>, cfg: &Config) {
         for (data_index, data) in gps_test_data().iter_mut().enumerate() {
             match solver.resolve(data.t_rx, &mut data.pool) {
@@ -105,14 +110,16 @@ impl Tester {
                 },
                 Err(e) => match e {
                     Error::NotEnoughCandidates => {},
-                    Error::NotEnoughCandidatesBancroft => {},
+                    Error::NotEnoughInitializationCandidates => {},
                     Error::NotEnoughPreFitCandidates => {},
                     Error::NotEnoughPostFitCandidates => {},
                     Error::MatrixFormationError => {},
+                    Error::MatrixDimension => {},
+                    Error::MatrixMinimalDimension => {},
                     Error::UnknownClockCorrection => {},
                     Error::MissingRemoteRTKObservation(..) => {},
                     Error::MissingRemoteRTKObservations => {},
-                    Error::MatrixInversionError => {},
+                    Error::MatrixInversion => {},
                     Error::TimeIsNan => {
                         panic!("resolved dt is Not A Number");
                     },
@@ -121,13 +128,13 @@ impl Tester {
                     Error::MissingPseudoRange => {},
                     Error::PseudoRangeCombination => {},
                     Error::PhaseRangeCombination => {},
-                    Error::InvalidatedSolution(cause) => match cause {
-                        InvalidationCause::FirstSolution => {},
-                        InvalidationCause::GDOPOutlier(..) => {},
-                        InvalidationCause::TDOPOutlier(..) => {},
-                        InvalidationCause::InnovationOutlier(..) => {},
-                        InvalidationCause::CodeResidual(..) => {},
-                    },
+                    // Error::InvalidatedSolution(cause) => match cause {
+                    //     InvalidationCause::FirstSolution => {},
+                    //     InvalidationCause::GDOPOutlier(..) => {},
+                    //     InvalidationCause::TDOPOutlier(..) => {},
+                    //     InvalidationCause::InnovationOutlier(..) => {},
+                    //     InvalidationCause::CodeResidual(..) => {},
+                    // },
                     Error::UnresolvedStateBancroft => {
                         panic!("bancroft resolution attempt, without enough SV");
                     },

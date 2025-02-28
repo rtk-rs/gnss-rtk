@@ -1,29 +1,33 @@
 pub mod solutions;
-pub use solutions::{InvalidationCause, PVTSolution, PVTSolutionType};
-
-mod filter;
-mod input;
-mod output;
-
-use nalgebra::{
-    allocator::Allocator,
-    base::dimension::{U4, U8},
-    Const, DVector, DefaultAllocator, DimName, MatrixXx4, OMatrix, OVector,
+pub use solutions::{
+    //InvalidationCause,
+    PVTSolution,
+    PVTSolutionType,
 };
 
-pub(crate) use input::Input;
-pub(crate) use output::Output;
+// mod filter;
+// mod input;
+// mod output;
 
-pub use filter::Filter;
-pub(crate) use filter::FilterState;
+use nalgebra::{
+    allocator::Allocator, base::dimension::U4, Const, DefaultAllocator, DimName, OMatrix, OVector,
+};
+
+// pub(crate) use input::Input;
+// pub(crate) use output::Output;
+
+// pub use filter::Filter;
+// pub(crate) use filter::FilterState;
+
+use log::error;
 
 use crate::prelude::{
     Candidate,
+    Config,
     Duration,
     Error,
     IonosphereBias, //Method,
     Orbit,
-    PVTSolutionType,
 };
 
 /// SV Navigation information
@@ -63,29 +67,30 @@ where
     N: DimName,
 {
     /// Create new [Navigation] filter
-    pub fn new(
-        sol_type: PVTSolutionType,
-        appriori: &Orbit,
-        candidates: &[Candidate],
-    ) -> Result<Self, Error> {
+    /// ## Input
+    ///
+    pub fn new(cfg: &Config, appriori: &Orbit, candidates: &[Candidate]) -> Result<Self, Error> {
         const MIN_SIZE: usize = 4;
 
-        let (x0_m, y0_m, z0_m, _, _, _) = appriori.to_cartesian_pos_vel() * 1.0E3;
+        let size = candidates.len();
+
+        let pos_vel_m = appriori.to_cartesian_pos_vel() * 1.0E3;
+        let apriori_m = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
 
         let mut b = OVector::<f64, N>::zeros();
         let mut h = OMatrix::<f64, U4, N>::zeros();
 
-        match sol_type {
+        match cfg.solution {
             PVTSolutionType::PositionVelocityTime => {
-                if candidates.len() < U4::USIZE {
+                if size < U4::USIZE {
                     return Err(Error::MatrixMinimalDimension);
                 }
-                if candidates.len() < N::USIZE {
+                if size < N::USIZE {
                     return Err(Error::MatrixDimension);
                 }
             },
             PVTSolutionType::TimeOnly => {
-                if candidates.len() < 1 {
+                if size < 1 {
                     return Err(Error::MatrixMinimalDimension);
                 }
             },
@@ -93,13 +98,16 @@ where
 
         let mut j = 0;
 
-        for i in 0..candidates.len() {
-            match candidates[i].nav_matrix_contribution(cfg, j, b, h, apriori) {
-                Ok(t) => {},
-                Err(e) => {},
+        for cd in candidates.iter() {
+            match cd.spp_matrix_contribution(j, cfg, &mut b, &mut h, apriori_m) {
+                Ok(_) => {
+                    j += 1;
+                },
+                Err(e) => {
+                    error!("{}({}): spp_matrix_contribution: {}", cd.t, cd.sv, e);
+                },
             }
         }
-
         Ok(Self {
             b,
             h,

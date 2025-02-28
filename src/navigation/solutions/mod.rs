@@ -1,13 +1,13 @@
 //! PVT Solutions
 use std::collections::HashMap;
 
-use crate::prelude::{Ambiguities, Carrier, Duration, Orbit, TimeScale, SV};
+use crate::prelude::{Carrier, Duration, Orbit, TimeScale, SV};
 
 use super::SVInput;
 use nalgebra::base::{Matrix3, Matrix4};
 
-pub(crate) mod validator;
-pub use validator::InvalidationCause;
+// pub(crate) mod validator;
+// pub use validator::InvalidationCause;
 
 /// InstrumentBias, estimated per SV and signal for each solution (ie., in Time),
 /// when navigation is based on Phase Range observations.
@@ -63,10 +63,10 @@ pub struct PVTSolution {
     pub tdop: f64,
     /// Position Dilution of Precision
     pub pdop: f64,
-    /// Resolved ambiguities (at this point and time), per SV and signal.
-    /// Ambiguities are null if navigation does not use them (see [Method]).
-    /// This is useful for advanced applications that want or need this level of detail.
-    pub ambiguities: Ambiguities,
+    // /// Resolved ambiguities (at this point and time), per SV and signal.
+    // /// Ambiguities are null if navigation does not use them (see [Method]).
+    // /// This is useful for advanced applications that want or need this level of detail.
+    // pub ambiguities: Ambiguities,
     // // Instrument bias, determined from Phase Range based Navigation (see [Method])
     // // and internal signal ambiguity solving. If Navigation [Method] is not based on Phase Range,
     // // the bias cannot be estimated (null). This is useful for advanced applications that want or need this level of detail.

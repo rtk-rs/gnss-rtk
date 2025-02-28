@@ -62,6 +62,7 @@ impl Observation {
             ambiguity: Some(ambiguity),
         }
     }
+
     /// Creates new Doppler [Observation]
     pub fn doppler(carrier: Carrier, doppler: f64, snr: Option<f64>) -> Self {
         Self {
@@ -131,10 +132,9 @@ impl Candidate {
             .map(|c| c.snr)?
     }
 
-    /// Returns one pseudo range observation [m], whatever the frequency.
-    pub(crate) fn prefered_pseudorange(&self) -> Option<f64> {
-        if let Some(c1) = self
-            .observations
+    /// Returns the L1 pseudo range [Observation].
+    pub(crate) fn l1_pseudorange_observation(&self) -> Option<&Observation> {
+        self.observations
             .iter()
             .filter(|ob| {
                 matches!(
@@ -143,21 +143,6 @@ impl Candidate {
                 ) && ob.pseudo.is_some()
             })
             .reduce(|k, _| k)
-        {
-            Some(c1.pseudo)
-        } else {
-            self.observations
-                .iter()
-                .filter(|ob| {
-                    ob.pseudo.is_some()
-                        && !matches!(
-                            ob.carrier,
-                            Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                        )
-                })
-                .reduce(|k, _| k)
-                .cloned()
-        }
     }
 
     /// True if Self is Method::CPP compatible
@@ -189,27 +174,25 @@ impl Candidate {
     }
 
     /// Returns the L1 Pseudo Range observation [m] if it exists
-    pub(crate) fn l1_pseudorange(&self) -> Option<(Carrier, f64)> {
+    pub(crate) fn l1_pseudorange_m_freq_hz(&self) -> Option<(f64, f64)> {
         self.pseudo_range_iter()
-            .filter(|(signal, _)| {
-                matches!(
+            .filter_map(|(signal, pr)| {
+                if matches!(
                     signal,
                     Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                )
+                ) {
+                    Some((pr, signal.frequency()))
+                } else {
+                    None
+                }
             })
             .reduce(|k, _| k)
     }
 
     /// Returns the L1 Phase Range observation [m] if it exists
-    pub(crate) fn l1_phaserange(&self) -> Option<(Carrier, f64)> {
-        self.phase_range_iter()
-            .filter(|(signal, _)| {
-                matches!(
-                    signal,
-                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                )
-            })
-            .reduce(|k, _| k)
+    pub(crate) fn l1_phase_range_m(&self) -> Option<f64> {
+        let (pr, _) = self.l1_pseudorange_m_freq_hz()?;
+        Some(pr)
     }
 
     /// Returns the Lj Pseudo Range observation [m] if it exists
@@ -224,16 +207,26 @@ impl Candidate {
             .reduce(|k, _| k)
     }
 
-    /// Returns the Lj Phase Range observation [m] if it exists
-    pub(crate) fn lj_phaserange(&self) -> Option<(Carrier, f64)> {
-        self.phase_range_iter()
-            .filter(|(signal, _)| {
-                !matches!(
+    /// Returns the Lj Pseudo Range observation if it exists
+    pub(crate) fn lj_pseudorange_m_freq_hz(&self) -> Option<(f64, f64)> {
+        self.pseudo_range_iter()
+            .filter_map(|(signal, pr)| {
+                if !matches!(
                     signal,
                     Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                )
+                ) {
+                    Some((pr, signal.frequency()))
+                } else {
+                    None
+                }
             })
             .reduce(|k, _| k)
+    }
+
+    /// Returns the L1 Phase Range observation [m] if it exists
+    pub(crate) fn lj_phase_range_m(&self) -> Option<f64> {
+        let (pr, _) = self.lj_pseudorange_m_freq_hz()?;
+        Some(pr)
     }
 
     /// Discards all observations below given SNR mask (>)

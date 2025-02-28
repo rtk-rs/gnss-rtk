@@ -4,20 +4,13 @@ use log::debug;
 
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
-use crate::{
-    bias::RuntimeParams as BiasRuntimeParams,
-    prelude::{
-        Config, Duration, Epoch, Error, IonosphereComponents, Method, Orbit, TropoModel,
-        TroposphereComponents, Vector3, SV,
-    },
-};
+use crate::prelude::{Config, Duration, Epoch, Error, Method, Orbit, Vector3, SV};
 
 mod nav;
 mod signal;
 
 pub mod clock;
-pub(crate) mod combination;
-pub mod observation;
+// pub(crate) mod combination;
 
 pub use crate::candidate::{clock::ClockCorrection, signal::Observation};
 
@@ -44,14 +37,10 @@ pub struct Candidate {
     pub(crate) elevation_deg: Option<f64>,
     /// azimuth at reception time
     pub(crate) azimuth_deg: Option<f64>,
-    /// Bias in meters.
+    /// Ionosphere bias in meters.
     pub(crate) iono_bias_m: f64,
-    /// Bias in meters.
+    /// Tropospheric bias in meters.
     pub(crate) tropo_bias_m: f64,
-    /// [IonoComponents]
-    pub(crate) iono_components: IonoComponents,
-    /// [TropoComponents]
-    pub(crate) tropo_components: TropoComponents,
 }
 
 impl Candidate {
@@ -62,16 +51,11 @@ impl Candidate {
     /// you provide more information (see other customization methods),
     /// especially if you want to achieve accurate results.
     /// Pure RTK navigation being the easiest scenario, you will only have to attach remote observations to this definition.
-    /// ## Inputs
+    /// ## Input
     /// - sv: [SV] Identity
     /// - t: sampling [Epoch]
     /// - observations: provide signals observations.
     ///   You have to provide observations that match your navigation method.
-    /// - iono_components: provide [IonoComponents] if you're navigating
-    ///  with a single signal and modeling.iono_delay is activated.
-    /// - tropo_components: provide [TropoComponents], if you can,
-    ///   to improve internal model. Note that this has no impact if modeling.tropo_delay
-    ///   is turned off.
     pub fn new(sv: SV, t: Epoch, observations: Vec<Observation>) -> Self {
         Self {
             sv,
@@ -84,10 +68,8 @@ impl Candidate {
             azimuth_deg: Default::default(),
             elevation_deg: Default::default(),
             clock_corr: Default::default(),
-            iono_bias_m: Default::default(),
             tropo_bias_m: Default::default(),
-            iono_components: Default::default(),
-            tropo_components: Default::default(),
+            iono_bias_m: Default::default(),
         }
     }
 
@@ -104,23 +86,6 @@ impl Candidate {
     /// This is mandatory for PPP and will increase your accuracy by hundreds of km.
     pub fn set_clock_correction(&mut self, corr: ClockCorrection) {
         self.clock_corr = Some(corr);
-    }
-
-    /// Define [TropoComponents] that should apply to self and bypass our
-    /// internal Meteorological table model. Accurate Tropospheric perturbation compensation
-    /// will increase your PPP accuracy by tens of meters. This has no effect
-    /// when its compensation is turned off.
-    pub fn set_troposphere_components(&mut self, tropo: TroposphereComponents) {
-        self.tropo_components = tropo;
-    }
-
-    /// Define [IonoComponents] that should apply to self and bypass our
-    /// internal model. Accurate Ionospheric perturbation compensation
-    /// will increase your PPP accuracy by a few meters. This has no effect
-    /// when its compensation is turned off. This has no effect when selected
-    /// navigation mode allows direct compensation of this effect, which is always prefered.
-    pub fn set_ionosphere_components(&mut self, iono: IonosphereComponents) {
-        self.iono_components = iono;
     }
 
     /// Provide remote [Observation]s observed by remote reference site. Not required if you intend to navigate in PPP mode.
@@ -165,6 +130,7 @@ impl Candidate {
         let pr = self
             .prefered_pseudorange()
             .ok_or(Error::MissingPseudoRange)?;
+
         let rtm = BiasRuntimeParams {
             t: self.t,
             rx_geo,
@@ -228,8 +194,6 @@ impl Candidate {
             - self
                 .prefered_pseudorange()
                 .ok_or(Error::MissingPseudoRange)?
-                .pseudo
-                .unwrap()
                 / SPEED_OF_LIGHT_M_S;
 
         let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, ts);

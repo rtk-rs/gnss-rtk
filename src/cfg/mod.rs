@@ -4,8 +4,8 @@ use thiserror::Error;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    navigation::Filter,
-    prelude::{Carrier, PVTSolutionType, TimeScale},
+    // navigation::Filter,
+    prelude::{PVTSolutionType, TimeScale},
 };
 
 use nalgebra::{base::dimension::U8, OMatrix};
@@ -15,7 +15,9 @@ mod modeling;
 mod profile;
 mod signal;
 
-pub use crate::cfg::{method::Method, modeling::Modeling, profile::Profile, signal::Signal};
+pub use crate::cfg::{
+    method::Method, modeling::Modeling, profile::Profile, signal::PreferedSignal,
+};
 
 /// Configuration Error
 #[derive(Debug, Error)]
@@ -71,46 +73,6 @@ fn default_interp() -> usize {
 
 fn default_smoothing() -> bool {
     false
-}
-
-fn default_sv_clock() -> bool {
-    true
-}
-
-fn default_sv_tgd() -> bool {
-    true
-}
-
-fn default_iono() -> bool {
-    true
-}
-
-fn default_tropo() -> bool {
-    true
-}
-
-fn default_earth_rot() -> bool {
-    true
-}
-
-fn default_relativistic_clock_bias() -> bool {
-    true
-}
-
-fn default_relativistic_path_range() -> bool {
-    true
-}
-
-fn default_phase_windup() -> bool {
-    false
-}
-
-fn default_solid_tides() -> bool {
-    false
-}
-
-fn default_cable_delay() -> bool {
-    true
 }
 
 fn default_postfit_kf() -> bool {
@@ -175,9 +137,9 @@ pub struct SolverOpts {
     /// TDOP threshold to invalidate ongoing TDOP
     #[cfg_attr(feature = "serde", serde(default = "default_tdop_threshold"))]
     pub tdop_threshold: Option<f64>,
-    /// Filter to use
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub filter: Filter,
+    // /// Filter to use
+    // #[cfg_attr(feature = "serde", serde(default))]
+    // pub filter: Filter,
     /// Filter options
     #[cfg_attr(feature = "serde", serde(default = "default_filter_opts"))]
     pub filter_opts: Option<FilterOpts>,
@@ -190,7 +152,7 @@ pub struct SolverOpts {
 impl Default for SolverOpts {
     fn default() -> Self {
         Self {
-            filter: Filter::default(),
+            // filter: Filter::default(),
             gdop_threshold: default_gdop_threshold(),
             tdop_threshold: default_tdop_threshold(),
             filter_opts: default_filter_opts(),
@@ -236,7 +198,7 @@ pub struct Config {
     /// Type of Solutions to resolve, defined as [PVTSolutionType].
     /// [PVTSolutionType::PositionVelocityTime] is the default.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub sol_type: PVTSolutionType,
+    pub solution: PVTSolutionType,
     /// Time scale in which we express the PVT solutions,
     /// [TimeScale::GPST] is the default value.
     #[cfg_attr(feature = "serde", serde(default = "default_timescale"))]

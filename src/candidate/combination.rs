@@ -32,19 +32,12 @@ impl Combination {
 impl Candidate {
     /// Returns IF code range combination
     pub(crate) fn code_if_combination(&self) -> Option<Combination> {
-        let (c_l1, l1_pr) = self.l1_pseudorange()?;
-        let freq_l1 = c_l1.frequency();
-
-        let (c_lx, lx_pr) = self
-            .pseudo_range_iter()
-            .filter(|(c, _)| *c != c_l1)
-            .reduce(|k, _| k)?;
-
-        let freq_lx = c_lx.frequency();
-
-        let alpha = 1.0 / (freq_l1.powi(2) - freq_lx.powi(2));
-        let beta = freq_l1.powi(2);
-        let gamma = freq_lx.powi(2);
+        let (f1, c_l1) = self.l1_pseudorange_m_freq_hz()?;
+        let (fx, c_lx) = self.lj_pseudorange_m_freq_hz()?;
+        
+        let alpha = 1.0 / (f1.powi(2) - fx.powi(2));
+        let beta = f1.powi(2);
+        let gamma = fx.powi(2);
         Some(Combination::new(
             c_lx,
             c_l1,
