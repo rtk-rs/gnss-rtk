@@ -11,7 +11,8 @@ impl Candidate {
         let pos_vel_m = rx_orbit.to_cartesian_pos_vel() * 1.0E3;
         let rx_lat_long_alt_deg_deg_km = (state.lat_ddeg, state.long_ddeg, state.alt_km);
 
-        let (_, frequency_hz) = self.l1_pseudorange_m_freq_hz()?;
+        let obs = self.best_snr_observation()?;
+        let frequency_hz = obs.carrier.frequency();
 
         Some(BiasRuntime {
             t,

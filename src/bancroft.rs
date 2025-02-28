@@ -45,7 +45,7 @@ impl Bancroft {
                 let state = orbit.to_cartesian_pos_vel() * 1.0E3;
                 let (x_i, y_i, z_i) = (state[0], state[1], state[2]);
 
-                if let Some((r_i, _)) = cd[i].l1_pseudorange_m_freq_hz() {
+                if let Some(r_i) = cd[i].best_snr_pseudo_range_m() {
                     if let Some(clock_corr) = cd[i].clock_corr {
                         let dt_i = clock_corr.duration.to_seconds();
                         let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();

@@ -3,15 +3,13 @@ use log::debug;
 
 use nyx::{
     cosmic::SPEED_OF_LIGHT_M_S,
-    linalg::{
-        allocator::Allocator, Const, DefaultAllocator, DimName, Matrix1x4, OMatrix, OVector, U4,
-    },
+    linalg::{DimName, Matrix1x4},
 };
 
 use crate::{
     constants::Constants,
     navigation::MatrixContribution,
-    prelude::{Candidate, Config, Error, Method},
+    prelude::{Candidate, Config, Method},
 };
 
 impl Candidate {
@@ -37,7 +35,6 @@ impl Candidate {
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
 
         let mut h = Matrix1x4::zeros();
-        let mut b = 0.0;
 
         if cfg.modeling.relativistic_path_range {
             let mu = Constants::EARTH_GRAVITATION;
@@ -69,22 +66,18 @@ impl Candidate {
         let iono_compensated = false;
 
         let range_m = match cfg.method {
-            Method::SPP => {
-                self.l1_pseudorange_m_freq_hz()
-                    .expect("internal error: missing pseudo range")
-                    .0
-            },
+            Method::SPP => self
+                .best_snr_pseudo_range_m()
+                .expect("internal error: missing pseudo range"),
             Method::CPP => {
                 // TODO
-                self.l1_pseudorange_m_freq_hz()
+                self.best_snr_pseudo_range_m()
                     .expect("internal error: missing pseudo range")
-                    .0
             },
             Method::PPP => {
                 // TODO
-                self.l1_pseudorange_m_freq_hz()
+                self.best_snr_pseudo_range_m()
                     .expect("internal error: missing pseudo range")
-                    .0
             },
         };
 

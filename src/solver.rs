@@ -308,6 +308,8 @@ impl<O: OrbitSource> Solver<O> {
             .as_mut()
             .expect("internal error: bad initialization logic!");
 
+        let orbit = state.to_orbit(self.earth_cef);
+
         // Real time navigation
 
         // Eclipse filter (if need be)
@@ -338,7 +340,13 @@ impl<O: OrbitSource> Solver<O> {
             });
         }
 
-        self.fix_sv_states(&mut pool)?;
+        Self::fix_sv_states(
+            &orbit,
+            &self.almanac,
+            &mut pool,
+            &mut self.sv_orbits,
+            self.cfg.modeling.relativistic_clock_bias,
+        )?;
 
         if pool.len() < min_required {
             // no need to proceed further
@@ -554,7 +562,7 @@ impl<O: OrbitSource> Solver<O> {
     fn signal_condition_filter(t: Epoch, method: Method, pool: &mut Vec<Candidate>) {
         pool.retain(|cd| match method {
             Method::SPP => {
-                if cd.l1_phase_range_m().is_some() {
+                if cd.l1_pseudo_range().is_some() {
                     true
                 } else {
                     error!("{} ({}) missing pseudo range observation", t, cd.sv);
@@ -583,23 +591,22 @@ impl<O: OrbitSource> Solver<O> {
     /// - Define attitude [elev, azim]
     /// - Define velocities when feasible
     /// - Account for relativistic effects
-    fn fix_sv_states(&self, pool: &mut Vec<Candidate>) -> Result<(), Error> {
+    fn fix_sv_states(
+        orbit: &Orbit,
+        almanac: &Almanac,
+        pool: &mut Vec<Candidate>,
+        sv_orbits: &mut HashMap<SV, Orbit>,
+        relativistic_clock_bias: bool,
+    ) -> Result<(), Error> {
         let mu = Constants::EARTH_GRAVITATION;
         let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
 
-        let state = self
-            .state
-            .as_ref()
-            .expect("internal error: undefined state");
-
-        let rx_orbit = state.to_orbit(self.earth_cef);
-
         for cd in pool.iter_mut() {
-            if let Some(orbit) = &mut cd.orbit {
+            if let Some(sv_orbit) = &mut cd.orbit {
                 // Define velocities when feasible
-                if let Some(past_orbit) = self.sv_orbits.get(&cd.sv) {
-                    let dt_s = (orbit.epoch - past_orbit.epoch).to_seconds();
-                    let pos_vel_km_s = orbit.to_cartesian_pos_vel();
+                if let Some(past_orbit) = sv_orbits.get(&cd.sv) {
+                    let dt_s = (sv_orbit.epoch - past_orbit.epoch).to_seconds();
+                    let pos_vel_km_s = sv_orbit.to_cartesian_pos_vel();
                     let pos_vel_z1_km_s = past_orbit.to_cartesian_pos_vel();
 
                     let vel_km_s = (
@@ -608,13 +615,13 @@ impl<O: OrbitSource> Solver<O> {
                         (pos_vel_km_s[2] - pos_vel_z1_km_s[2]) / dt_s,
                     );
 
-                    *orbit =
-                        orbit.with_velocity_km_s(Vector3::new(vel_km_s.0, vel_km_s.1, vel_km_s.2));
+                    *sv_orbit = sv_orbit
+                        .with_velocity_km_s(Vector3::new(vel_km_s.0, vel_km_s.1, vel_km_s.2));
                 }
 
                 // relativistic clock
                 if orbit.vmag_km_s() > 0.0 {
-                    if self.cfg.modeling.relativistic_clock_bias {
+                    if relativistic_clock_bias {
                         if let Some(clock_corr) = &mut cd.clock_corr {
                             if clock_corr.needs_relativistic_correction {
                                 let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
@@ -635,9 +642,8 @@ impl<O: OrbitSource> Solver<O> {
                     } //clockbias
                 } //velocity
 
-                let elazrg = self
-                    .almanac
-                    .azimuth_elevation_range_sez(*orbit, rx_orbit, None, None)
+                let elazrg = almanac
+                    .azimuth_elevation_range_sez(*orbit, *sv_orbit, None, None)
                     .map_err(|e| Error::Almanac(e))?;
 
                 cd.azimuth_deg = Some(elazrg.azimuth_deg);

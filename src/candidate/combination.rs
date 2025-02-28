@@ -1,6 +1,6 @@
 use crate::prelude::{Candidate, Carrier};
 
-/// Signal combination
+/// Signal [Combination]
 #[derive(Debug, Copy, Clone, Default)]
 pub(crate) struct Combination {
     /// Lhs signal
@@ -30,77 +30,75 @@ impl Combination {
 }
 
 impl Candidate {
-    /// Returns IF code range combination
+    /// Returns IF code range [Combination]
     pub(crate) fn code_if_combination(&self) -> Option<Combination> {
-        let (f1, c_l1) = self.l1_pseudorange_m_freq_hz()?;
-        let (fx, c_lx) = self.lj_pseudorange_m_freq_hz()?;
-        
-        let alpha = 1.0 / (f1.powi(2) - fx.powi(2));
+        let (c1, l1_pr) = self.l1_pseudo_range()?;
+        let f1 = c1.frequency();
+
+        let (cj, lj_pr) = self.lj_pseudo_range()?;
+        let fj = cj.frequency();
+
+        let alpha = 1.0 / (f1.powi(2) - fj.powi(2));
         let beta = f1.powi(2);
-        let gamma = fx.powi(2);
+        let gamma = fj.powi(2);
+
         Some(Combination::new(
-            c_lx,
-            c_l1,
-            alpha * (beta * l1_pr - gamma * lx_pr),
+            cj,
+            c1,
+            alpha * (beta * l1_pr - gamma * lj_pr),
         ))
     }
 
-    /// Returns IF phase range combination
+    /// Returns IF phase range [Combination]
     pub(crate) fn phase_if_combination(&self) -> Option<Combination> {
-        let (c_1, l1_ph) = self.l1_phaserange()?;
-        let f_l1 = c_1.frequency();
+        let (c1, l1_pr) = self.l1_phase_range()?;
+        let f1 = c1.frequency();
 
-        let (c_lx, lx_ph) = self
-            .phase_range_iter()
-            .filter(|(c, _)| *c != c_1)
-            .reduce(|k, _| k)?;
+        let (cj, lj_pr) = self.lj_phase_range()?;
+        let fj = cj.frequency();
 
-        let f_lx = c_lx.frequency();
+        let alpha = 1.0 / (f1.powi(2) - fj.powi(2));
+        let beta = f1.powi(2);
+        let gamma = fj.powi(2);
 
-        let alpha = 1.0 / (f_l1.powi(2) - f_lx.powi(2));
-        let beta = f_l1.powi(2);
-        let gamma = f_lx.powi(2);
         Some(Combination::new(
-            c_lx,
-            c_1,
-            alpha * (beta * l1_ph - gamma * lx_ph),
+            cj,
+            c1,
+            alpha * (beta * l1_pr - gamma * lj_pr),
         ))
     }
 
-    /// Returns phase wide lane combination
+    /// Returns phase wide lane [Combination]
     pub(crate) fn phase_wl_combination(&self) -> Option<Combination> {
-        let (c_1, l_1) = self.l1_phaserange()?;
-        let (c_j, l_j) = self
-            .phase_range_iter()
-            .filter(|(c, _)| *c != c_1)
-            .reduce(|k, _| k)?;
+        let (c1, l1_cp) = self.l1_phase_range()?;
+        let f1 = c1.frequency();
 
-        let (f_1, f_j) = (c_1.frequency(), c_j.frequency());
+        let (cj, lj_cp) = self.lj_phase_range()?;
+        let fj = cj.frequency();
+
         Some(Combination::new(
-            c_j,
-            c_1,
-            (f_1 * l_1 - f_j * l_j) / (f_1 - f_j),
+            cj,
+            c1,
+            (f1 * l1_cp - fj * lj_cp) / (f1 - fj),
         ))
     }
 
-    /// Returns code narrow lane combination
+    /// Returns code narrow lane [Combination]
     pub(crate) fn code_nl_combination(&self) -> Option<Combination> {
-        let (c_1, l_1) = self.l1_pseudorange()?;
-        let (c_j, l_j) = self
-            .pseudo_range_iter()
-            .filter(|(c, _)| *c != c_1)
-            .reduce(|k, _| k)?;
+        let (c1, l1_pr) = self.l1_pseudo_range()?;
+        let f1 = c1.frequency();
 
-        let (f_1, f_j) = (c_1.frequency(), c_j.frequency());
+        let (cj, lj_pr) = self.lj_pseudo_range()?;
+        let fj = cj.frequency();
 
         Some(Combination::new(
-            c_j,
-            c_1,
-            (f_1 * l_1 + f_j * l_j) / (f_1 + f_j),
+            cj,
+            c1,
+            (f1 * l1_pr + fj * lj_pr) / (f1 + fj),
         ))
     }
 
-    /// Returns MW combination
+    /// Returns MW [Combination]
     pub(crate) fn mw_combination(&self) -> Option<Combination> {
         let ph_w = self.phase_wl_combination()?;
         let pr_n = self.code_nl_combination()?;
@@ -111,33 +109,17 @@ impl Candidate {
         ))
     }
 
-    /// Returns GF combination
+    /// Returns GF [Combination]
     pub(crate) fn phase_gf_combination(&self) -> Option<Combination> {
-        let (c_1, l_1) = self
-            .phase_range_iter()
-            .filter(|(c, _)| matches!(c, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
-            .reduce(|k, _| k)?;
-
-        let (c_j, l_j) = self
-            .phase_range_iter()
-            .filter(|(c, _)| *c != c_1)
-            .reduce(|k, _| k)?;
-
-        Some(Combination::new(c_j, c_1, l_1 - l_j))
+        let (c1, l1_pr) = self.l1_phase_range()?;
+        let (cj, lj_pr) = self.lj_phase_range()?;
+        Some(Combination::new(cj, c1, l1_pr - lj_pr))
     }
 
     /// Form GF combination
     pub(crate) fn code_gf_combination(&self) -> Option<Combination> {
-        let (c_1, pr_1) = self
-            .pseudo_range_iter()
-            .filter(|(c, _)| matches!(c, Carrier::L1 | Carrier::E1 | Carrier::B1aB1c))
-            .reduce(|k, _| k)?;
-
-        let (c_j, pr_j) = self
-            .phase_range_iter()
-            .filter(|(c, _)| *c != c_1)
-            .reduce(|k, _| k)?;
-
-        Some(Combination::new(c_j, c_1, pr_j - pr_1))
+        let (c1, l1_pr) = self.l1_pseudo_range()?;
+        let (cj, lj_pr) = self.lj_pseudo_range()?;
+        Some(Combination::new(cj, c1, lj_pr - l1_pr))
     }
 }

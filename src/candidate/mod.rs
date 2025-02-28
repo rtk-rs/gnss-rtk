@@ -4,14 +4,14 @@ use log::debug;
 
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
-use crate::prelude::{Config, Duration, Epoch, Error, Method, Orbit, Vector3, SV};
+use crate::prelude::{Config, Duration, Epoch, Error, Orbit, Vector3, SV};
 
 mod bias;
 mod nav;
 mod signal;
 
 pub mod clock;
-// pub(crate) mod combination;
+pub(crate) mod combination;
 
 pub use crate::candidate::{clock::ClockCorrection, signal::Observation};
 
@@ -154,8 +154,8 @@ impl Candidate {
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, Duration), Error> {
         let total_seconds = self.t.duration.to_seconds();
 
-        let (pr, _) = self
-            .l1_pseudorange_m_freq_hz()
+        let pr = self
+            .best_snr_pseudo_range_m()
             .ok_or(Error::MissingPseudoRange)?;
 
         let dt_tx = total_seconds - pr / SPEED_OF_LIGHT_M_S;
@@ -242,17 +242,17 @@ mod test {
         for (observations, cpp_compatible) in [(
             vec![
                 Observation {
-                    snr: Some(1.0),
-                    pseudo: Some(1.0),
-                    phase: Some(2.0),
+                    snr_dbhz: Some(1.0),
+                    pseudo_range_m: Some(1.0),
+                    phase_range_m: Some(2.0),
                     ambiguity: None,
                     doppler: None,
                     carrier: Carrier::L1,
                 },
                 Observation {
-                    snr: Some(1.0),
-                    pseudo: Some(2.0),
-                    phase: Some(2.0),
+                    snr_dbhz: Some(1.0),
+                    pseudo_range_m: Some(2.0),
+                    phase_range_m: Some(2.0),
                     ambiguity: None,
                     doppler: None,
                     carrier: Carrier::L5,
