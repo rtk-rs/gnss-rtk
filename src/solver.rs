@@ -63,6 +63,114 @@ pub struct Solver<O: OrbitSource> {
     sv_orbits: HashMap<SV, Orbit>,
 }
 
+pub(crate) fn sv_orbital_fixup(
+    almanac: &Almanac,
+    t: Epoch,
+    state: Orbit,
+    pool: &mut Vec<Candidate>,
+) {
+    pool.retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, state) {
+        Ok(_) => {
+            let (elev, azim) = cd.attitude().unwrap();
+            debug!("{}({}) azim={:.1}° | elev={:.1}°", t, cd.sv, azim, elev);
+            true
+        },
+        Err(e) => {
+            error!("{}({}) - orbital fixup: {}", t, cd.sv, e);
+            false
+        },
+    });
+}
+
+// Apply attitude filters
+pub(crate) fn sv_attitude_filters(cfg: &Config, pool: &mut Vec<Candidate>) {
+    let min_elev_deg = cfg.min_sv_elev.unwrap_or(0.0);
+    let min_azim_deg = cfg.min_sv_azim.unwrap_or(0.0);
+    let max_azim_deg = cfg.max_sv_azim.unwrap_or(360.0);
+
+    pool.retain(|cd| {
+        if let Some((elev, azim)) = cd.attitude() {
+            if elev < min_elev_deg {
+                debug!("{}({}) - rejected (below elevation mask)", cd.t, cd.sv);
+                false
+            } else if azim < min_azim_deg {
+                debug!("{}({}) - rejected (below azimuth mask)", cd.t, cd.sv);
+                false
+            } else if azim > max_azim_deg {
+                debug!("{}({}) - rejected (above azimuth mask)", cd.t, cd.sv);
+                false
+            } else {
+                debug!("{}({}) - elev={:.3}° azim={:.3}°", cd.t, cd.sv, elev, azim);
+                true
+            }
+        } else {
+            true
+        }
+    });
+}
+
+/// - Define velocities when feasible
+/// - Account for relativistic effects
+pub(crate) fn sv_velocities_fixup(
+    pool: &mut Vec<Candidate>,
+    sv_orbits: &HashMap<SV, Orbit>,
+    relativistic_clock_bias: bool,
+) -> Result<(), Error> {
+    let mu = Constants::EARTH_GRAVITATION;
+    let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
+
+    for cd in pool.iter_mut() {
+        if let Some(sv_orbit) = &mut cd.orbit {
+            // Define velocities when feasible
+            if let Some(past_orbit) = sv_orbits.get(&cd.sv) {
+                let dt_s = (sv_orbit.epoch - past_orbit.epoch).to_seconds();
+                let pos_vel_km_s = sv_orbit.to_cartesian_pos_vel();
+                let pos_vel_z1_km_s = past_orbit.to_cartesian_pos_vel();
+
+                let vel_km_s = (
+                    (pos_vel_km_s[0] - pos_vel_z1_km_s[0]) / dt_s,
+                    (pos_vel_km_s[1] - pos_vel_z1_km_s[1]) / dt_s,
+                    (pos_vel_km_s[2] - pos_vel_z1_km_s[2]) / dt_s,
+                );
+
+                *sv_orbit =
+                    sv_orbit.with_velocity_km_s(Vector3::new(vel_km_s.0, vel_km_s.1, vel_km_s.2));
+
+                if let Some(clock_corr) = &mut cd.clock_corr {
+                    if relativistic_clock_bias && clock_corr.needs_relativistic_correction {
+                        let ea_deg = sv_orbit.ea_deg().map_err(Error::Physics)?;
+
+                        let ea_rad = ea_deg.to_radians();
+                        let gm = (w_e * mu).sqrt();
+                        let ecc = sv_orbit.ecc().map_err(Error::Physics)?;
+
+                        let bias = -2.0_f64 * ecc * ea_rad.sin() * gm
+                            / SPEED_OF_LIGHT_M_S
+                            / SPEED_OF_LIGHT_M_S
+                            * Unit::Second;
+
+                        debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                        clock_corr.duration += bias;
+                    }
+                } //clockbias
+            } //velocity
+        }
+    }
+    Ok(())
+}
+
+fn update_sky_view(pool: &[Candidate], sv_orbits: &mut HashMap<SV, Orbit>) {
+    let svnn = pool.iter().map(|cd| cd.sv).unique().collect::<Vec<_>>();
+
+    sv_orbits.retain(|sv, _| {
+        let retain = svnn.contains(&sv);
+        if !retain {
+            debug!("{} loss of sight", sv);
+        }
+        retain
+    });
+}
+
 impl<O: OrbitSource> Solver<O> {
     const ALMANAC_LOCAL_STORAGE: &str = ".cache";
 
@@ -251,25 +359,18 @@ impl<O: OrbitSource> Solver<O> {
                 Ok((t_tx, dt_tx)) => {
                     let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    if let Some(tx_orbit) = orbits.next_at(t_tx, cd.sv, self.earth_cef) {
-                        // TODO
-                        let orbit = Self::rotate_orbit_dcm3x3(
-                            cd.t,
-                            dt_tx,
-                            tx_orbit,
-                            modeling.earth_rotation,
-                            self.earth_cef,
-                        );
 
-                        // TODO
-                        // mais attention relation avec le filtre de bancroft juste apres
-                        // let cd = cd.with_orbit(&self.almanac, Default::default(), tx_orbit)?;
-                        // TODO Some(cd.with_orbit(&self.almanac, Default::default(), tx_orbit))
-                        None
-                    } else {
-                        // preserve: may still apply to RTK
-                        Some(cd.clone())
-                    }
+                    let tx_orbit = orbits.next_at(t_tx, cd.sv, self.earth_cef)?;
+
+                    let tx_orbit = Self::rotate_orbit_dcm3x3(
+                        cd.t,
+                        dt_tx,
+                        tx_orbit,
+                        modeling.earth_rotation,
+                        self.earth_cef,
+                    );
+
+                    Some(cd.with_orbit(tx_orbit))
                 },
                 Err(e) => {
                     error!("{} - transmision time error: {}", cd.sv, e);
@@ -316,9 +417,16 @@ impl<O: OrbitSource> Solver<O> {
             .as_mut()
             .expect("internal error: bad initialization logic!");
 
-        let orbit = state.to_orbit(self.earth_cef);
+        let orbit_state = state.to_orbit(self.earth_cef);
 
         // Real time navigation
+        sv_orbital_fixup(&self.almanac, t, orbit_state, &mut pool);
+
+        sv_velocities_fixup(
+            &mut pool,
+            &self.sv_orbits,
+            self.cfg.modeling.relativistic_clock_bias,
+        )?;
 
         // Eclipse filter (if need be)
         if let Some(max_occultation_rate) = self.cfg.max_sv_occultation_percent {
@@ -348,20 +456,12 @@ impl<O: OrbitSource> Solver<O> {
             });
         }
 
-        Self::fix_sv_states(
-            &orbit,
-            &self.almanac,
-            &mut pool,
-            &mut self.sv_orbits,
-            self.cfg.modeling.relativistic_clock_bias,
-        )?;
-
         if pool.len() < min_required {
             // no need to proceed further
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
-        Self::sv_attitude_filters(&self.cfg, &mut pool);
+        sv_attitude_filters(&self.cfg, &mut pool);
 
         // tropo + ionosphere modeling, if need be
         for cd in &mut pool {
@@ -402,7 +502,7 @@ impl<O: OrbitSource> Solver<O> {
             retained
         });
 
-        // last verification (tropo)
+        // last verification (iono)
         // TODO: when cancelled from signal, fill cd.iono_bias_m
         pool.retain(|cd| {
             let retained = cd.iono_bias_m < max_iono_bias;
@@ -418,7 +518,7 @@ impl<O: OrbitSource> Solver<O> {
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
-        Self::update_sky_view(&pool, &mut self.sv_orbits);
+        update_sky_view(&pool, &mut self.sv_orbits);
 
         // TODO ?
         // pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
@@ -596,104 +696,6 @@ impl<O: OrbitSource> Solver<O> {
         })
     }
 
-    /// - Define attitude [elev, azim]
-    /// - Define velocities when feasible
-    /// - Account for relativistic effects
-    fn fix_sv_states(
-        orbit: &Orbit,
-        almanac: &Almanac,
-        pool: &mut Vec<Candidate>,
-        sv_orbits: &mut HashMap<SV, Orbit>,
-        relativistic_clock_bias: bool,
-    ) -> Result<(), Error> {
-        let mu = Constants::EARTH_GRAVITATION;
-        let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
-
-        for cd in pool.iter_mut() {
-            if let Some(sv_orbit) = &mut cd.orbit {
-                // Define velocities when feasible
-                if let Some(past_orbit) = sv_orbits.get(&cd.sv) {
-                    let dt_s = (sv_orbit.epoch - past_orbit.epoch).to_seconds();
-                    let pos_vel_km_s = sv_orbit.to_cartesian_pos_vel();
-                    let pos_vel_z1_km_s = past_orbit.to_cartesian_pos_vel();
-
-                    let vel_km_s = (
-                        (pos_vel_km_s[0] - pos_vel_z1_km_s[0]) / dt_s,
-                        (pos_vel_km_s[1] - pos_vel_z1_km_s[1]) / dt_s,
-                        (pos_vel_km_s[2] - pos_vel_z1_km_s[2]) / dt_s,
-                    );
-
-                    *sv_orbit = sv_orbit
-                        .with_velocity_km_s(Vector3::new(vel_km_s.0, vel_km_s.1, vel_km_s.2));
-                }
-
-                // relativistic clock
-                if orbit.vmag_km_s() > 0.0 {
-                    if relativistic_clock_bias {
-                        if let Some(clock_corr) = &mut cd.clock_corr {
-                            if clock_corr.needs_relativistic_correction {
-                                let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
-
-                                let ea_rad = ea_deg.to_radians();
-                                let gm = (w_e * mu).sqrt();
-                                let ecc = orbit.ecc().map_err(Error::Physics)?;
-
-                                let bias = -2.0_f64 * ecc * ea_rad.sin() * gm
-                                    / SPEED_OF_LIGHT_M_S
-                                    / SPEED_OF_LIGHT_M_S
-                                    * Unit::Second;
-
-                                debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
-                                clock_corr.duration += bias;
-                            }
-                        }
-                    } //clockbias
-                } //velocity
-            }
-        }
-        Ok(())
-    }
-
-    // Apply attitude filters
-    fn sv_attitude_filters(cfg: &Config, pool: &mut Vec<Candidate>) {
-        let min_elev_deg = cfg.min_sv_elev.unwrap_or(0.0);
-        let min_azim_deg = cfg.min_sv_azim.unwrap_or(0.0);
-        let max_azim_deg = cfg.max_sv_azim.unwrap_or(360.0);
-
-        pool.retain(|cd| {
-            if let Some((elev, azim)) = cd.attitude() {
-                if elev < min_elev_deg {
-                    debug!("{}({}) - rejected (below elevation mask)", cd.t, cd.sv);
-                    false
-                } else if azim < min_azim_deg {
-                    debug!("{}({}) - rejected (below azimuth mask)", cd.t, cd.sv);
-                    false
-                } else if azim > max_azim_deg {
-                    debug!("{}({}) - rejected (above azimuth mask)", cd.t, cd.sv);
-                    false
-                } else {
-                    debug!("{}({}) - elev={:.3}° azim={:.3}°", cd.t, cd.sv, elev, azim);
-                    true
-                }
-            } else {
-                true
-            }
-        });
-    }
-
-    fn update_sky_view(pool: &[Candidate], sv_orbits: &mut HashMap<SV, Orbit>) {
-        // Update local sky buffer
-        let svnn = pool.iter().map(|cd| cd.sv).unique().collect::<Vec<_>>();
-
-        sv_orbits.retain(|sv, _| {
-            let retain = svnn.contains(&sv);
-            if !retain {
-                debug!("{} loss of sight", sv);
-            }
-            retain
-        });
-    }
-
     fn min_sv_required(&self) -> usize {
         if self.state.is_none() && self.initial_ecef_m.is_none() {
             4
@@ -779,12 +781,15 @@ mod test {
 
     use crate::{
         prelude::{Almanac, Candidate, Config, Epoch, PVTSolutionType, Solver, EARTH_J2000},
+        solver::sv_orbital_fixup,
         tests::{
             gps::{G05, G07, G13, G15},
             orbits::{GPSOrbits, NullOrbits},
             reference_orbit,
         },
     };
+
+    use super::sv_attitude_filters;
 
     #[test]
     fn test_min_sv_required() {
@@ -828,31 +833,36 @@ mod test {
 
         let t_str = "2020-06-25T00:00:00 GPST";
         let t = Epoch::from_str(t_str).unwrap();
+
         let rx_orbit = reference_orbit(frame);
 
         let sv_orbits = GPSOrbits::collect_epoch(t_str, frame);
 
-        let candidates = sv_orbits
+        let mut candidates = sv_orbits
             .iter()
-            .map(|(sv, sv_orbit)| {
-                Candidate::new(*sv, t, vec![])
-                    .with_orbit(&almanac, rx_orbit, *sv_orbit)
-                    .unwrap_or_else(|e| panic!("Candidate.with_orbit() should have passed: {}", e))
-            })
+            .map(|(sv, sv_orbit)| Candidate::new(*sv, t, vec![]).with_orbit(*sv_orbit))
             .collect::<Vec<_>>();
 
+        sv_orbital_fixup(&almanac, t, rx_orbit, &mut candidates);
         assert_eq!(candidates.len(), 7, "invalid test data length");
 
-        let mut tests = candidates.clone();
-        Solver::<NullOrbits>::sv_attitude_filters(&preset, &mut tests);
+        sv_attitude_filters(&preset, &mut candidates);
 
-        let remainder = tests.iter().map(|cd| cd.sv).sorted().collect::<Vec<_>>();
+        let remainder = candidates
+            .iter()
+            .map(|cd| cd.sv)
+            .sorted()
+            .collect::<Vec<_>>();
         assert_eq!(remainder, vec![G05, G07, G13, G15]);
 
         preset.min_sv_elev = Some(16.0);
-        Solver::<NullOrbits>::sv_attitude_filters(&preset, &mut tests);
+        sv_attitude_filters(&preset, &mut candidates);
 
-        let remainder = tests.iter().map(|cd| cd.sv).sorted().collect::<Vec<_>>();
+        let remainder = candidates
+            .iter()
+            .map(|cd| cd.sv)
+            .sorted()
+            .collect::<Vec<_>>();
         assert_eq!(remainder, vec![G05, G07, G13]);
     }
 }

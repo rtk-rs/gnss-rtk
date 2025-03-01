@@ -7,16 +7,16 @@ use crate::{
 
 /// Dummy structure that allows deploying and iterating the solver
 /// infinitely, but cannot be used for calculations verification.
-pub struct SinglestaticSVOrbits {}
+pub struct SingleStaticSVOrbits {}
 
-impl OrbitSource for SinglestaticSVOrbits {
+impl OrbitSource for SingleStaticSVOrbits {
     fn next_at(&mut self, t: Epoch, _: SV, fr: Frame) -> Option<Orbit> {
         let (x_km, y_km, z_km) = (15600.0, 7540.0, 20140.0);
         Some(Orbit::from_position(x_km, y_km, z_km, t, fr))
     }
 }
 
-pub type NullOrbits = SinglestaticSVOrbits;
+pub type NullOrbits = SingleStaticSVOrbits;
 
 /// A few orbital states that we can use to iterate & verify the solver
 /// using GPS Constellation and GPST

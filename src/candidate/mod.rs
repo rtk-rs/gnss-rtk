@@ -198,21 +198,44 @@ impl Candidate {
         Ok((e_tx, dt))
     }
 
-    /// Copies [Candidate] and returns with updated [Orbit]al state.
-    pub(crate) fn with_orbit(
-        &self,
+    /// Copies [Candidate] and returns with updated [Orbit]al state, yet partially incomplete.
+    pub(crate) fn with_orbit(&self, orbit: Orbit) -> Self {
+        let mut s = self.clone();
+        s.orbit = Some(orbit);
+        s
+    }
+
+    /// Fix [Orbit]al attitude
+    pub(crate) fn orbital_attitude_fixup(
+        &mut self,
         almanac: &Almanac,
         rx_orbit: Orbit,
-        sv_orbit: Orbit,
-    ) -> AlmanacResult<Self> {
-        let mut s = self.clone();
+    ) -> AlmanacResult<()> {
+        let orbit = self
+            .orbit
+            .expect("internal error: undefined orbital state (badop)");
+        let elazrg = almanac.azimuth_elevation_range_sez(orbit, rx_orbit, None, None)?;
+        self.azimuth_deg = Some(elazrg.azimuth_deg);
+        self.elevation_deg = Some(elazrg.elevation_deg);
+        Ok(())
+    }
 
-        let elazrg = almanac.azimuth_elevation_range_sez(sv_orbit, rx_orbit, None, None)?;
+    /// Fix [Orbit]al velocities
+    pub(crate) fn orbital_velocity_fixup(&mut self, vel_km_s: (f64, f64, f64)) {
+        let orbit = self
+            .orbit
+            .expect("internal error: undefined orbital state (badop)");
+        let mut pos_vel = orbit.to_cartesian_pos_vel();
 
-        s.orbit = Some(sv_orbit);
-        s.azimuth_deg = Some(elazrg.azimuth_deg);
-        s.elevation_deg = Some(elazrg.elevation_deg);
-        Ok(s)
+        pos_vel[3] = vel_km_s.0;
+        pos_vel[4] = vel_km_s.1;
+        pos_vel[5] = vel_km_s.2;
+
+        self.orbit = Some(Orbit::from_cartesian_pos_vel(
+            pos_vel,
+            orbit.epoch,
+            orbit.frame,
+        ));
     }
 
     /// Returns (elevation, azimuth) in decimal degrees.
@@ -293,9 +316,9 @@ mod test {
 
         let sv_orbit = GPSOrbits::find_orbit(t01, G09, frame).expect("G09 test orbit does exist!");
 
-        let cd = Candidate::new(G09, t01, vec![])
-            .with_orbit(&almanac, rx_orbit, sv_orbit)
-            .unwrap();
+        let mut cd = Candidate::new(G09, t01, vec![]).with_orbit(sv_orbit);
+
+        cd.orbital_attitude_fixup(&almanac, rx_orbit).unwrap();
 
         let (elev_deg, azim_deg) = cd
             .attitude()
@@ -306,5 +329,15 @@ mod test {
 
         let azim_err_deg = (azim_deg - 104.2191).abs();
         assert!(azim_err_deg < 0.1);
+
+        cd.orbital_velocity_fixup((1.0, 2.0, 3.0));
+
+        let sv_orbit = cd.orbit.unwrap();
+
+        let pos_vel = sv_orbit.to_cartesian_pos_vel();
+
+        assert_eq!(pos_vel[3], 1.0);
+        assert_eq!(pos_vel[4], 2.0);
+        assert_eq!(pos_vel[5], 3.0);
     }
 }
