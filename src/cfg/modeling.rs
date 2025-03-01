@@ -102,3 +102,24 @@ impl Default for Modeling {
         }
     }
 }
+
+impl Modeling {
+    /// Defines a null [Modeling] structure where all physical
+    /// perturbations and phenomena are not accounted for.
+    /// This is not the default value! Use this for teaching
+    /// purposes only.
+    pub fn no_modeling() -> Modeling {
+        Modeling {
+            sv_clock_bias: false,
+            sv_total_group_delay: false,
+            relativistic_clock_bias: false,
+            relativistic_path_range: false,
+            tropo_delay: false,
+            iono_delay: false,
+            earth_rotation: false,
+            phase_windup: false,
+            cable_delay: false,
+            solid_tides: false,
+        }
+    }
+}

@@ -282,23 +282,30 @@ impl<O: OrbitSource> Solver<O> {
             match self.initial_ecef_m {
                 Some(initial_ecef_m) => {
                     // Define initial state
+
+                    let state = State::from_ecef_m(initial_ecef_m, t, self.earth_cef)
+                        .unwrap_or_else(|e| panic!("solver state initialization failure: {}", e));
+
                     debug!("{}: initialized with {}", t, initial_ecef_m);
-                    self.state = Some(State::from_ecef_m(initial_ecef_m, t, self.earth_cef));
+                    self.state = Some(state);
                 },
                 None => {
                     // Special solver
                     let solver = Bancroft::new(&pool)?;
                     let solution = solver.resolve()?;
 
+                    let coords = Vector3::new(solution[0], solution[1], solution[2]);
+
+                    // Define initial state
+                    let state = State::from_ecef_m(coords, t, self.earth_cef)
+                        .unwrap_or_else(|e| panic!("solver initialization error: {}", e));
+
                     debug!(
                         "{}: initial solution: {:?} [COMPARE LOCAL TIME HERE PLEASE]",
                         t, solution
                     );
 
-                    let coords = Vector3::new(solution[0], solution[1], solution[2]);
-
-                    // Define initial state
-                    self.state = Some(State::from_ecef_m(coords, t, self.earth_cef));
+                    self.state = Some(state);
                 },
             }
         }

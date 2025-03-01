@@ -159,6 +159,7 @@ impl Config {
         s.max_iono_bias = max_iono_bias();
         s
     }
+
     /// Returns [Config] for dynamic PPP positioning, with desired [Method]
     /// and rover [Profile]. You can then customize [Self] as you will.
     pub fn dynamic_ppp_preset(profile: Profile, method: Method) -> Self {
@@ -170,6 +171,7 @@ impl Config {
         s.max_iono_bias = max_iono_bias();
         s
     }
+
     /// Returns [Config] for static RTK positioning, with desired [Method],
     /// Remote site coordinates expressed in meters ECEF.
     /// You can then customize [Self] as you will.
@@ -183,6 +185,7 @@ impl Config {
         s.max_iono_bias = max_iono_bias();
         s
     }
+
     /// Returns [Config] for dynamic RTK positioning, with desired [Method],
     /// rover [Profile] and reference Remote Site coordinates expressed
     /// as meters ECEF. You can then customize [Self] as you will.
@@ -198,6 +201,14 @@ impl Config {
         s.min_sv_elev = Some(15.0);
         s.max_tropo_bias = max_tropo_bias();
         s.max_iono_bias = max_iono_bias();
+        s
+    }
+
+    /// Copies and returns [Config] with desired [Modeling], that you can
+    /// tune to improve the accuracy of your solution, or for learning purposes.
+    pub fn with_modeling(&self, modeling: Modeling) -> Self {
+        let mut s = self.clone();
+        s.modeling = modeling;
         s
     }
 }

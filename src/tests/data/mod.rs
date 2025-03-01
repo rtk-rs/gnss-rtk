@@ -9,7 +9,7 @@ pub use error::ParsingError;
 mod observable;
 pub use observable::Observable;
 
-use crate::prelude::{Epoch, Observation, SV};
+use crate::prelude::{Candidate, Epoch, Observation, SV};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +67,10 @@ impl DataPoint {
             sv,
             observations,
         }
+    }
+
+    pub fn to_candidate(&self) -> Candidate {
+        Candidate::new(self.sv, self.t, self.observations.clone())
     }
 }
 

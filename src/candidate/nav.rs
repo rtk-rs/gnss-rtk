@@ -28,7 +28,6 @@ impl Candidate {
         let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
 
         let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
-
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let (sv_x_m, sv_y_m, sv_z_m) = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
 
@@ -63,7 +62,7 @@ impl Candidate {
         h[(0, 0)] = dx_m;
         h[(0, 1)] = dy_m;
         h[(0, 2)] = dz_m;
-        h[(0, 3)] = SPEED_OF_LIGHT_M_S;
+        h[(0, 3)] = 1.0;
 
         let iono_compensated = false;
 
@@ -87,7 +86,6 @@ impl Candidate {
 
         if cfg.modeling.sv_clock_bias {
             let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
-
             bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
         }
 

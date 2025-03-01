@@ -83,7 +83,7 @@ impl Default for LoopExitCriteria {
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct FilterOpts {
     /// Criteria to exit the Least Square fitting loop, for a given Epoch
-    #[cfg_attr(feature = "serde", serde(default = "default_loop_exit"))]
+    #[cfg_attr(feature = "serde", serde(default))]
     loop_exit: LoopExitCriteria,
     /// The navigation filter operates in closed loop by default.
     /// If you disable this feature, this will prohibit any dynamic applications,
