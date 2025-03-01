@@ -210,7 +210,7 @@ mod test {
     use nalgebra::{Matrix4, Vector4};
 
     #[test]
-    fn pvt_navi_failures() {
+    fn pvt_matrix_failures() {
         let cfg = Config::default();
         let (x0_m, y0_m, z0_m) = (0.0_f64, 0.0_f64, 0.0_f64);
 
@@ -355,7 +355,7 @@ mod test {
     }
 
     #[test]
-    fn pvt_navi_noclock_nobias() {
+    fn pvt_matrix_noclock_nobias() {
         let mut cfg = Config::default();
 
         cfg.modeling.sv_clock_bias = false;
@@ -383,7 +383,7 @@ mod test {
                 vec![Observation {
                     snr_dbhz: None,
                     carrier: Carrier::L1,
-                    pseudo_range_m: Some(1.0),
+                    pseudo_range_m: Some(0.1),
                     phase_range_m: None,
                     doppler: None,
                     ambiguity: None,
@@ -395,7 +395,7 @@ mod test {
                 vec![Observation {
                     snr_dbhz: None,
                     carrier: Carrier::L1,
-                    pseudo_range_m: Some(2.0),
+                    pseudo_range_m: Some(0.2),
                     phase_range_m: None,
                     doppler: None,
                     ambiguity: None,
@@ -407,7 +407,7 @@ mod test {
                 vec![Observation {
                     snr_dbhz: None,
                     carrier: Carrier::L1,
-                    pseudo_range_m: Some(3.0),
+                    pseudo_range_m: Some(0.3),
                     phase_range_m: None,
                     doppler: None,
                     ambiguity: None,
@@ -419,7 +419,7 @@ mod test {
                 vec![Observation {
                     snr_dbhz: None,
                     carrier: Carrier::L1,
-                    pseudo_range_m: Some(4.0),
+                    pseudo_range_m: Some(0.4),
                     phase_range_m: None,
                     doppler: None,
                     ambiguity: None,
@@ -450,35 +450,35 @@ mod test {
         ];
 
         let rho = vec![
-            ((sv_coords_m[0].0 - x0_m).powi(2)
-                + (sv_coords_m[0].1 - y0_m).powi(2)
-                + (sv_coords_m[0].2 - z0_m).powi(2))
+            ((x0_m - sv_coords_m[0].0).powi(2)
+                + (y0_m - sv_coords_m[0].1).powi(2)
+                + (z0_m - sv_coords_m[0].2).powi(2))
             .sqrt(),
-            ((sv_coords_m[1].0 - x0_m).powi(2)
-                + (sv_coords_m[1].1 - y0_m).powi(2)
-                + (sv_coords_m[1].2 - z0_m).powi(2))
+            ((x0_m - sv_coords_m[1].0).powi(2)
+                + (y0_m - sv_coords_m[1].1).powi(2)
+                + (z0_m - sv_coords_m[1].2).powi(2))
             .sqrt(),
-            ((sv_coords_m[2].0 - x0_m).powi(2)
-                + (sv_coords_m[2].1 - y0_m).powi(2)
-                + (sv_coords_m[2].2 - z0_m).powi(2))
+            ((x0_m - sv_coords_m[2].0).powi(2)
+                + (y0_m - sv_coords_m[2].1).powi(2)
+                + (z0_m - sv_coords_m[2].2).powi(2))
             .sqrt(),
-            ((sv_coords_m[3].0 - x0_m).powi(2)
-                + (sv_coords_m[3].1 - y0_m).powi(2)
-                + (sv_coords_m[3].2 - z0_m).powi(2))
+            ((x0_m - sv_coords_m[3].0).powi(2)
+                + (y0_m - sv_coords_m[3].1).powi(2)
+                + (z0_m - sv_coords_m[3].2).powi(2))
             .sqrt(),
         ];
 
         for i in 0..4 {
             let (dx_m, dy_m, dz_m) = (
-                (x0_m - sv_coords_m[0].0) / rho[i],
-                (y0_m - sv_coords_m[0].1) / rho[i],
-                (z0_m - sv_coords_m[0].2) / rho[i],
+                (x0_m - sv_coords_m[i].0) / rho[i],
+                (y0_m - sv_coords_m[i].1) / rho[i],
+                (z0_m - sv_coords_m[i].2) / rho[i],
             );
 
-            assert_eq!(nav.h[(i, 0)], dx_m);
-            assert_eq!(nav.h[(i, 1)], dy_m);
-            assert_eq!(nav.h[(i, 2)], dz_m);
-            assert_eq!(nav.h[(i, 3)], dx_m);
+            assert_eq!(nav.h[(i, 0)], dx_m, "test failed [({},{})]", i, 0);
+            assert_eq!(nav.h[(i, 1)], dy_m, "test failed [({},{})]", i, 1);
+            assert_eq!(nav.h[(i, 2)], dz_m, "test failed [({},{})]", i, 2);
+            assert_eq!(nav.h[(i, 3)], dx_m, "test failed [({},{})]", i, 3);
         }
 
         assert_eq!(nav.b, Vector4::zeros());

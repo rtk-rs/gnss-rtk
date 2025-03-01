@@ -1,6 +1,6 @@
 //! Solver configuration preset
 
-use std::iter::Filter;
+use nalgebra::{dimension::U8, OMatrix};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -93,16 +93,10 @@ pub struct FilterOpts {
     /// Weight Matrix
     #[cfg_attr(feature = "serde", serde(default = "default_weight_matrix"))]
     pub weight_matrix: Option<WeightMatrix>,
-    /// Deploy a post-processing denoising Kalman filter,
-    /// at the expense of more processing load. This may apply even
-    /// when your navigation is also a Kalman filter.
-    #[cfg_attr(feature = "serde", serde(default = "default_postfit_kf"))]
-    pub postfit_kf: bool,
 }
 
 fn default_filter_opts() -> Option<FilterOpts> {
     Some(FilterOpts {
-        postfit_kf: default_postfit_kf(),
         loop_exit: loop_exit_10th_iter(),
         closed_loop: default_closed_loop(),
         weight_matrix: default_weight_matrix(),
@@ -123,13 +117,19 @@ pub struct SolverOpts {
     // pub filter: Filter,
     /// Filter options
     #[cfg_attr(feature = "serde", serde(default = "default_filter_opts"))]
-    pub filter_opts: Option<FilterOpts>,
+    pub filter: Option<FilterOpts>,
+    /// Deploy a post-processing denoising Kalman filter,
+    /// at the expense of more processing load. This may apply even
+    /// when your navigation is also a Kalman filter.
+    #[cfg_attr(feature = "serde", serde(default = "default_postfit_kf"))]
+    pub postfit_kf: bool,
 }
 
 impl Default for SolverOpts {
     fn default() -> Self {
         Self {
-            filter_opts: default_filter_opts(),
+            filter: default_filter_opts(),
+            postfit_kf: default_postfit_kf(),
             gdop_threshold: default_gdop_threshold(),
             tdop_threshold: default_tdop_threshold(),
         }
@@ -142,7 +142,7 @@ impl SolverOpts {
      */
     pub(crate) fn weight_matrix(&self) -> OMatrix<f64, U8, U8> {
         let mat = OMatrix::<f64, U8, U8>::identity();
-        if let Some(opts) = &self.filter_opts {
+        if let Some(opts) = &self.filter {
             match &opts.weight_matrix {
                 Some(WeightMatrix::Covar) => panic!("not implemented yet"),
                 Some(WeightMatrix::MappingFunction(_)) => panic!("mapf: not implemented yet"),

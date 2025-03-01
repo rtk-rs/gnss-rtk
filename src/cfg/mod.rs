@@ -3,11 +3,6 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    // navigation::Filter,
-    prelude::{PVTSolutionType, TimeScale},
-};
-
 use nalgebra::{base::dimension::U8, OMatrix};
 
 mod method;
@@ -17,7 +12,9 @@ mod solver;
 
 pub use crate::{
     carrier::Signal,
+    cfg::solver::SolverOpts,
     cfg::{method::Method, modeling::Modeling, profile::Profile},
+    prelude::{PVTSolutionType, TimeScale},
 };
 
 /// Configuration Error

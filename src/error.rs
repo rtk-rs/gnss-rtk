@@ -118,4 +118,6 @@ pub enum Error {
     /// If that is not the case, we abort with this error.
     #[error("missing observations on remote site")]
     MissingRemoteRTKObservations,
+    #[error("unknown or non supported frequency")]
+    InvalidFrequency,
 }

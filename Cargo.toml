@@ -27,7 +27,7 @@ map_3d = "0.1.5"
 polyfit-rs = "0.2"
 nalgebra = "0.33"
 itertools = "0.14"
-gnss-rs = "2.3.1"
+gnss-rs = "2.3.5"
 nyx-space = "2.0.0"
 hifitime = { version = "4.0", features = ["std"] }
 anise = { version = "0.5.3", features = ["embed_ephem"] }

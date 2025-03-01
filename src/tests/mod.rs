@@ -3,26 +3,12 @@ use crate::prelude::{
 };
 
 mod bancroft;
-//mod data;
+mod data;
 mod phase_range;
 mod pseudo_range;
 //mod pvt;
 
-//use data::{gps::test_data as gps_test_data, interp::interp_data};
-
-// struct Orbits {}
-
-// impl OrbitSource for Orbits {
-//     fn next_at(&mut self, t: Epoch, sv: SV, _: Frame) -> Option<Orbit> {
-//         Some(
-//             interp_data()
-//                 .iter()
-//                 .filter(|(sv_i, _)| *sv_i == sv)
-//                 .min_by_key(|(_, orb)| (orb.epoch - t).abs())?
-//                 .1,
-//         )
-//     }
-// }
+pub use data::*;
 
 // struct SolverInput {
 //     t_rx: Epoch,

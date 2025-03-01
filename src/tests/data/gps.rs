@@ -1,108 +1,37 @@
-use crate::{
-    prelude::{Candidate, Carrier, Constellation, Epoch, Observation, SV},
-    tests::SolverInput,
-};
+use crate::prelude::{Constellation, SV};
 
-use std::str::FromStr;
+pub const G01: SV = SV::new(Constellation::GPS, 1);
 
-/*
- * Test Dataset
- */
-pub fn test_data() -> [SolverInput; 2] {
-    [
-        SolverInput {
-            t_rx: Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
-            pool: vec![
-                Candidate::new(
-                    SV::new(Constellation::GPS, 1),
-                    Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
-                    vec![Observation {
-                        carrier: Carrier::L1,
-                        pseudo: Some(1.0E6_f64),
-                        snr: None,
-                        phase: None,
-                        doppler: None,
-                        ambiguity: None,
-                    }],
-                ),
-                Candidate::new(
-                    SV::new(Constellation::GPS, 2),
-                    Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
-                    vec![Observation {
-                        carrier: Carrier::L1,
-                        pseudo: Some(1.0E6_f64),
-                        snr: None,
-                        phase: None,
-                        doppler: None,
-                        ambiguity: None,
-                    }],
-                ),
-                Candidate::new(
-                    SV::new(Constellation::GPS, 3),
-                    Epoch::from_str("2020-06-25T12:00:00 GPST").unwrap(),
-                    vec![Observation {
-                        carrier: Carrier::L1,
-                        pseudo: Some(1.0E6_f64),
-                        snr: None,
-                        phase: None,
-                        doppler: None,
-                        ambiguity: None,
-                    }],
-                ),
-            ],
-        },
-        SolverInput {
-            t_rx: Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-            pool: vec![
-                Candidate::new(
-                    SV::new(Constellation::GPS, 1),
-                    Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-                    vec![Observation {
-                        carrier: Carrier::L1,
-                        pseudo: Some(1.0E6_f64),
-                        snr: None,
-                        phase: None,
-                        doppler: None,
-                        ambiguity: None,
-                    }],
-                ),
-                Candidate::new(
-                    SV::new(Constellation::GPS, 2),
-                    Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-                    vec![Observation {
-                        carrier: Carrier::L1,
-                        pseudo: Some(1.0E6_f64),
-                        snr: None,
-                        phase: None,
-                        doppler: None,
-                        ambiguity: None,
-                    }],
-                ),
-                Candidate::new(
-                    SV::new(Constellation::GPS, 3),
-                    Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-                    vec![Observation {
-                        snr: None,
-                        carrier: Carrier::L1,
-                        pseudo: Some(1.0E6_f64),
-                        phase: None,
-                        doppler: None,
-                        ambiguity: None,
-                    }],
-                ),
-                Candidate::new(
-                    SV::new(Constellation::GPS, 5),
-                    Epoch::from_str("2020-06-25T12:00:30 GPST").unwrap(),
-                    vec![Observation {
-                        carrier: Carrier::L1,
-                        pseudo: Some(1.0E6_f64),
-                        snr: None,
-                        phase: None,
-                        doppler: None,
-                        ambiguity: None,
-                    }],
-                ),
-            ],
-        },
-    ]
+pub const GPS_EPOCHS: [&str; 1] = ["2020-06-25T00:00:00 GPST"];
+
+// const GPS_DATA_POINTS : Vec<DataPoint> = vec![
+//     DataPoint
+// ];
+
+// const GPS_CANDIDATES : Vec<Candidate> = vec![
+
+// ]
+// const GPS_EPOCHS : Vec<Epoch> = vec![
+//     Epoch::str("2020-06-25T12:00:00 GPST").unwrap(),
+//     Epoch::str("2020-06-25T12:00:30 GPST").unwrap(),
+//     Epoch::str("2020-06-25T12:01:00 GPST").unwrap(),
+//     Epoch::str("2020-06-25T12:01:30 GPST").unwrap(),
+// ];
+
+// const G01 : SV = SV::new(Constellation::GPS, 1);
+// const G02 : SV = SV::new(Constellation::GPS, 1);
+// const G03 : SV = SV::new(Constellation::GPS, 1);
+// const G04 : SV = SV::new(Constellation::GPS, 1);
+
+#[cfg(test)]
+mod test {
+    use super::GPS_EPOCHS;
+    use crate::prelude::Epoch;
+    use std::str::FromStr;
+    #[test]
+    fn epochs_validity() {
+        for t in GPS_EPOCHS.iter() {
+            let _ = Epoch::from_str(*t).unwrap();
+        }
+    }
 }
