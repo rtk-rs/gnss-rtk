@@ -25,7 +25,7 @@ fn l1_widelane() {
     let wl = cd.phase_wl_combination().unwrap();
 
     assert_eq!(wl.rhs, Carrier::L1);
-    assert_eq!(wl.lhs, Carrier::L5);
+    assert_eq!(wl.lhs, Carrier::L2);
 
     assert_eq!(
         wl.value,

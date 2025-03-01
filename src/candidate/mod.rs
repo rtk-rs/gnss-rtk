@@ -2,9 +2,9 @@
 use hifitime::Unit;
 use log::debug;
 
+use crate::prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SV};
+use anise::errors::AlmanacResult;
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
-
-use crate::prelude::{Config, Duration, Epoch, Error, Orbit, Vector3, SV};
 
 mod bias;
 mod nav;
@@ -198,11 +198,21 @@ impl Candidate {
         Ok((e_tx, dt))
     }
 
-    /// Creates [Candidate] with desired [Orbit]
-    pub(crate) fn with_orbit(&self, orbit: Orbit) -> Self {
+    /// Copies [Candidate] and returns with updated [Orbit]al state.
+    pub(crate) fn with_orbit(
+        &self,
+        almanac: &Almanac,
+        rx_orbit: Orbit,
+        sv_orbit: Orbit,
+    ) -> AlmanacResult<Self> {
         let mut s = self.clone();
-        s.orbit = Some(orbit);
-        s
+
+        let elazrg = almanac.azimuth_elevation_range_sez(sv_orbit, rx_orbit, None, None)?;
+
+        s.orbit = Some(sv_orbit);
+        s.azimuth_deg = Some(elazrg.azimuth_deg);
+        s.elevation_deg = Some(elazrg.elevation_deg);
+        Ok(s)
     }
 
     /// Returns (elevation, azimuth) in decimal degrees.
@@ -212,19 +222,19 @@ impl Candidate {
         Some((el, az))
     }
 
-    /// Creates [Candidate] with elevation degree
-    pub(crate) fn with_elevation_deg(&self, el: f64) -> Self {
-        let mut s = self.clone();
-        s.elevation_deg = Some(el);
-        s
-    }
+    // /// Creates [Candidate] with elevation degree
+    // pub(crate) fn with_elevation_deg(&self, el: f64) -> Self {
+    //     let mut s = self.clone();
+    //     s.elevation_deg = Some(el);
+    //     s
+    // }
 
-    /// Creates [Candidate] with azimuth degree
-    pub(crate) fn with_azimuth_deg(&self, az: f64) -> Self {
-        let mut s = self.clone();
-        s.azimuth_deg = Some(az);
-        s
-    }
+    // /// Creates [Candidate] with azimuth degree
+    // pub(crate) fn with_azimuth_deg(&self, az: f64) -> Self {
+    //     let mut s = self.clone();
+    //     s.azimuth_deg = Some(az);
+    //     s
+    // }
 
     #[cfg(test)]
     pub fn set_orbit(&mut self, orbit: Orbit) {
@@ -234,7 +244,17 @@ impl Candidate {
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::{Candidate, Carrier, Epoch, Observation, SV};
+    use std::str::FromStr;
+
+    use crate::{
+        prelude::{Almanac, Candidate, Carrier, Epoch, Observation, EARTH_J2000, SV},
+        tests::{
+            gps::{G09, GPS_EPOCHS},
+            orbits::GPSOrbits,
+            reference_orbit,
+        },
+    };
+
     #[test]
     fn cpp_compatibility() {
         for (observations, cpp_compatible) in [(
@@ -261,5 +281,30 @@ mod test {
             let cd = Candidate::new(SV::default(), Epoch::default(), observations);
             assert_eq!(cd.cpp_compatible(), cpp_compatible);
         }
+    }
+
+    #[test]
+    fn orbital_state_definition() {
+        let almanac = Almanac::until_2035().unwrap();
+        let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+
+        let t01 = Epoch::from_str(GPS_EPOCHS[0]).unwrap();
+        let rx_orbit = reference_orbit(frame);
+
+        let sv_orbit = GPSOrbits::find_orbit(t01, G09, frame).expect("G09 test orbit does exist!");
+
+        let cd = Candidate::new(G09, t01, vec![])
+            .with_orbit(&almanac, rx_orbit, sv_orbit)
+            .unwrap();
+
+        let (elev_deg, azim_deg) = cd
+            .attitude()
+            .expect("Orbital attitude should now be defined!");
+
+        let elev_err_deg = (elev_deg - 13.40264).abs();
+        assert!(elev_err_deg < 0.1);
+
+        let azim_err_deg = (azim_deg - 104.2191).abs();
+        assert!(azim_err_deg < 0.1);
     }
 }

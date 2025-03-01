@@ -8,18 +8,13 @@ use crate::{
     cfg::Modeling,
     constants::Constants,
     navigation::{Navigation, State},
-    prelude::{
-        Almanac, Candidate, Carrier, ClockCorrection, Config, Epoch, Error, Observation, Orbit,
-        Vector3, SV,
-    },
+    prelude::{Almanac, ClockCorrection, Config, Epoch, Error, Orbit, Vector3},
     tests::{data::gps::*, DataPoint},
 };
 
-use nalgebra::{Matrix4, Vector4};
-
 #[test]
 fn pvt_failures() {
-    let cfg = Config::default();
+    let cfg = Config::default().with_modeling(Modeling::no_modeling());
 
     let (x0_m, y0_m, z0_m) = (0.0_f64, 0.0_f64, 0.0_f64);
 
@@ -85,11 +80,13 @@ fn pvt_failures() {
     .cloned()
     .collect::<Vec<_>>();
 
-    let nav = Navigation::new(&cfg, state, &candidates)
-        .unwrap_or_else(|e| panic!("Matrix formation should be feasible: {}", e));
-
-    assert_eq!(nav.b, Vector4::zeros(), "Only unresolved states!");
-    assert_eq!(nav.h, Matrix4::zeros(), "Only unresolved states!");
+    match Navigation::new(&cfg, state, &candidates) {
+        Ok(_) => panic!("Matrix formation should not be feasible (unresolved states!)"),
+        Err(e) => match e {
+            Error::MatrixMinimalDimension => {},
+            e => panic!("failed with invalid error: {}", e),
+        },
+    }
 }
 
 #[test]

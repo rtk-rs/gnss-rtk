@@ -3,8 +3,6 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use nalgebra::{base::dimension::U8, OMatrix};
-
 mod method;
 mod modeling;
 mod profile;
@@ -201,6 +199,13 @@ impl Config {
         s.min_sv_elev = Some(15.0);
         s.max_tropo_bias = max_tropo_bias();
         s.max_iono_bias = max_iono_bias();
+        s
+    }
+
+    /// Copies and returns [Config] with desired [PVTSolutionType].
+    pub fn with_pvt_solutions_type(&self, pvt: PVTSolutionType) -> Self {
+        let mut s = self.clone();
+        s.solution = pvt;
         s
     }
 

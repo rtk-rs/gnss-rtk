@@ -3,6 +3,7 @@ use crate::prelude::*;
 mod bancroft;
 mod data;
 mod pseudo_range;
+mod solver;
 
 //pub mod cpp;
 //pub mod ppp;

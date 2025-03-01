@@ -14,14 +14,9 @@ use itertools::Itertools;
 use log::{debug, error, info, warn};
 
 use anise::{
-    almanac::{
-        metaload::{MetaAlmanac, MetaAlmanacError, MetaFile},
-        planetary::PlanetaryDataError,
-    },
-    astro::PhysicsResult,
+    almanac::metaload::{MetaAlmanac, MetaFile},
     constants::frames::{EARTH_ITRF93, IAU_EARTH_FRAME, SUN_J2000},
-    errors::{AlmanacError, PhysicsError},
-    math::{Matrix3, Vector3, Vector6},
+    math::{Matrix3, Vector3},
     prelude::{Almanac, Frame, Unit},
 };
 
@@ -257,6 +252,7 @@ impl<O: OrbitSource> Solver<O> {
                     let orbits = &mut self.orbit;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
                     if let Some(tx_orbit) = orbits.next_at(t_tx, cd.sv, self.earth_cef) {
+                        // TODO
                         let orbit = Self::rotate_orbit_dcm3x3(
                             cd.t,
                             dt_tx,
@@ -264,7 +260,12 @@ impl<O: OrbitSource> Solver<O> {
                             modeling.earth_rotation,
                             self.earth_cef,
                         );
-                        Some(cd.with_orbit(orbit))
+
+                        // TODO
+                        // mais attention relation avec le filtre de bancroft juste apres
+                        // let cd = cd.with_orbit(&self.almanac, Default::default(), tx_orbit)?;
+                        // TODO Some(cd.with_orbit(&self.almanac, Default::default(), tx_orbit))
+                        None
                     } else {
                         // preserve: may still apply to RTK
                         Some(cd.clone())
@@ -648,13 +649,6 @@ impl<O: OrbitSource> Solver<O> {
                         }
                     } //clockbias
                 } //velocity
-
-                let elazrg = almanac
-                    .azimuth_elevation_range_sez(*orbit, *sv_orbit, None, None)
-                    .map_err(|e| Error::Almanac(e))?;
-
-                cd.azimuth_deg = Some(elazrg.azimuth_deg);
-                cd.elevation_deg = Some(elazrg.elevation_deg);
             }
         }
         Ok(())
@@ -701,7 +695,7 @@ impl<O: OrbitSource> Solver<O> {
     }
 
     fn min_sv_required(&self) -> usize {
-        if self.state.is_none() {
+        if self.state.is_none() && self.initial_ecef_m.is_none() {
             4
         } else {
             match self.cfg.solution {
@@ -776,62 +770,89 @@ impl<O: OrbitSource> Solver<O> {
     //     // to emphasize that it is being used
     //     if let Some(_alt_m) = cfg.fixed_altitude {}
     // }
-
-    fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
-        pool.sort_by(|cd_a, cd_b| {
-            let elev_a_deg = cd_a.elevation_deg.unwrap_or_default();
-            let elev_b_deg = cd_b.elevation_deg.unwrap_or_default();
-            elev_a_deg.partial_cmp(&elev_b_deg).unwrap()
-        });
-
-        let mut index = 0;
-        let total = pool.len();
-
-        if min_required == 1 {
-            pool.retain(|_| {
-                index += 1;
-                index == total
-            });
-        } else {
-            pool.retain(|_| {
-                index += 1;
-                index > total - min_required
-            });
-        }
-    }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use crate::prelude::{Solver, Candidate, Duration, Epoch, Observation, SV, OrbitalState};
-//     #[test]
-//     fn retain_best_elev() {
-//         let mut pool = Vec::<Candidate>::new();
-//         for elev in [0.0, 3.0, 8.0, 16.0, 16.5, 21.0, 45.0] {
-//             let cd = Candidate::new(
-//                 SV::default(),
-//                 Epoch::default(),
-//                 Duration::default(),
-//                 None,
-//                 vec![],
-//                 vec![],
-//             );
-//             let mut state = OrbitalState::from_position((0.0, 0.0, 0.0));
-//             state.set_elevation(elev);
-//             cd.set_state(state);
-//             pool.push(cd);
-//         }
-//
-//         for min_required in [1, 3, 4, 5] {
-//             let mut tested = pool.clone();
-//             Solver::retain_best_elevation(&mut tested, min_required);
-//             if min_required == 1 {
-//                 assert_eq!(tested.len(), 1);
-//                 assert_eq!(tested[0].state.unwrap().elevation, 45.0);
-//             } else if min_required == 3 {
-//             } else if min_required == 4 {
-//             } else if min_required == 5 {
-//             }
-//         }
-//     }
-// }
+#[cfg(test)]
+mod test {
+    use itertools::Itertools;
+    use std::str::FromStr;
+
+    use crate::{
+        prelude::{Almanac, Candidate, Config, Epoch, PVTSolutionType, Solver, EARTH_J2000},
+        tests::{
+            gps::{G05, G07, G13, G15},
+            orbits::{GPSOrbits, NullOrbits},
+            reference_orbit,
+        },
+    };
+
+    #[test]
+    fn test_min_sv_required() {
+        for (preset, expected) in [
+            (Config::default(), 4),
+            (
+                Config::default().with_pvt_solutions_type(PVTSolutionType::PositionVelocityTime),
+                4,
+            ),
+        ] {
+            let solver = Solver::new(&preset, NullOrbits {}, None).unwrap();
+
+            assert_eq!(solver.min_sv_required(), expected);
+        }
+
+        let mut preset = Config::default();
+        preset.fixed_altitude = Some(1.0);
+
+        let solver = Solver::new(&preset, NullOrbits {}, None).unwrap();
+        assert_eq!(solver.min_sv_required(), 4);
+
+        let solver = Solver::new(&preset, NullOrbits {}, Some((1.0, 2.0, 3.0))).unwrap();
+        assert_eq!(solver.min_sv_required(), 3);
+
+        let preset = Config::default().with_pvt_solutions_type(PVTSolutionType::TimeOnly);
+
+        let solver = Solver::new(&preset, NullOrbits {}, None).unwrap();
+        assert_eq!(solver.min_sv_required(), 4);
+
+        let solver = Solver::new(&preset, NullOrbits {}, Some((1.0, 2.0, 3.0))).unwrap();
+        assert_eq!(solver.min_sv_required(), 1);
+    }
+
+    #[test]
+    fn test_attitude_filters() {
+        let mut preset = Config::default();
+        preset.min_sv_elev = Some(14.0);
+
+        let almanac = Almanac::until_2035().unwrap();
+        let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+
+        let t_str = "2020-06-25T00:00:00 GPST";
+        let t = Epoch::from_str(t_str).unwrap();
+        let rx_orbit = reference_orbit(frame);
+
+        let sv_orbits = GPSOrbits::collect_epoch(t_str, frame);
+
+        let candidates = sv_orbits
+            .iter()
+            .map(|(sv, sv_orbit)| {
+                Candidate::new(*sv, t, vec![])
+                    .with_orbit(&almanac, rx_orbit, *sv_orbit)
+                    .unwrap_or_else(|e| panic!("Candidate.with_orbit() should have passed: {}", e))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(candidates.len(), 7, "invalid test data length");
+
+        let mut tests = candidates.clone();
+        Solver::<NullOrbits>::sv_attitude_filters(&preset, &mut tests);
+
+        let remainder = tests.iter().map(|cd| cd.sv).sorted().collect::<Vec<_>>();
+        assert_eq!(remainder, vec![G05, G07, G13, G15]);
+
+        preset.min_sv_elev = Some(16.0);
+        Solver::<NullOrbits>::sv_attitude_filters(&preset, &mut tests);
+
+        let remainder = tests.iter().map(|cd| cd.sv).sorted().collect::<Vec<_>>();
+        assert_eq!(remainder, vec![G05, G07, G13]);
+    }
+}
