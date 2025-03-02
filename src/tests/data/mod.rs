@@ -3,8 +3,6 @@ pub mod gps;
 
 pub mod orbits;
 
-pub mod signals;
-
 use crate::prelude::{Epoch, Frame, Orbit};
 use std::str::FromStr;
 

@@ -57,8 +57,8 @@ pub struct Solver<O: OrbitSource> {
     // Post fit KF
     // postfit_kf: Option<KF<State3D, U3, U3>>,
     /* prev. solution for internal logic */
-    /// Previous solution (internal logic)
-    prev_solution: Option<(Epoch, PVTSolution)>,
+    // /// Previous solution (internal logic)
+    // prev_solution: Option<(Epoch, PVTSolution)>,
     /// Stored sky view, for internal logic.
     sv_orbits: HashMap<SV, Orbit>,
 }
@@ -310,7 +310,7 @@ impl<O: OrbitSource> Solver<O> {
             orbit_source,
             cfg: cfg.clone(),
             initial_ecef_m,
-            prev_solution: None,
+            // prev_solution: None,
             sv_orbits: HashMap::new(),
         })
     }
@@ -741,13 +741,13 @@ impl<O: OrbitSource> Solver<O> {
     }
 
     fn update_solution(&self, t: Epoch, sol: &mut PVTSolution) {
-        if let Some((prev_t, prev_sol)) = &self.prev_solution {
-            let dt_s = (t - *prev_t).to_seconds();
-            // update clock drift
-            sol.d_dt = dt_s;
-            // update velocity
-            sol.state = Self::update_velocity(sol.state, prev_sol.state, dt_s);
-        }
+        //if let Some((prev_t, prev_sol)) = &self.prev_solution {
+        //    let dt_s = (t - *prev_t).to_seconds();
+        //    // update clock drift
+        //    sol.d_dt = dt_s;
+        //    // update velocity
+        //    sol.state = Self::update_velocity(sol.state, prev_sol.state, dt_s);
+        //}
     }
 
     fn update_velocity(orbit: Orbit, p_orbit: Orbit, dt_sec: f64) -> Orbit {
@@ -778,7 +778,6 @@ impl<O: OrbitSource> Solver<O> {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use sp3::prelude::SP3;
     use std::str::FromStr;
 
     use crate::{
@@ -788,7 +787,7 @@ mod test {
         solver::sv_orbital_fixup,
         tests::{
             gps::{G02, G05, G07, G08, G09, G13, G15},
-            orbits::{NullOrbits, OrbitDataSet},
+            orbits::{GpsOrbits, NullOrbits},
             reference_orbit,
         },
     };
@@ -839,8 +838,7 @@ mod test {
 
         let rx_orbit = reference_orbit(frame);
 
-        let mut gpst_orbits =
-            OrbitDataSet::from_sp3("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz", &almanac);
+        let mut gpst_orbits = GpsOrbits::build();
 
         let mut candidates = vec![
             Candidate::new(G02, t0_gpst, vec![]),
@@ -854,7 +852,6 @@ mod test {
 
         for cd in candidates.iter_mut() {
             let orbit = gpst_orbits.next_at(t0_gpst, cd.sv, frame).unwrap();
-
             cd.set_orbit(orbit);
         }
 

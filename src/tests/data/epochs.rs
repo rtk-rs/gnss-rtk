@@ -1,36 +1,29 @@
 use crate::prelude::Epoch;
-use rinex::prelude::Rinex;
-use sp3::prelude::SP3;
+use std::str::FromStr;
 
-pub struct EpochDataSet<'a> {
-    iter: Box<dyn Iterator<Item = Epoch> + 'a>,
-}
+const SIZE: usize = 4;
 
-impl<'a> Iterator for EpochDataSet<'a> {
-    type Item = Epoch;
-    /// Returns next [Epoch] in the dataset
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
+pub const EPOCHS_DESCRIPTOR: [&str; SIZE] = [
+    "2020-06-25T00:00:00 GPST",
+    "2020-06-25T00:00:30 GPST",
+    "2020-06-25T00:01:00 GPST",
+    "2020-06-25T00:01:30 GPST",
+];
+
+pub struct EpochDataSet {}
+
+impl EpochDataSet {
+    pub fn build() -> Vec<Epoch> {
+        EPOCHS_DESCRIPTOR
+            .iter()
+            .map(|s| Epoch::from_str(s).unwrap())
+            .collect()
     }
 }
 
-impl<'a> EpochDataSet<'a> {
-    /// Builds new test [EpochDataSet] from a [Rinex].
-    pub fn from_rinex(rinex: &'a Rinex) -> Self {
-        Self {
-            iter: rinex.epoch_iter(),
-        }
-    }
-
-    /// Builds new test [EpochDataSet] from [SP3] data.
-    pub fn from_sp3(sp3: &'a SP3) -> Self {
-        Self {
-            iter: Box::new(sp3.epochs_iter()),
-        }
-    }
-
-    /// Builds new test [EpochDataSet] from RINEX Iterator
-    pub fn from_iter(iter: Box<dyn Iterator<Item = Epoch>>) -> Self {
-        Self { iter }
+#[test]
+fn validity() {
+    for t_str in EPOCHS_DESCRIPTOR {
+        let _ = Epoch::from_str(t_str).unwrap();
     }
 }
