@@ -162,6 +162,7 @@ impl Candidate {
 
         if cfg.modeling.sv_clock_bias {
             let clock_corr = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
+
             debug!(
                 "{} ({}) clock correction: {}",
                 self.t, self.sv, clock_corr.duration,

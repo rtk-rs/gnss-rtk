@@ -24,6 +24,7 @@ serde = [
 ]
 
 [dev-dependencies]
+env_logger = "0.11"
 sp3 = { git = "https://github.com/rtk-rs/sp3", branch = "main", features = ["flate2", "anise"] }
 rinex = { git = "https://github.com/rtk-rs/rinex", branch = "main", features = ["flate2", "obs"] }
 

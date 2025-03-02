@@ -1,11 +1,11 @@
 pub mod epochs;
 pub mod gps;
+
 pub mod orbits;
 
-mod signals;
-pub use signals::SignalSource;
+pub mod signals;
 
-use crate::prelude::{Candidate, Epoch, Frame, Observation, Orbit, SV};
+use crate::prelude::{Epoch, Frame, Orbit};
 use std::str::FromStr;
 
 pub const REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3582105.2910, 532589.7313, 5232754.8054);

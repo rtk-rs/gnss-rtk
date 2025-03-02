@@ -76,7 +76,7 @@ pub(crate) fn sv_orbital_fixup(
             true
         },
         Err(e) => {
-            error!("{}({}) - orbital fixup: {}", t, cd.sv, e);
+            debug!("{}({}) - orbital fixup: {}", t, cd.sv, e);
             false
         },
     });
@@ -341,14 +341,15 @@ impl<O: OrbitSource> Solver<O> {
         let iono_modeling = self.cfg.modeling.iono_delay;
         let tropo_modeling = self.cfg.modeling.tropo_delay;
 
-        Self::signal_condition_filter(t, method, &mut pool);
+        // Self::signal_condition_filter(t, method, &mut pool);
 
         if let Some(min_snr) = self.cfg.min_snr {
-            Self::signal_quality_filter(min_snr, &mut pool);
+            // Self::signal_quality_filter(min_snr, &mut pool);
         }
 
         if pool.len() < min_required {
             // no need to proceed further
+            panic!("MIN-REEQUIRED [1]");
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
@@ -422,11 +423,11 @@ impl<O: OrbitSource> Solver<O> {
         // Real time navigation
         sv_orbital_fixup(&self.almanac, t, orbit_state, &mut pool);
 
-        sv_velocities_fixup(
-            &mut pool,
-            &self.sv_orbits,
-            self.cfg.modeling.relativistic_clock_bias,
-        )?;
+        // sv_velocities_fixup(
+        //     &mut pool,
+        //     &self.sv_orbits,
+        //     self.cfg.modeling.relativistic_clock_bias,
+        // )?;
 
         // Eclipse filter (if need be)
         if let Some(max_occultation_rate) = self.cfg.max_sv_occultation_percent {
@@ -838,9 +839,8 @@ mod test {
 
         let rx_orbit = reference_orbit(frame);
 
-        let sp3 = SP3::from_gzip_file("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz").unwrap();
-
-        let mut gpst_orbits = OrbitDataSet::from_sp3_gps(&sp3, &almanac, frame);
+        let mut gpst_orbits =
+            OrbitDataSet::from_sp3("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz", &almanac);
 
         let mut candidates = vec![
             Candidate::new(G02, t0_gpst, vec![]),

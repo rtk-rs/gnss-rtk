@@ -4,7 +4,7 @@ mod phase_range;
 mod pseudo_range;
 
 mod navi;
-// mod spp;
+mod spp;
 // mod ppp;
 // mod rtk;
 
@@ -196,3 +196,17 @@ pub use data::*;
 //         //);
 //     }
 // }
+
+use log::LevelFilter;
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+pub fn init_logger() {
+    INIT.call_once(|| {
+        env_logger::builder()
+            .is_test(true)
+            .filter_level(LevelFilter::Debug)
+            .init();
+    });
+}

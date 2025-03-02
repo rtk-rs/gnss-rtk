@@ -13,9 +13,8 @@ use crate::{
         Vector3,
     },
     tests::{
-        epochs::EpochDataSet,
         gps::{G01, G02, G03, G04},
-        SignalSource, REFERENCE_COORDS_ECEF_M,
+        REFERENCE_COORDS_ECEF_M,
     },
 };
 
