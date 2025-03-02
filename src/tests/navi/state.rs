@@ -1,7 +1,7 @@
 use crate::{
     navigation::State,
     prelude::{Almanac, Epoch, Orbit, Vector3, EARTH_J2000, SPEED_OF_LIGHT_M_S},
-    tests::data::gps::GPS_EPOCHS,
+    tests::data::gps::J2020_06_25_GPS_EPOCHS,
 };
 
 use anise::math::{Vector4, Vector6};
@@ -12,7 +12,7 @@ fn state_initialization() {
     let almanac = Almanac::until_2035().unwrap();
     let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
 
-    let t0 = Epoch::from_str(GPS_EPOCHS[0]).unwrap();
+    let t0 = Epoch::from_str(J2020_06_25_GPS_EPOCHS[0]).unwrap();
 
     let coords = Vector3::new(1.0, 2.0, 3.0);
 

@@ -8,26 +8,37 @@ use crate::{
     cfg::Modeling,
     constants::Constants,
     navigation::{Navigation, State},
-    prelude::{Almanac, ClockCorrection, Config, Epoch, Error, Orbit, Vector3},
-    tests::{data::gps::*, DataPoint},
+    prelude::{
+        Almanac, Candidate, Carrier, ClockCorrection, Config, Epoch, Error, Observation, Orbit,
+        Vector3,
+    },
+    tests::{
+        epochs::EpochDataSet,
+        gps::{G01, G02, G03, G04},
+        SignalSource, REFERENCE_COORDS_ECEF_M,
+    },
 };
 
 #[test]
 fn pvt_failures() {
     let cfg = Config::default().with_modeling(Modeling::no_modeling());
 
-    let (x0_m, y0_m, z0_m) = (0.0_f64, 0.0_f64, 0.0_f64);
-
     let almanac = Almanac::until_2035().unwrap();
     let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
 
-    let state =
-        &State::from_ecef_m(Vector3::new(x0_m, y0_m, z0_m), Default::default(), frame).unwrap();
+    let coords_ecef_m = Vector3::new(
+        REFERENCE_COORDS_ECEF_M.0,
+        REFERENCE_COORDS_ECEF_M.1,
+        REFERENCE_COORDS_ECEF_M.2,
+    );
 
-    let candidates = [DataPoint::new(GPS_EPOCHS[0], "G01", "L1:pr:1.0").to_candidate()]
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let state = &State::from_ecef_m(coords_ecef_m, Default::default(), frame).unwrap();
+
+    let candidates = vec![Candidate::new(
+        G01,
+        Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+        vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
+    )];
 
     match Navigation::new(&cfg, state, &candidates) {
         Err(e) => match e {
@@ -37,13 +48,18 @@ fn pvt_failures() {
         _ => panic!("should have failed 1x4"),
     }
 
-    let candidates = [
-        DataPoint::new(GPS_EPOCHS[0], "G01", "L1:pr:1.0").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G02", "L1:pr:2.0").to_candidate(),
-    ]
-    .iter()
-    .cloned()
-    .collect::<Vec<_>>();
+    let candidates = vec![
+        Candidate::new(
+            G01,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
+        ),
+        Candidate::new(
+            G02,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 2.0, None)],
+        ),
+    ];
 
     match Navigation::new(&cfg, state, &candidates) {
         Err(e) => match e {
@@ -53,14 +69,23 @@ fn pvt_failures() {
         _ => panic!("should have failed 2x4"),
     }
 
-    let candidates = [
-        DataPoint::new(GPS_EPOCHS[0], "G01", "L1:pr:1.0").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G02", "L1:pr:2.0").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G03", "L1:pr:3.0").to_candidate(),
-    ]
-    .iter()
-    .cloned()
-    .collect::<Vec<_>>();
+    let candidates = vec![
+        Candidate::new(
+            G01,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
+        ),
+        Candidate::new(
+            G02,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 2.0, None)],
+        ),
+        Candidate::new(
+            G03,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 3.0, None)],
+        ),
+    ];
 
     match Navigation::new(&cfg, state, &candidates) {
         Err(e) => match e {
@@ -70,15 +95,28 @@ fn pvt_failures() {
         _ => panic!("should have failed 3x4"),
     }
 
-    let candidates = [
-        DataPoint::new(GPS_EPOCHS[0], "G01", "L1:pr:1.0").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G02", "L1:pr:2.0").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G03", "L1:pr:3.0").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G04", "L1:pr:4.0").to_candidate(),
-    ]
-    .iter()
-    .cloned()
-    .collect::<Vec<_>>();
+    let candidates = vec![
+        Candidate::new(
+            G01,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
+        ),
+        Candidate::new(
+            G02,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 2.0, None)],
+        ),
+        Candidate::new(
+            G03,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 3.0, None)],
+        ),
+        Candidate::new(
+            G04,
+            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            vec![Observation::pseudo_range(Carrier::L1, 4.0, None)],
+        ),
+    ];
 
     match Navigation::new(&cfg, state, &candidates) {
         Ok(_) => panic!("Matrix formation should not be feasible (unresolved states!)"),
@@ -93,26 +131,46 @@ fn pvt_failures() {
 fn pvt_matrix() {
     let cfg = Config::default().with_modeling(Modeling::no_modeling());
 
-    let (x0_m, y0_m, z0_m) = (1000.0_f64, 2000.0_f64, 3000.0_f64);
-    let r_0 = (x0_m.powi(2) + y0_m.powi(2) + z0_m.powi(2)).sqrt();
-
     let almanac = Almanac::until_2035().unwrap();
     let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
 
-    let state =
-        &State::from_ecef_m(Vector3::new(x0_m, y0_m, z0_m), Default::default(), frame).unwrap();
+    let coords_ecef_m = Vector3::new(
+        REFERENCE_COORDS_ECEF_M.0,
+        REFERENCE_COORDS_ECEF_M.1,
+        REFERENCE_COORDS_ECEF_M.2,
+    );
 
-    let t0_gpst = Epoch::from_str(GPS_EPOCHS[0]).unwrap();
+    let r_0 = (REFERENCE_COORDS_ECEF_M.0.powi(2)
+        + REFERENCE_COORDS_ECEF_M.1.powi(2)
+        + REFERENCE_COORDS_ECEF_M.2.powi(2))
+    .sqrt();
 
-    let mut candidates = [
-        DataPoint::new(GPS_EPOCHS[0], "G01", "L1:pr:21401234.5").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G02", "L1:pr:21421234.8").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G03", "L1:pr:21391235.1").to_candidate(),
-        DataPoint::new(GPS_EPOCHS[0], "G04", "L1:pr:21411234.6").to_candidate(),
-    ]
-    .iter()
-    .cloned()
-    .collect::<Vec<_>>();
+    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+    let mut candidates = vec![
+        Candidate::new(
+            G01,
+            t0_gpst,
+            vec![Observation::pseudo_range(Carrier::L1, 21401234.5, None)],
+        ),
+        Candidate::new(
+            G02,
+            t0_gpst,
+            vec![Observation::pseudo_range(Carrier::L1, 21421234.8, None)],
+        ),
+        Candidate::new(
+            G03,
+            t0_gpst,
+            vec![Observation::pseudo_range(Carrier::L1, 21391235.1, None)],
+        ),
+        Candidate::new(
+            G04,
+            t0_gpst,
+            vec![Observation::pseudo_range(Carrier::L1, 21411234.6, None)],
+        ),
+    ];
+
+    let state = &State::from_ecef_m(coords_ecef_m, t0_gpst, frame).unwrap();
 
     let sv_coords_m = vec![
         (15600.0, 7540.0, 20140.0),
@@ -144,29 +202,29 @@ fn pvt_matrix() {
     );
 
     let rho = vec![
-        ((x0_m - sv_coords_m[0].0).powi(2)
-            + (y0_m - sv_coords_m[0].1).powi(2)
-            + (z0_m - sv_coords_m[0].2).powi(2))
+        ((REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[0].0).powi(2)
+            + (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[0].1).powi(2)
+            + (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[0].2).powi(2))
         .sqrt(),
-        ((x0_m - sv_coords_m[1].0).powi(2)
-            + (y0_m - sv_coords_m[1].1).powi(2)
-            + (z0_m - sv_coords_m[1].2).powi(2))
+        ((REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[1].0).powi(2)
+            + (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[1].1).powi(2)
+            + (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[1].2).powi(2))
         .sqrt(),
-        ((x0_m - sv_coords_m[2].0).powi(2)
-            + (y0_m - sv_coords_m[2].1).powi(2)
-            + (z0_m - sv_coords_m[2].2).powi(2))
+        ((REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[2].0).powi(2)
+            + (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[2].1).powi(2)
+            + (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[2].2).powi(2))
         .sqrt(),
-        ((x0_m - sv_coords_m[3].0).powi(2)
-            + (y0_m - sv_coords_m[3].1).powi(2)
-            + (z0_m - sv_coords_m[3].2).powi(2))
+        ((REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[3].0).powi(2)
+            + (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[3].1).powi(2)
+            + (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[3].2).powi(2))
         .sqrt(),
     ];
 
     for i in 0..4 {
         let (dx_m, dy_m, dz_m) = (
-            (x0_m - sv_coords_m[i].0) / rho[i],
-            (y0_m - sv_coords_m[i].1) / rho[i],
-            (z0_m - sv_coords_m[i].2) / rho[i],
+            (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
+            (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
+            (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
         );
 
         assert_eq!(nav.h[(i, 0)], dx_m, "x test failed [({},{})]", i, 0);
@@ -205,6 +263,7 @@ fn pvt_matrix() {
             cd.sv,
             cd.t
         );
+
         assert_eq!(
             cd.clock_corr.unwrap().duration.total_nanoseconds(),
             nanos,
@@ -216,9 +275,9 @@ fn pvt_matrix() {
 
     for i in 0..4 {
         let (dx_m, dy_m, dz_m) = (
-            (x0_m - sv_coords_m[i].0) / rho[i],
-            (y0_m - sv_coords_m[i].1) / rho[i],
-            (z0_m - sv_coords_m[i].2) / rho[i],
+            (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
+            (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
+            (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
         );
 
         assert_eq!(nav.h[(i, 0)], dx_m, "x test failed [({},{})]", i, 0);
@@ -245,9 +304,9 @@ fn pvt_matrix() {
             * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
         let (dx_m, dy_m, dz_m) = (
-            (x0_m - sv_coords_m[i].0) / (rho[i] + dr),
-            (y0_m - sv_coords_m[i].1) / (rho[i] + dr),
-            (z0_m - sv_coords_m[i].2) / (rho[i] + dr),
+            (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / (rho[i] + dr),
+            (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / (rho[i] + dr),
+            (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / (rho[i] + dr),
         );
 
         assert_eq!(nav.h[(i, 0)], dx_m, "x test failed [({},{})]", i, 0);
@@ -257,6 +316,7 @@ fn pvt_matrix() {
 
         let dt_s = ((i + 100) as f64) * 1E-9;
         let b_model = r_i[i] - (rho[i] + dr) + SPEED_OF_LIGHT_M_S * dt_s;
+
         let err = (nav.b[i] - b_model).abs();
         assert!(err < 1E-6);
 

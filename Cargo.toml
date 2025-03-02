@@ -10,6 +10,9 @@ keywords = ["timing", "positioning", "gps", "glonass", "galileo"]
 categories = ["science", "science::geo"]
 edition = "2021"
 readme = "README.md"
+exclude = [
+    "data/*",
+]
 
 [features]
 default = []
@@ -19,6 +22,10 @@ serde = [
     "gnss-rs/serde",
     "hifitime/serde"
 ]
+
+[dev-dependencies]
+sp3 = { git = "https://github.com/rtk-rs/sp3", branch = "main", features = ["flate2", "anise"] }
+rinex = { git = "https://github.com/rtk-rs/rinex", branch = "main", features = ["flate2", "obs"] }
 
 [dependencies]
 log = "0.4"

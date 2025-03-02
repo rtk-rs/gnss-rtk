@@ -1,144 +1,131 @@
-use std::str::FromStr;
-
 use crate::{
-    prelude::{Almanac, Epoch, Frame, Orbit, OrbitSource, EARTH_J2000, SV},
-    tests::reference_orbit,
+    prelude::{Almanac, Constellation, Epoch, Frame, Orbit, OrbitSource, EARTH_J2000, SV},
+    tests::{
+        gps::{G01, G05, G13},
+        reference_orbit,
+    },
 };
+
+use std::{collections::HashMap, str::FromStr};
+
+use sp3::prelude::SP3;
 
 /// Dummy structure that allows deploying and iterating the solver
 /// infinitely, but cannot be used for calculations verification.
-pub struct SingleStaticSVOrbits {}
+pub struct NullOrbits {}
 
-impl OrbitSource for SingleStaticSVOrbits {
+impl OrbitSource for NullOrbits {
     fn next_at(&mut self, t: Epoch, _: SV, fr: Frame) -> Option<Orbit> {
         let (x_km, y_km, z_km) = (15600.0, 7540.0, 20140.0);
         Some(Orbit::from_position(x_km, y_km, z_km, t, fr))
     }
 }
 
-pub type NullOrbits = SingleStaticSVOrbits;
+pub struct OrbitDataSet<'a> {
+    buffer: HashMap<(Epoch, SV), Orbit>,
+    iter: Box<dyn Iterator<Item = (Epoch, SV, Orbit)> + 'a>,
+}
 
-/// A few orbital states that we can use to iterate & verify the solver
-/// using GPS Constellation and GPST
-pub struct GPSOrbits {}
-
-impl GPSOrbits {
-    const DESCRIPTOR: [(&str, &str, f64, f64, f64); 7] = [
-        (
-            "2020-06-25T00:00:00 GPST",
-            "G02",
-            21815.313784,
-            -13786.051880,
-            -5530.292407, //   -477.325536
-        ),
-        (
-            "2020-06-25T00:00:00 GPST",
-            "G05",
-            20403.407951,
-            -4547.528919,
-            16359.977231, //    -15.320222
-        ),
-        (
-            "2020-06-25T00:00:00 GPST",
-            "G07",
-            7216.464981,
-            13874.448927,
-            21747.416323, //   -312.212568
-        ),
-        (
-            "2020-06-25T00:00:00 GPST",
-            "G08",
-            -7492.550168,
-            20537.976443,
-            14911.094048, //    -38.703947
-        ),
-        (
-            "2020-06-25T00:00:00 GPST",
-            "G09",
-            8106.486739,
-            24398.526847,
-            6586.681092, //   -242.279193
-        ),
-        (
-            "2020-06-25T00:00:00 GPST",
-            "G13",
-            13008.717968,
-            -13353.750095,
-            18762.067067, //     21.151577
-        ),
-        (
-            "2020-06-25T00:00:00 GPST",
-            "G15",
-            5550.690261,
-            -21648.534281,
-            13744.298178, //   -221.978679
-        ),
-    ];
-
-    fn sv_orbit_by_index(index: usize, frame: Frame) -> (SV, Orbit) {
-        let (t_str, sv_str, x_km, y_km, z_km) = Self::DESCRIPTOR[index];
-        let t = Epoch::from_str(t_str).unwrap();
-        let sv = SV::from_str(sv_str).unwrap();
-        let orbit = Orbit::from_position(x_km, y_km, z_km, t, frame);
-        (sv, orbit)
-    }
-
-    pub fn find_orbit(t: Epoch, sv: SV, frame: Frame) -> Option<Orbit> {
-        for i in 0..Self::DESCRIPTOR.len() {
-            let (sv_i, orbit_i) = Self::sv_orbit_by_index(i, frame);
-            if sv_i == sv && orbit_i.epoch == t {
-                return Some(orbit_i);
-            }
-        }
-        None
-    }
-
-    // pub fn collect(fr: Frame) -> Vec<(SV, Orbit)> {
-    //     Self::DESCRIPTOR.iter().enumerate().map(|(i, _)| {
-    //         Self::sv_orbit_by_index(i, fr)
-    //     }).collect()
+impl<'a> OrbitDataSet<'a> {
+    // /// Builds new test [OrbitDataSet] from [SP3] data, to be used in the solving process.
+    // pub fn from_sp3(sp3: &'a SP3, almanac: &'a Almanac, frame: Frame) -> Self {
+    //     let rx = reference_orbit(frame);
+    //     let iter = sp3.satellites_orbit_iter(frame);
+    //     Self {
+    //         buffer: HashMap::new(),
+    //         iter: Box::new(
+    //             iter.filter_map(move |(t, sv, tx_orbit)| {
+    //                 if let Ok(azelrange) = almanac.azimuth_elevation_range_sez(tx_orbit, rx, None, None) {
+    //                     if azelrange.elevation_deg.is_sign_positive() {
+    //                         Some((t, sv, tx_orbit))
+    //                     } else {
+    //                         None
+    //                     }
+    //                 } else {
+    //                     None
+    //                 }
+    //             })
+    //         ),
+    //     }
     // }
 
-    pub fn collect_epoch(t: &str, fr: Frame) -> Vec<(SV, Orbit)> {
-        Self::DESCRIPTOR
-            .iter()
-            .enumerate()
-            .filter_map(|(i, (t_str, _, _, _, _))| {
-                if t_str.eq(&t) {
-                    Some(Self::sv_orbit_by_index(i, fr))
+    /// Builds new test [OrbitDataSet] from [SP3] GPS data, to be used in the solving process.
+    pub fn from_sp3_gps(sp3: &'a SP3, almanac: &'a Almanac, frame: Frame) -> Self {
+        let rx = reference_orbit(frame);
+        let iter = sp3.satellites_orbit_iter(frame);
+        Self {
+            buffer: HashMap::new(),
+            iter: Box::new(iter.filter_map(move |(t, sv, tx_orbit)| {
+                if sv.constellation == Constellation::GPS {
+                    if let Ok(azelrange) =
+                        almanac.azimuth_elevation_range_sez(tx_orbit, rx, None, None)
+                    {
+                        if azelrange.elevation_deg.is_sign_positive() {
+                            Some((t, sv, tx_orbit))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
-            })
-            .collect()
+            })),
+        }
     }
 }
 
-impl OrbitSource for GPSOrbits {
-    fn next_at(&mut self, t: Epoch, sv: SV, fr: Frame) -> Option<Orbit> {
-        Self::find_orbit(t, sv, fr)
+impl<'a> OrbitSource for OrbitDataSet<'a> {
+    fn next_at(&mut self, t: Epoch, sv: SV, _: Frame) -> Option<Orbit> {
+        // discard past data points
+        self.buffer.retain(|(t_i, _), _| *t_i >= t);
+
+        // Return if already buffered
+        for ((t_i, sv_i), orbit_i) in self.buffer.iter() {
+            if *sv_i == sv && *t_i == t {
+                return Some(*orbit_i);
+            }
+        }
+
+        // consume and store until past epoch
+        loop {
+            if let Some((t_i, sv_i, orbit_i)) = self.iter.next() {
+                self.buffer.insert((t_i, sv_i), orbit_i);
+
+                if t_i == t && sv_i == sv {
+                    return Some(orbit_i);
+                }
+            } else {
+                return None;
+            }
+        }
     }
 }
 
 #[test]
-fn gps_orbits_validity() {
-    let al = Almanac::until_2035().unwrap();
-    let frame = al.frame_from_uid(EARTH_J2000).unwrap();
-    for i in 0..GPSOrbits::DESCRIPTOR.len() {
-        let (sv, orbit) = GPSOrbits::sv_orbit_by_index(i, frame);
+fn gps_validity() {
+    let almanac = Almanac::until_2035().unwrap();
+    let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
 
-        let _azelrange = al
-            .azimuth_elevation_range_sez(orbit, reference_orbit(frame), None, None)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "az_el_range failure: {} | invalid GPS Orbit [sv={} i={}]",
-                    e, sv, i
-                )
-            });
+    let sp3 = SP3::from_gzip_file("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz")
+        .unwrap_or_else(|e| panic!("Failed to load test data: {}", e));
 
-        // println!(
-        //     "sv={} i={} azim={}° elev={}°",
-        //     sv, i, azelrange.azimuth_deg, azelrange.elevation_deg
-        // );
-    }
+    let mut gps_orbits = OrbitDataSet::from_sp3_gps(&sp3, &almanac, frame);
+
+    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+    assert!(
+        gps_orbits.next_at(t0_gpst, G01, frame).is_none(),
+        "not seen from station"
+    );
+
+    let tx_orbit = gps_orbits
+        .next_at(t0_gpst, G05, frame)
+        .expect("Missing T0/G05 data");
+
+    let pos_vel = tx_orbit.to_cartesian_pos_vel();
+    let pos_km = (pos_vel[0], pos_vel[1], pos_vel[2]);
+
+    assert_eq!(pos_km, (20403.407951, -4547.528919, 16359.977231));
 }

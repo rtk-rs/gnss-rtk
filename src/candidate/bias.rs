@@ -24,9 +24,9 @@ impl Candidate {
         })
     }
 
-    /// Apply troposphere model.
-    pub(crate) fn apply_tropo_model(&mut self, _: &BiasRuntime) {}
+    // /// Apply troposphere model.
+    // pub(crate) fn apply_tropo_model(&mut self, _: &BiasRuntime) {}
 
-    /// Apply ionosphere model.
-    pub(crate) fn apply_iono_model(&mut self, _: &BiasRuntime) {}
+    // /// Apply ionosphere model.
+    // pub(crate) fn apply_iono_model(&mut self, _: &BiasRuntime) {}
 }

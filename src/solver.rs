@@ -42,12 +42,12 @@ use crate::{
 pub struct Solver<O: OrbitSource> {
     /// Solver [Config]uration preset
     pub cfg: Config,
-    /// [OrbitSource]
-    orbit: O,
     /// [Almanac]
     almanac: Almanac,
     /// [Frame]
     earth_cef: Frame,
+    /// [OrbitSource]
+    orbit_source: O,
     /// Latest [State].
     state: Option<State>,
     /// Possible initial (very first) preset
@@ -271,13 +271,13 @@ impl<O: OrbitSource> Solver<O> {
     /// and uses internal [Almanac] and [Frame] model definition.
     /// ## Input
     /// - cfg: Solver [Config]
-    /// - orbit: [OrbitSource] must be provided for Direct (1D) PPP
+    /// - orbit_source: [OrbitSource] must be provided for Direct (1D) PPP
     /// - state_ecef_m: possible initial state expressed expressed as meters in ECEF.
     /// When not provided, the solver deploys in survey mode with stringent requirements
     /// on first iteration.
     pub fn new(
-        cfg: &Config,
-        orbit: O,
+        cfg: Config,
+        orbit_source: O,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Result<Self, Error> {
         let (almanac, earth_cef) = Self::build_almanac_frame_model()?;
@@ -304,10 +304,10 @@ impl<O: OrbitSource> Solver<O> {
         };
 
         Ok(Self {
-            orbit,
             almanac,
             earth_cef,
             state: None,
+            orbit_source,
             cfg: cfg.clone(),
             initial_ecef_m,
             prev_solution: None,
@@ -316,7 +316,7 @@ impl<O: OrbitSource> Solver<O> {
     }
 
     /// Create new Position [Solver] without knowledge of apriori position (full survey)
-    pub fn new_survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
+    pub fn new_survey(cfg: Config, orbit: O) -> Result<Self, Error> {
         Self::new(cfg, orbit, None)
     }
 
@@ -357,10 +357,10 @@ impl<O: OrbitSource> Solver<O> {
             .iter()
             .filter_map(|cd| match cd.transmission_time(&self.cfg) {
                 Ok((t_tx, dt_tx)) => {
-                    let orbits = &mut self.orbit;
+                    let orbit_source = &mut self.orbit_source;
                     debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
 
-                    let tx_orbit = orbits.next_at(t_tx, cd.sv, self.earth_cef)?;
+                    let tx_orbit = orbit_source.next_at(t_tx, cd.sv, self.earth_cef)?;
 
                     let tx_orbit = Self::rotate_orbit_dcm3x3(
                         cd.t,
@@ -777,14 +777,17 @@ impl<O: OrbitSource> Solver<O> {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use sp3::prelude::SP3;
     use std::str::FromStr;
 
     use crate::{
-        prelude::{Almanac, Candidate, Config, Epoch, PVTSolutionType, Solver, EARTH_J2000},
+        prelude::{
+            Almanac, Candidate, Config, Epoch, OrbitSource, PVTSolutionType, Solver, EARTH_J2000,
+        },
         solver::sv_orbital_fixup,
         tests::{
-            gps::{G05, G07, G13, G15},
-            orbits::{GPSOrbits, NullOrbits},
+            gps::{G02, G05, G07, G08, G09, G13, G15},
+            orbits::{NullOrbits, OrbitDataSet},
             reference_orbit,
         },
     };
@@ -800,7 +803,7 @@ mod test {
                 4,
             ),
         ] {
-            let solver = Solver::new(&preset, NullOrbits {}, None).unwrap();
+            let solver = Solver::new(preset, NullOrbits {}, None).unwrap();
 
             assert_eq!(solver.min_sv_required(), expected);
         }
@@ -808,18 +811,18 @@ mod test {
         let mut preset = Config::default();
         preset.fixed_altitude = Some(1.0);
 
-        let solver = Solver::new(&preset, NullOrbits {}, None).unwrap();
+        let solver = Solver::new(preset.clone(), NullOrbits {}, None).unwrap();
         assert_eq!(solver.min_sv_required(), 4);
 
-        let solver = Solver::new(&preset, NullOrbits {}, Some((1.0, 2.0, 3.0))).unwrap();
+        let solver = Solver::new(preset.clone(), NullOrbits {}, Some((1.0, 2.0, 3.0))).unwrap();
         assert_eq!(solver.min_sv_required(), 3);
 
         let preset = Config::default().with_pvt_solutions_type(PVTSolutionType::TimeOnly);
 
-        let solver = Solver::new(&preset, NullOrbits {}, None).unwrap();
+        let solver = Solver::new(preset.clone(), NullOrbits {}, None).unwrap();
         assert_eq!(solver.min_sv_required(), 4);
 
-        let solver = Solver::new(&preset, NullOrbits {}, Some((1.0, 2.0, 3.0))).unwrap();
+        let solver = Solver::new(preset.clone(), NullOrbits {}, Some((1.0, 2.0, 3.0))).unwrap();
         assert_eq!(solver.min_sv_required(), 1);
     }
 
@@ -831,20 +834,32 @@ mod test {
         let almanac = Almanac::until_2035().unwrap();
         let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
 
-        let t_str = "2020-06-25T00:00:00 GPST";
-        let t = Epoch::from_str(t_str).unwrap();
+        let t0_gpst: Epoch = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
 
         let rx_orbit = reference_orbit(frame);
 
-        let sv_orbits = GPSOrbits::collect_epoch(t_str, frame);
+        let sp3 = SP3::from_gzip_file("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz").unwrap();
 
-        let mut candidates = sv_orbits
-            .iter()
-            .map(|(sv, sv_orbit)| Candidate::new(*sv, t, vec![]).with_orbit(*sv_orbit))
-            .collect::<Vec<_>>();
+        let mut gpst_orbits = OrbitDataSet::from_sp3_gps(&sp3, &almanac, frame);
 
-        sv_orbital_fixup(&almanac, t, rx_orbit, &mut candidates);
-        assert_eq!(candidates.len(), 7, "invalid test data length");
+        let mut candidates = vec![
+            Candidate::new(G02, t0_gpst, vec![]),
+            Candidate::new(G05, t0_gpst, vec![]),
+            Candidate::new(G07, t0_gpst, vec![]),
+            Candidate::new(G08, t0_gpst, vec![]),
+            Candidate::new(G09, t0_gpst, vec![]),
+            Candidate::new(G13, t0_gpst, vec![]),
+            Candidate::new(G15, t0_gpst, vec![]),
+        ];
+
+        for cd in candidates.iter_mut() {
+            let orbit = gpst_orbits.next_at(t0_gpst, cd.sv, frame).unwrap();
+
+            cd.set_orbit(orbit);
+        }
+
+        sv_orbital_fixup(&almanac, t0_gpst, rx_orbit, &mut candidates);
+        assert_eq!(candidates.len(), 7, "invalid test initialization");
 
         sv_attitude_filters(&preset, &mut candidates);
 
@@ -853,9 +868,11 @@ mod test {
             .map(|cd| cd.sv)
             .sorted()
             .collect::<Vec<_>>();
+
         assert_eq!(remainder, vec![G05, G07, G13, G15]);
 
         preset.min_sv_elev = Some(16.0);
+
         sv_attitude_filters(&preset, &mut candidates);
 
         let remainder = candidates
@@ -863,6 +880,7 @@ mod test {
             .map(|cd| cd.sv)
             .sorted()
             .collect::<Vec<_>>();
+
         assert_eq!(remainder, vec![G05, G07, G13]);
     }
 }
