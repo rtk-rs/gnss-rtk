@@ -24,7 +24,7 @@ use crate::{
     //ambiguity::Solver as AmbiguitySolver,
     bancroft::Bancroft,
     candidate::Candidate,
-    cfg::{Config, Method},
+    cfg::{Config, LoopExitCriteria, Method},
     constants::Constants,
     navigation::{
         //solutions::validator::{InvalidationCause, Validator as SolutionValidator},
@@ -280,7 +280,13 @@ impl<O: OrbitSource> Solver<O> {
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Result<Self, Error> {
         let (almanac, earth_cef) = Self::build_almanac_frame_model()?;
-        Ok(Self::new_almanac_frame(cfg, almanac, earth_cef, orbit_source, state_ecef_m))
+        Ok(Self::new_almanac_frame(
+            cfg,
+            almanac,
+            earth_cef,
+            orbit_source,
+            state_ecef_m,
+        ))
     }
 
     /// Creates a new Position [Solver] without knowledge of apriori position (full survey)
@@ -369,6 +375,17 @@ impl<O: OrbitSource> Solver<O> {
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
+        // "time" to be used by orbit
+        // on very first iter, it is the provided time.
+        // On following iterations, it is the past solution.
+        // There is an issue with orbital fixup that needs time to be aligned.
+        // TODO: this will corrupt velocities.
+        let orbit_t = if let Some(state) = &self.state {
+            state.t
+        } else {
+            t
+        };
+
         // orbital state solver
         let mut pool: Vec<Candidate> = pool
             .iter()
@@ -380,7 +397,7 @@ impl<O: OrbitSource> Solver<O> {
                     let tx_orbit = orbit_source.next_at(t_tx, cd.sv, self.earth_cef)?;
 
                     let tx_orbit = Self::rotate_orbit_dcm3x3(
-                        cd.t,
+                        orbit_t,
                         dt_tx,
                         tx_orbit,
                         modeling.earth_rotation,
@@ -432,7 +449,7 @@ impl<O: OrbitSource> Solver<O> {
         let state = self
             .state
             .as_mut()
-            .expect("internal error: bad initialization logic!");
+            .expect("internal error: solver initialization");
 
         let orbit_state = state.to_orbit(self.earth_cef);
 
@@ -559,23 +576,36 @@ impl<O: OrbitSource> Solver<O> {
         };
 
         let mut i = 0;
+        let mut validated = false;
+
         loop {
             match nav.iterate() {
                 Ok(_) => {
-                    debug!("iter={} {:?}", i, nav.dx);
-
+                    i += 1;
                     state.update(nav.dx);
 
-                    let norm = (nav.dx[0].powi(2) + nav.dx[1].powi(2) + nav.dx[3].powi(2)).sqrt();
-                    if norm < 1E-6 {
-                        // reached unrealistic correction
-                        break;
+                    match self.cfg.solver.filter.loop_exit {
+                        LoopExitCriteria::Iteration(max_iter) => {
+                            if i == max_iter {
+                                debug!("reached last iter: {:?}", nav.dx);
+                                validated = true;
+                                break;
+                            }
+                        },
+                        LoopExitCriteria::Norm(dx) => {
+                            let norm =
+                                (nav.dx[0].powi(2) + nav.dx[1].powi(2) + nav.dx[2].powi(2)).sqrt();
+                            if norm < dx {
+                                debug!("reached norm limit");
+                                validated = true;
+                                break;
+                            }
+                        },
                     }
-
-                    i += 1;
                 },
                 Err(e) => {
                     error!("iter={}, FAILURE: {}", i, e);
+                    break;
                 },
             }
         }
@@ -595,25 +625,38 @@ impl<O: OrbitSource> Solver<O> {
         //    }
         //}
 
-        // // Form Solution
-        // let mut solution = PVTSolution {
-        //     state: Orbit::from_position(
-        //         sol_x / 1.0E3,
-        //         sol_y / 1.0E3,
-        //         sol_z / 1.0E3,
-        //         t,
-        //         self.earth_cef,
-        //     ),
-        //     ambiguities,
-        //     gdop: output.gdop,
-        //     tdop: output.tdop,
-        //     pdop: output.pdop,
-        //     sv: input.sv.clone(),
-        //     q: output.q_covar4x4(),
-        //     timescale: self.cfg.timescale,
-        //     dt: Duration::from_seconds(sol_dt),
-        //     d_dt: 0.0_f64,
-        // };
+        if !validated {
+            error!("solution invalidated - filter reset");
+            return Err(Error::MissingRemoteRTKObservation(
+                Default::default(),
+                Default::default(),
+            ));
+        }
+
+        debug!("validated solution: {}", nav.dx);
+
+        state.update(nav.dx);
+        debug!("updated state: {:?}", state.pos_m);
+
+        // Form Solution
+        let mut solution = PVTSolution {
+            state: Orbit::from_position(
+                state.pos_m.0 / 1.0E3,
+                state.pos_m.1 / 1.0E3,
+                state.pos_m.2 / 1.0E3,
+                t,
+                self.earth_cef,
+            ),
+            dt: state.dt,
+            d_dt: 0.0_f64,
+            timescale: self.cfg.timescale,
+            // ambiguities: Default::default(),
+            q: Default::default(),    //output.q_covar4x4(),
+            sv: Default::default(),   //input.sv.clone(),
+            gdop: Default::default(), //output.gdop,
+            tdop: Default::default(), //output.tdop,
+            pdop: Default::default(), //output.pdop,
+        };
 
         //let (lat, long, alt_km) = solution.state.latlongalt().map_err(|e| Error::Physics(e))?;
 
@@ -665,14 +708,11 @@ impl<O: OrbitSource> Solver<O> {
         }
 
         // update & store for next time
-        //self.update_solution(t, &mut solution);
+        // self.update_solution(t, &mut solution);
 
         // Self::rework_solution(t, self.earth_cef, &self.cfg, &mut solution);
-        //Ok((t, solution))
-        Err(Error::MissingRemoteRTKObservation(
-            Default::default(),
-            Default::default(),
-        ))
+        Ok((t, solution))
+        // Ok((Default::default(), Default::default()))
     }
 
     /// Apply signal quality criteria

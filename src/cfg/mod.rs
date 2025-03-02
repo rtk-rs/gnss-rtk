@@ -15,6 +15,8 @@ pub use crate::{
     prelude::{PVTSolutionType, TimeScale},
 };
 
+pub(crate) use crate::cfg::solver::LoopExitCriteria;
+
 /// Configuration Error
 #[derive(Debug, Error)]
 pub enum Error {

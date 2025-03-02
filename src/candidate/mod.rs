@@ -215,7 +215,9 @@ impl Candidate {
         let orbit = self
             .orbit
             .expect("internal error: undefined orbital state (badop)");
+
         let elazrg = almanac.azimuth_elevation_range_sez(orbit, rx_orbit, None, None)?;
+
         self.azimuth_deg = Some(elazrg.azimuth_deg);
         self.elevation_deg = Some(elazrg.elevation_deg);
         Ok(())
