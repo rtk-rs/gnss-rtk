@@ -267,21 +267,42 @@ impl<O: OrbitSource> Solver<O> {
         Ok((almanac, earth_cef))
     }
 
-    /// Create a new Position [Solver] that may support any positioning technique
-    /// and uses internal [Almanac] and [Frame] model definition.
+    /// Creates a new Position, Velocity, Time [Solver] without
+    /// apriori knowledge of the initial position.
     /// ## Input
-    /// - cfg: Solver [Config]
-    /// - orbit_source: [OrbitSource] must be provided for Direct (1D) PPP
-    /// - state_ecef_m: possible initial state expressed expressed as meters in ECEF.
-    /// When not provided, the solver deploys in survey mode with stringent requirements
-    /// on first iteration.
+    /// - cfg: solver [Config]uration
+    /// - orbit_source: custom [OrbitSource] implementation.
+    /// - state_ecef_m: if you have accurate knowledge of the initial position,
+    /// you may define it here. Otherwise, we recommend you tie this to None.
     pub fn new(
         cfg: Config,
         orbit_source: O,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Result<Self, Error> {
         let (almanac, earth_cef) = Self::build_almanac_frame_model()?;
+        Ok(Self::new_almanac_frame(cfg, almanac, earth_cef, orbit_source, state_ecef_m))
+    }
 
+    /// Creates a new Position [Solver] without knowledge of apriori position (full survey)
+    pub fn new_survey(cfg: Config, orbit_source: O) -> Result<Self, Error> {
+        Self::new(cfg, orbit_source, None)
+    }
+
+    /// Creates a new Position, Velocity, Time [Solver] with your own [Almanac] and [Frame] definitions.
+    /// ## Input
+    /// - cfg: solver [Config]uration
+    /// - almanac: [Almanac] definition
+    /// - frame: [Frame] which must be an ECEF for valid results
+    /// - orbit_source: custom [OrbitSource] implementation.
+    /// - state_ecef_m: if you have accurate knowledge of the initial position,
+    /// you may define it here. Otherwise, we recommend you tie this to None.
+    pub fn new_almanac_frame(
+        cfg: Config,
+        almanac: Almanac,
+        earth_cef: Frame,
+        orbit_source: O,
+        state_ecef_m: Option<(f64, f64, f64)>,
+    ) -> Self {
         // Analyze preset
         if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
             warn!("occultation filter is not meaningful in SPP navigation");
@@ -303,7 +324,7 @@ impl<O: OrbitSource> Solver<O> {
             _ => None,
         };
 
-        Ok(Self {
+        Self {
             almanac,
             earth_cef,
             state: None,
@@ -312,12 +333,7 @@ impl<O: OrbitSource> Solver<O> {
             initial_ecef_m,
             // prev_solution: None,
             sv_orbits: HashMap::new(),
-        })
-    }
-
-    /// Create new Position [Solver] without knowledge of apriori position (full survey)
-    pub fn new_survey(cfg: Config, orbit: O) -> Result<Self, Error> {
-        Self::new(cfg, orbit, None)
+        }
     }
 
     /// [PVTSolution] resolution attempt.
