@@ -1,5 +1,5 @@
 use hifitime::Unit;
-use log::error;
+use log::{debug, error};
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 pub mod solutions;
@@ -27,20 +27,25 @@ use anise::{
 // pub use filter::Filter;
 // pub(crate) use filter::FilterState;
 
-use crate::prelude::{
-    Candidate,
-    Config,
-    Duration,
-    Error,
-    IonosphereBias, //Method,
-    Orbit,
+use crate::{
+    cfg::{LoopExitCriteria, SolverOpts},
+    prelude::{
+        Candidate,
+        Config,
+        Duration,
+        Error,
+        IonosphereBias, //Method,
+        Orbit,
+    },
 };
 
 /// SV Navigation information
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SVInput {
-    /// Possible [Orbit] state
-    pub orbit: Option<Orbit>,
+    /// Orbital state
+    pub sv_pos_km: (f64, f64, f64),
+    /// Orbital velocity
+    pub sv_vel_km_s: (f64, f64, f64),
     /// Elevation from RX position
     pub elevation: f64,
     /// Azimuth from RX position
@@ -57,11 +62,11 @@ pub struct SVInput {
 pub(crate) struct State {
     pub t: Epoch,
     pub dt: Duration,
-    pub pos_m: (f64, f64, f64),
-    pub vel_m_s: (f64, f64, f64),
+    pub alt_km: f64,
     pub lat_ddeg: f64,
     pub long_ddeg: f64,
-    pub alt_km: f64,
+    pub pos_m: (f64, f64, f64),
+    pub vel_m_s: (f64, f64, f64),
 }
 
 impl State {
@@ -107,39 +112,33 @@ impl State {
         self.pos_m.2 += dx[2];
         self.dt += (dx[3] / SPEED_OF_LIGHT_M_S) * Unit::Second;
     }
-
-    //     /// Copies and updates clock offset
-    //     pub fn with_clock_offset(&self, dt: Duration) -> Self {
-    //         let mut s = self.clone();
-    //         s.dt = dt;
-    //         s
-    //     }
 }
 
-pub(crate) struct MatrixContribution {
-    pub h: Matrix1x4<f64>,
-    pub b: f64,
-}
-
-#[derive(Debug, Clone)]
 pub(crate) struct Navigation {
-    pub b: DVector<f64>,
-    pub h: MatrixXx4<f64>,
+    cfg: Config,
     pub iter: usize,
-    pub dx: Vector4<f64>,
+    pub state: State,
+    pub b: DVector<f64>,
+    pub sv: Vec<SVInput>,
 }
 
 impl Navigation {
-    /// Create new [Navigation] filter
+    /// Creates new [Navigation] filter
     /// ## Input
     /// - cfg: [Config] preset
-    /// - apriori: [Orbit]al state
-    /// - candidates: [Candidate]s proposal
+    /// - state: initial state
+    /// - candidates: selected [Candidate]s
+    /// - size: number of proposal
     /// ## Returns
     /// - [Navigation], [Error]
-    pub fn new(cfg: &Config, state: &State, candidates: &[Candidate]) -> Result<Self, Error> {
+    pub fn new(
+        t: Epoch,
+        cfg: &Config,
+        state: State,
+        candidates: &[Candidate],
+        size: usize,
+    ) -> Result<Self, Error> {
         let size = candidates.len();
-
         match cfg.solution {
             PVTSolutionType::PositionVelocityTime => {
                 if size < U4::USIZE {
@@ -156,19 +155,53 @@ impl Navigation {
             },
         }
 
+        let mut j = 0;
         let mut b = DVector::<f64>::zeros(size);
+
+        for i in 0..size {
+            match candidates[i].vector_contribution(t, cfg, state.pos_m) {
+                Ok(b_i) => {
+                    b[j] = b_i;
+                    j += 1;
+                },
+                Err(e) => {
+                    error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                },
+            }
+        }
+
+        if j < U4::USIZE {
+            Err(Error::MatrixMinimalDimension)
+        } else {
+            Ok(Self {
+                b,
+                state,
+                iter: 0,
+                cfg: cfg.clone(),
+                sv: Vec::with_capacity(size),
+            })
+        }
+    }
+
+    /// Iterates [Navigation] filter, updates initial state internally.
+    pub fn iterate(
+        &mut self,
+        t: Epoch,
+        candidates: &[Candidate],
+        size: usize,
+    ) -> Result<bool, Error> {
+        let mut j = 0;
+        let mut converged = false;
         let mut h = MatrixXx4::<f64>::zeros(size);
 
-        let mut j = 0;
-
-        for i in 0..candidates.len() {
-            match candidates[i].spp_matrix_contribution(cfg, state.pos_m) {
-                Ok(contribution) => {
-                    h[(j, 0)] = contribution.h[(0, 0)];
-                    h[(j, 1)] = contribution.h[(0, 1)];
-                    h[(j, 2)] = contribution.h[(0, 2)];
-                    h[(j, 3)] = contribution.h[(0, 3)];
-                    b[j] = contribution.b;
+        // form matrix
+        for i in 0..size {
+            match candidates[i].matrix_contribution(&self.cfg, self.state.pos_m) {
+                Ok((dx, dy, dz, dt)) => {
+                    h[(j, 0)] = dx;
+                    h[(j, 1)] = dy;
+                    h[(j, 2)] = dz;
+                    h[(j, 3)] = dt;
                     j += 1;
                 },
                 Err(e) => {
@@ -177,29 +210,57 @@ impl Navigation {
             }
         }
 
+        // verify matrix formation validity
         if j < U4::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        Ok(Self {
-            b,
-            h,
-            iter: 0,
-            dx: Vector4::zeros(),
-        })
-    }
-
-    /// Iterates this [Navigation] filter, updating provided state
-    pub fn iterate(&mut self) -> Result<(), Error> {
-        let ht = self.h.transpose();
-        let ht_h = ht.clone() * self.h.clone();
+        // run
+        let ht = h.transpose();
+        let ht_h = ht.clone() * h.clone();
         let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
-
         let ht_b = ht * self.b.clone();
+        let dx = ht_h_inv * ht_b;
 
-        // TODO: only if validated ?
-        self.dx = ht_h_inv * ht_b;
         self.iter += 1;
-        Ok(())
+        self.state.update(dx);
+
+        match self.cfg.solver.filter.loop_exit {
+            LoopExitCriteria::Iteration(max_iter) => {
+                if self.iter == max_iter {
+                    converged = true;
+                    debug!(
+                        "{} - {}/{} - filter convergence x={}, y={}, z={}, dt={}",
+                        t,
+                        self.iter,
+                        max_iter,
+                        self.state.pos_m.0,
+                        self.state.pos_m.1,
+                        self.state.pos_m.2,
+                        self.state.dt
+                    );
+                }
+            },
+        }
+
+        // update models (if desired)
+        if !converged {
+            let mut j = 0;
+            if self.cfg.solver.filter.model_update {
+                for i in 0..size {
+                    match candidates[i].vector_contribution(t, &self.cfg, self.state.pos_m) {
+                        Ok(b_i) => {
+                            self.b[j] = b_i;
+                            j += 1;
+                        },
+                        Err(e) => {
+                            error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                        },
+                    }
+                }
+            }
+        }
+
+        Ok(converged)
     }
 }

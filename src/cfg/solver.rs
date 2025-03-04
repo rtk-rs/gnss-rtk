@@ -5,7 +5,7 @@ use nalgebra::{dimension::U8, OMatrix};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-const fn default_closed_loop() -> bool {
+const fn default_model_update() -> bool {
     true
 }
 
@@ -58,11 +58,13 @@ fn default_weight_matrix() -> Option<WeightMatrix> {
     //))
 }
 
+/// Filter loop exit criteria
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub enum LoopExitCriteria {
+    /// Exit solver loop when maximal number of iterations has been reached.
     Iteration(usize),
-    Norm(f64),
+    // Norm(f64),
 }
 
 impl Default for LoopExitCriteria {
@@ -74,14 +76,13 @@ impl Default for LoopExitCriteria {
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct FilterOpts {
-    /// Criteria to exit the Least Square fitting loop, for a given Epoch
+    /// Update not only the position but perturbations model as well,
+    /// for each filter iteration, at the expense of more processing time.
+    #[cfg_attr(feature = "serde", serde(default = "default_model_update"))]
+    pub model_update: bool,
+    /// Filter iteration loop exit criteria.
     #[cfg_attr(feature = "serde", serde(default))]
     pub loop_exit: LoopExitCriteria,
-    /// The navigation filter operates in closed loop by default.
-    /// If you disable this feature, this will prohibit any dynamic applications,
-    /// only static will remain possible. And convergence time will decrease significantly.
-    #[cfg_attr(feature = "serde", serde(default = "default_closed_loop"))]
-    pub closed_loop: bool,
     /// Weight Matrix
     #[cfg_attr(feature = "serde", serde(default = "default_weight_matrix"))]
     pub weight_matrix: Option<WeightMatrix>,
@@ -90,7 +91,7 @@ pub struct FilterOpts {
 impl Default for FilterOpts {
     fn default() -> Self {
         Self {
-            closed_loop: true,
+            model_update: true,
             weight_matrix: None,
             loop_exit: LoopExitCriteria::default(),
         }

@@ -548,26 +548,16 @@ impl<O: OrbitSource> Solver<O> {
             retained
         });
 
-        if pool.len() < min_required {
+        let pool_size = pool.len();
+
+        if pool_size < min_required {
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
         update_sky_view(&pool, &mut self.sv_orbits);
 
-        // TODO ?
-        // pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
-
-        let w = self.cfg.solver.weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
-                                                 // // Reduce contribution of newer (rising) vehicles (rising)
-                                                 // for (i, cd) in pool.iter().enumerate() {
-                                                 //     if !self.prev_used.contains(&cd.sv) {
-                                                 //         w[(i, i)] = 0.05;
-                                                 //         w[(2 * i, 2 * i)] = 0.05;
-                                                 //     }
-                                                 // }
-
-        // Build nav Matrix
-        let mut nav = match Navigation::new(&self.cfg, &state, &pool) {
+        // Build nav filter
+        let mut nav = match Navigation::new(t, &self.cfg, state.clone(), &pool, pool_size) {
             Ok(nav) => nav,
             Err(e) => {
                 error!("matrix formation error: {}", e);
@@ -575,79 +565,31 @@ impl<O: OrbitSource> Solver<O> {
             },
         };
 
-        let mut i = 0;
-        let mut validated = false;
-
+        // iterate nav filter
         loop {
-            match nav.iterate() {
-                Ok(_) => {
-                    i += 1;
-                    state.update(nav.dx);
-
-                    match self.cfg.solver.filter.loop_exit {
-                        LoopExitCriteria::Iteration(max_iter) => {
-                            if i == max_iter {
-                                debug!("reached last iter: {:?}", nav.dx);
-                                validated = true;
-                                break;
-                            }
-                        },
-                        LoopExitCriteria::Norm(dx) => {
-                            let norm =
-                                (nav.dx[0].powi(2) + nav.dx[1].powi(2) + nav.dx[2].powi(2)).sqrt();
-                            if norm < dx {
-                                debug!("reached norm limit");
-                                validated = true;
-                                break;
-                            }
-                        },
+            match nav.iterate(t, &pool, pool_size) {
+                Ok(converged) => {
+                    if converged {
+                        break;
                     }
                 },
                 Err(e) => {
-                    error!("iter={}, FAILURE: {}", i, e);
+                    error!("{} - filter iter={}, FAILURE: {}", t, nav.iter, e);
                     break;
                 },
             }
         }
 
-        // Bias
-        // let mut bias = InstrumentBias::new();
-        //if method == Method::PPP {
-        //    for i in 0..x.ncols() - 4 {
-        //        let b_i = x[i + 4];
-        //        let cd = &pool[i];
-        //        if let Some(l_c) = cd.phase_if_combination() {
-        //            if let Some(amb) = ambiguities.get(&(cd.sv, l_c.reference)) {
-        //                //TODO: c'est n_c pas n_1, puisque b_i est lié à la combinaison LC
-        //                bias.insert((cd.sv, l_c.reference), b_i - amb.n_1);
-        //            }
-        //        }
-        //    }
-        //}
-
-        if !validated {
-            error!("solution invalidated - filter reset");
-            return Err(Error::MissingRemoteRTKObservation(
-                Default::default(),
-                Default::default(),
-            ));
-        }
-
-        debug!("validated solution: {}", nav.dx);
-
-        state.update(nav.dx);
-        debug!("updated state: {:?}", state.pos_m);
-
         // Form Solution
         let mut solution = PVTSolution {
             state: Orbit::from_position(
-                state.pos_m.0 / 1.0E3,
-                state.pos_m.1 / 1.0E3,
-                state.pos_m.2 / 1.0E3,
+                nav.state.pos_m.0 / 1.0E3,
+                nav.state.pos_m.1 / 1.0E3,
+                nav.state.pos_m.2 / 1.0E3,
                 t,
                 self.earth_cef,
             ),
-            dt: state.dt,
+            dt: nav.state.dt,
             d_dt: 0.0_f64,
             timescale: self.cfg.timescale,
             // ambiguities: Default::default(),
