@@ -19,9 +19,10 @@ impl Candidate {
         t: Epoch,
         cfg: &Config,
         x0_y0_z0_m: (f64, f64, f64),
-    ) -> Result<f64, Error> {
+    ) -> Result<(f64, f64), Error> {
         let mu = Constants::EARTH_GRAVITATION;
 
+        let mut dr = 0.0;
         let mut bias_m = 0.0;
 
         let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
@@ -40,7 +41,7 @@ impl Candidate {
 
             let r_sat_0 = r_0 - r_sat;
 
-            let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+            dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
             debug!("{}({}) relativistic path range {:.3e}m", t, self.sv, dr);
@@ -79,7 +80,7 @@ impl Candidate {
             bias_m += self.tropo_bias_m;
         }
 
-        Ok(range_m - rho - bias_m)
+        Ok((range_m - rho - bias_m, dr))
     }
 
     /// Geometric matrix contribution.
@@ -90,10 +91,9 @@ impl Candidate {
     pub(crate) fn matrix_contribution(
         &self,
         cfg: &Config,
+        dr: f64,
         x0_y0_z0_m: (f64, f64, f64),
     ) -> Result<(f64, f64, f64, f64), Error> {
-        let mu = Constants::EARTH_GRAVITATION;
-
         let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
 
         let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
@@ -104,14 +104,6 @@ impl Candidate {
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
 
         if cfg.modeling.relativistic_path_range {
-            let r_sat = (sv_x_m.powi(2) + sv_y_m.powi(2) + sv_z_m.powi(2)).sqrt();
-            let r_0 = (x0_m.powi(2) + y0_m.powi(2) + z0_m.powi(2)).sqrt();
-
-            let r_sat_0 = r_0 - r_sat;
-
-            let dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
-                * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
-
             rho += dr;
         }
 

@@ -36,12 +36,15 @@ use crate::{
         Error,
         IonosphereBias, //Method,
         Orbit,
+        SV,
     },
 };
 
 /// SV Navigation information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SVInput {
+    /// Identitity
+    pub sv: SV,
     /// Orbital state
     pub sv_pos_km: (f64, f64, f64),
     /// Orbital velocity
@@ -50,6 +53,8 @@ pub struct SVInput {
     pub elevation: f64,
     /// Azimuth from RX position
     pub azimuth: f64,
+    /// Relativistic path range is evaluated for each contributor (only once)
+    pub relativistic_path_range_m: f64,
     /// Troposphere bias in meters of delay
     pub tropo_bias: Option<f64>,
     /// Ionosphere bias
@@ -58,8 +63,8 @@ pub struct SVInput {
     pub clock_correction: Option<Duration>,
 }
 
-#[derive(Clone)]
-pub(crate) struct State {
+#[derive(Clone, PartialEq, Default, Copy)]
+pub struct State {
     pub t: Epoch,
     pub dt: Duration,
     pub alt_km: f64,
@@ -138,6 +143,8 @@ impl Navigation {
         candidates: &[Candidate],
         size: usize,
     ) -> Result<Self, Error> {
+        let mut sv = Vec::with_capacity(size);
+
         let size = candidates.len();
         match cfg.solution {
             PVTSolutionType::PositionVelocityTime => {
@@ -160,8 +167,16 @@ impl Navigation {
 
         for i in 0..size {
             match candidates[i].vector_contribution(t, cfg, state.pos_m) {
-                Ok(b_i) => {
+                Ok((b_i, dr_i)) => {
                     b[j] = b_i;
+
+                    let mut input = SVInput::default();
+
+                    input.sv = candidates[i].sv;
+                    input.relativistic_path_range_m = dr_i;
+
+                    sv.push(input);
+
                     j += 1;
                 },
                 Err(e) => {
@@ -175,10 +190,10 @@ impl Navigation {
         } else {
             Ok(Self {
                 b,
+                sv,
                 state,
                 iter: 0,
                 cfg: cfg.clone(),
-                sv: Vec::with_capacity(size),
             })
         }
     }
@@ -196,7 +211,9 @@ impl Navigation {
 
         // form matrix
         for i in 0..size {
-            match candidates[i].matrix_contribution(&self.cfg, self.state.pos_m) {
+            let dr_j = self.sv[j].relativistic_path_range_m;
+
+            match candidates[i].matrix_contribution(&self.cfg, dr_j, self.state.pos_m) {
                 Ok((dx, dy, dz, dt)) => {
                     h[(j, 0)] = dx;
                     h[(j, 1)] = dy;
@@ -249,7 +266,7 @@ impl Navigation {
             if self.cfg.solver.filter.model_update {
                 for i in 0..size {
                     match candidates[i].vector_contribution(t, &self.cfg, self.state.pos_m) {
-                        Ok(b_i) => {
+                        Ok((b_i, _)) => {
                             self.b[j] = b_i;
                             j += 1;
                         },
