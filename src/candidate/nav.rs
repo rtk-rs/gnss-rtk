@@ -49,9 +49,16 @@ impl Candidate {
             rho += dr;
         }
 
-        let range_m = self
-            .best_snr_pseudo_range_m()
-            .ok_or(Error::MissingPseudoRange)?;
+        let range_m = match cfg.method {
+            Method::SPP => self
+                .best_snr_pseudo_range_m()
+                .ok_or(Error::MissingPseudoRange)?,
+            _ => {
+                self.code_if_combination()
+                    .ok_or(Error::MissingPseudoRange)?
+                    .value
+            },
+        };
 
         if cfg.modeling.sv_clock_bias {
             let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;

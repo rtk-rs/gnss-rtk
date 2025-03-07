@@ -151,32 +151,6 @@ impl Candidate {
         self.best_snr_observation().map(|ob| ob.phase_range_m)?
     }
 
-    /// Returns the L1 [Observation].
-    pub(crate) fn l1_observation(&self) -> Option<&Observation> {
-        self.observations
-            .iter()
-            .filter(|ob| {
-                matches!(
-                    ob.carrier,
-                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                )
-            })
-            .reduce(|k, _| k)
-    }
-
-    /// Returns the Lj [Observation].
-    pub(crate) fn lj_observation(&self) -> Option<&Observation> {
-        self.observations
-            .iter()
-            .filter(|ob| {
-                !matches!(
-                    ob.carrier,
-                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                )
-            })
-            .reduce(|k, _| k)
-    }
-
     /// True if Self is [Method::CPP] compatible
     pub(crate) fn cpp_compatible(&self) -> bool {
         self.has_dual_pseudorange()
@@ -207,30 +181,66 @@ impl Candidate {
 
     /// Returns the L1 Pseudo Range observation [m] if it exists
     pub(crate) fn l1_pseudo_range(&self) -> Option<(Carrier, f64)> {
-        let ob = self.l1_observation()?;
-        let pseudo_range_m = ob.pseudo_range_m?;
-        Some((ob.carrier, pseudo_range_m))
+        let l1 = self
+            .observations
+            .iter()
+            .filter(|ob| {
+                matches!(
+                    ob.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                ) && ob.pseudo_range_m.is_some()
+            })
+            .reduce(|k, _| k)?;
+
+        Some((l1.carrier, l1.pseudo_range_m.unwrap()))
     }
 
     /// Returns the L1 Phase Range observation [m] if it exists
     pub(crate) fn l1_phase_range(&self) -> Option<(Carrier, f64)> {
-        let ob = self.l1_observation()?;
-        let phase_range_m = ob.phase_range_m?;
-        Some((ob.carrier, phase_range_m))
+        let l1 = self
+            .observations
+            .iter()
+            .filter(|ob| {
+                matches!(
+                    ob.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                ) && ob.phase_range_m.is_some()
+            })
+            .reduce(|k, _| k)?;
+
+        Some((l1.carrier, l1.phase_range_m.unwrap()))
     }
 
     /// Returns the Lj Pseudo Range observation [m] if it exists
     pub(crate) fn lj_pseudo_range(&self) -> Option<(Carrier, f64)> {
-        let ob = self.lj_observation()?;
-        let pseudo_range_m = ob.pseudo_range_m?;
-        Some((ob.carrier, pseudo_range_m))
+        let lj = self
+            .observations
+            .iter()
+            .filter(|ob| {
+                !matches!(
+                    ob.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                ) && ob.pseudo_range_m.is_some()
+            })
+            .reduce(|k, _| k)?;
+
+        Some((lj.carrier, lj.pseudo_range_m.unwrap()))
     }
 
     /// Returns the Lj Phase Range observation [m] if it exists
     pub(crate) fn lj_phase_range(&self) -> Option<(Carrier, f64)> {
-        let ob = self.lj_observation()?;
-        let phase_range_m = ob.phase_range_m?;
-        Some((ob.carrier, phase_range_m))
+        let lj = self
+            .observations
+            .iter()
+            .filter(|ob| {
+                !matches!(
+                    ob.carrier,
+                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
+                ) && ob.phase_range_m.is_some()
+            })
+            .reduce(|k, _| k)?;
+
+        Some((lj.carrier, lj.phase_range_m.unwrap()))
     }
 
     /// Discards all observations below given SNR mask (>)
@@ -245,5 +255,79 @@ impl Candidate {
                 true
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::prelude::{Candidate, Carrier, Epoch, Observation, SV};
+    use std::str::FromStr;
+
+    #[test]
+    fn gps_l1_observation() {
+        let t0 = Epoch::from_str("2000-01-01T00:00:00 UTC").unwrap();
+
+        let g01 = SV::from_str("G01").unwrap();
+
+        let (l1, l2, l5) = (Carrier::L1, Carrier::L2, Carrier::L5);
+
+        let cd = Candidate::new(
+            g01,
+            t0,
+            vec![Observation::pseudo_range(Carrier::L1, 0.1, None)],
+        );
+
+        assert_eq!(cd.l1_pseudo_range(), Some((l1, 0.1)));
+        assert!(cd.l1_phase_range().is_none());
+        assert!(cd.lj_phase_range().is_none());
+
+        let cd = Candidate::new(
+            g01,
+            t0,
+            vec![
+                Observation::pseudo_range(l1, 0.1, None),
+                Observation::pseudo_range(l2, 0.2, None),
+            ],
+        );
+
+        assert_eq!(cd.l1_pseudo_range(), Some((l1, 0.1)));
+        assert_eq!(cd.lj_pseudo_range(), Some((l2, 0.2)));
+        assert!(cd.code_if_combination().is_some());
+
+        assert!(cd.l1_phase_range().is_none());
+        assert!(cd.lj_phase_range().is_none());
+
+        let cd = Candidate::new(
+            g01,
+            t0,
+            vec![
+                Observation::pseudo_range(l1, 0.1, None),
+                Observation::ambiguous_phase_range(l1, 0.2, None),
+            ],
+        );
+
+        assert_eq!(cd.l1_pseudo_range(), Some((l1, 0.1)));
+        assert_eq!(cd.l1_phase_range(), Some((l1, 0.2)));
+
+        assert!(cd.lj_pseudo_range().is_none());
+        assert!(cd.lj_phase_range().is_none());
+
+        let cd = Candidate::new(
+            g01,
+            t0,
+            vec![
+                Observation::ambiguous_phase_range(l1, 0.1, None),
+                Observation::ambiguous_phase_range(l5, 0.5, None),
+            ],
+        );
+
+        assert_eq!(cd.l1_phase_range(), Some((l1, 0.1)));
+        assert_eq!(cd.lj_phase_range(), Some((l5, 0.5)));
+
+        assert!(cd.l1_pseudo_range().is_none());
+        assert!(cd.lj_pseudo_range().is_none());
+
+        assert!(cd.phase_if_combination().is_some());
+        assert!(cd.code_if_combination().is_none());
     }
 }
