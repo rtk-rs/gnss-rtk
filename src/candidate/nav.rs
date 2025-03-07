@@ -44,8 +44,6 @@ impl Candidate {
             dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
-            debug!("{}({}) relativistic path range {:.3e}m", t, self.sv, dr);
-
             rho += dr;
         }
 

@@ -62,7 +62,6 @@ pub(crate) fn sv_orbital_fixup(
     pool.retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, state) {
         Ok(_) => {
             let (elev, azim) = cd.attitude().unwrap();
-            debug!("{}({}) azim={:.3}° | elev={:.3}°", t, cd.sv, azim, elev);
             true
         },
         Err(e) => {
