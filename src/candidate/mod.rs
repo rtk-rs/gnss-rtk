@@ -16,7 +16,7 @@ pub(crate) mod combination;
 pub use crate::candidate::{clock::ClockCorrection, signal::Observation};
 
 /// Position solving candidate
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Candidate {
     /// [SV]
     pub sv: SV,

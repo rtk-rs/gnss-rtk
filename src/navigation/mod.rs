@@ -13,7 +13,10 @@ pub use solutions::{
 // mod input;
 // mod output;
 
-use nalgebra::{base::dimension::U4, DVector, DimName, Matrix1x4, MatrixXx4, Vector4};
+use nalgebra::{
+    base::dimension::U4, ArrayStorage, DVector, DimName, Dynamic, Matrix, Matrix1x4, Matrix3,
+    Matrix4, MatrixXx4, Vector4,
+};
 
 use anise::{
     astro::PhysicsResult,
@@ -63,14 +66,77 @@ pub struct SVInput {
     pub clock_correction: Option<Duration>,
 }
 
-#[derive(Clone, PartialEq, Default, Copy)]
+/// [Navigation] filter [DilutionOfPrecision]
+#[derive(Clone, Default, Copy)]
+pub(crate) struct DilutionOfPrecision {
+    /// Geometric DOP
+    pub gdop: f64,
+    /// Horizontal DOP
+    pub hdop: f64,
+    /// Vertical DOP
+    pub vdop: f64,
+    /// Temporal DOP
+    pub tdop: f64,
+}
+
+impl DilutionOfPrecision {
+    pub(crate) fn q_enu(h: Matrix4<f64>, lat_rad: f64, lon_rad: f64) -> Matrix3<f64> {
+        let r = Matrix3::<f64>::new(
+            -lon_rad.sin(),
+            -lon_rad.cos() * lat_rad.sin(),
+            lat_rad.cos() * lon_rad.cos(),
+            lon_rad.cos(),
+            -lat_rad.sin() * lon_rad.sin(),
+            lat_rad.cos() * lon_rad.sin(),
+            0.0_f64,
+            lat_rad.cos(),
+            lon_rad.sin(),
+        );
+
+        let q_3 = Matrix3::<f64>::new(
+            h[(0, 0)],
+            h[(0, 1)],
+            h[(0, 2)],
+            h[(1, 0)],
+            h[(1, 1)],
+            h[(1, 2)],
+            h[(2, 0)],
+            h[(2, 1)],
+            h[(2, 2)],
+        );
+
+        r.clone().transpose() * q_3 * r
+    }
+
+    /// Creates new [DillutionOfPrecision] from matrix
+    pub fn new(state: &State, g: Matrix<f64, U4, U4, ArrayStorage<f64, 4, 4>>) -> Self {
+        let (lat_rad, long_rad) = (state.lat_ddeg.to_radians(), state.long_ddeg.to_radians());
+        let q_enu = Self::q_enu(g, lat_rad, long_rad);
+
+        Self {
+            gdop: g.trace().sqrt(),
+            tdop: g[(3, 3)].sqrt(),
+            vdop: q_enu[(2, 2)].sqrt(),
+            hdop: (q_enu[(0, 0)] + q_enu[(1, 1)]).sqrt(),
+        }
+    }
+}
+
+#[derive(Clone, Default, Copy)]
 pub struct State {
+    /// [Epoch]
     pub t: Epoch,
-    pub dt: Duration,
+    /// Clock state as [Duration]
+    pub clock: Duration,
+    /// Altitude above mean sea level (km)
     pub alt_km: f64,
+    /// Latitude (ddeg)
     pub lat_ddeg: f64,
+    /// Longitude (ddeg)
     pub long_ddeg: f64,
+    /// ECEF position (m)
     pub pos_m: (f64, f64, f64),
+    /// Velocity vector (ECEF m.s⁻¹)
     pub vel_m_s: (f64, f64, f64),
 }
 
@@ -89,9 +155,9 @@ impl State {
         Ok(Self {
             t: orbit.epoch,
             alt_km: latlongalt.2,
-            dt: Default::default(),
             lat_ddeg: latlongalt.0,
             long_ddeg: latlongalt.1,
+            clock: Default::default(),
             pos_m: (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]),
             vel_m_s: (pos_vel_m[3], pos_vel_m[4], pos_vel_m[5]),
         })
@@ -115,16 +181,24 @@ impl State {
         self.pos_m.0 += dx[0];
         self.pos_m.1 += dx[1];
         self.pos_m.2 += dx[2];
-        self.dt += (dx[3] / SPEED_OF_LIGHT_M_S) * Unit::Second;
+
+        self.clock += (dx[3] / SPEED_OF_LIGHT_M_S) * Unit::Second;
     }
 }
 
+/// [Navigation] Filter
 pub(crate) struct Navigation {
+    /// [Config] preset
     cfg: Config,
     pub iter: usize,
+    /// Filter [State]
     pub state: State,
+    /// Measurement vector
     pub b: DVector<f64>,
+    /// [SV] information
     pub sv: Vec<SVInput>,
+    /// [DilutionOfPrecision]
+    pub(crate) dop: DilutionOfPrecision,
 }
 
 impl Navigation {
@@ -146,6 +220,7 @@ impl Navigation {
         let mut sv = Vec::with_capacity(size);
 
         let size = candidates.len();
+
         match cfg.solution {
             PVTSolutionType::PositionVelocityTime => {
                 if size < U4::USIZE {
@@ -175,8 +250,14 @@ impl Navigation {
                     input.sv = candidates[i].sv;
                     input.relativistic_path_range_m = dr_i;
 
-                    sv.push(input);
+                    if cfg.modeling.relativistic_path_range {
+                        debug!(
+                            "{}({}) - relativisitic path range: {:.3}m",
+                            t, candidates[i].sv, dr_i
+                        );
+                    }
 
+                    sv.push(input);
                     j += 1;
                 },
                 Err(e) => {
@@ -194,6 +275,7 @@ impl Navigation {
                 state,
                 iter: 0,
                 cfg: cfg.clone(),
+                dop: DilutionOfPrecision::default(),
             })
         }
     }
@@ -242,6 +324,8 @@ impl Navigation {
         self.iter += 1;
         self.state.update(dx);
 
+        self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
+
         match self.cfg.solver.filter.loop_exit {
             LoopExitCriteria::Iteration(max_iter) => {
                 if self.iter == max_iter {
@@ -254,7 +338,7 @@ impl Navigation {
                         self.state.pos_m.0,
                         self.state.pos_m.1,
                         self.state.pos_m.2,
-                        self.state.dt
+                        self.state.clock,
                     );
                 }
             },
@@ -279,5 +363,25 @@ impl Navigation {
         }
 
         Ok(converged)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{DilutionOfPrecision, State};
+    use nalgebra::Matrix4;
+
+    #[test]
+    fn test_dop() {
+        let state = State::default();
+
+        let matrix = Matrix4::new(
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        );
+
+        let dop = DilutionOfPrecision::new(&state, matrix);
+
+        assert_eq!(dop.gdop, (1.0_f64 + 6.0_f64 + 11.0_f64 + 16.0_f64).sqrt());
+        assert_eq!(dop.tdop, 16.0_f64.sqrt());
     }
 }

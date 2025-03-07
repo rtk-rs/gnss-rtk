@@ -33,13 +33,15 @@ fn pvt_failures() {
 
     let state = &State::from_ecef_m(coords_ecef_m, Default::default(), frame).unwrap();
 
+    let t = Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap();
+
     let candidates = vec![Candidate::new(
         G01,
-        Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+        t,
         vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
     )];
 
-    match Navigation::new(&cfg, state, &candidates) {
+    match Navigation::new(t, &cfg, state.clone(), &candidates, 1) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -50,17 +52,17 @@ fn pvt_failures() {
     let candidates = vec![
         Candidate::new(
             G01,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
         ),
         Candidate::new(
             G02,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 2.0, None)],
         ),
     ];
 
-    match Navigation::new(&cfg, state, &candidates) {
+    match Navigation::new(t, &cfg, state.clone(), &candidates, 2) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -71,22 +73,22 @@ fn pvt_failures() {
     let candidates = vec![
         Candidate::new(
             G01,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
         ),
         Candidate::new(
             G02,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 2.0, None)],
         ),
         Candidate::new(
             G03,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 3.0, None)],
         ),
     ];
 
-    match Navigation::new(&cfg, state, &candidates) {
+    match Navigation::new(t, &cfg, state.clone(), &candidates, 3) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -97,27 +99,27 @@ fn pvt_failures() {
     let candidates = vec![
         Candidate::new(
             G01,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
         ),
         Candidate::new(
             G02,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 2.0, None)],
         ),
         Candidate::new(
             G03,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 3.0, None)],
         ),
         Candidate::new(
             G04,
-            Epoch::from_str("2020-01-01T00:00:00 GPST").unwrap(),
+            t,
             vec![Observation::pseudo_range(Carrier::L1, 4.0, None)],
         ),
     ];
 
-    match Navigation::new(&cfg, state, &candidates) {
+    match Navigation::new(t, &cfg, state.clone(), &candidates, 4) {
         Ok(_) => panic!("Matrix formation should not be feasible (unresolved states!)"),
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
@@ -185,7 +187,7 @@ fn pvt_matrix() {
         assert!(candidates[nth].orbit.is_some());
     }
 
-    let mut nav = Navigation::new(&cfg, state, &candidates).unwrap();
+    let mut nav = Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4).unwrap();
 
     let r_i = vec![
         candidates[0].l1_pseudo_range().unwrap().1,
@@ -226,13 +228,9 @@ fn pvt_matrix() {
             (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
         );
 
-        assert_eq!(nav.h[(i, 0)], dx_m, "x test failed [({},{})]", i, 0);
-        assert_eq!(nav.h[(i, 1)], dy_m, "y test failed [({},{})]", i, 1);
-        assert_eq!(nav.h[(i, 2)], dz_m, "z test failed [({},{})]", i, 2);
-        assert_eq!(nav.h[(i, 3)], 1.0, "dt test failed [({},{})]", i, 3);
         assert_eq!(nav.b[i], r_i[i] - rho[i], "b (noclock) test failed [{}]", i);
 
-        nav.iterate().unwrap();
+        nav.iterate(t0_gpst, &candidates, 4).unwrap();
     }
 
     assert_eq!(nav.iter, 4);
@@ -242,7 +240,7 @@ fn pvt_matrix() {
 
     cfg.modeling.sv_clock_bias = true;
 
-    match Navigation::new(&cfg, state, &candidates) {
+    match Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4) {
         Ok(_) => panic!("Should have failed (noclock!)"),
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
@@ -270,7 +268,7 @@ fn pvt_matrix() {
         );
     }
 
-    let mut nav = Navigation::new(&cfg, state, &candidates).unwrap();
+    let mut nav = Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4).unwrap();
 
     for i in 0..4 {
         let (dx_m, dy_m, dz_m) = (
@@ -279,20 +277,15 @@ fn pvt_matrix() {
             (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
         );
 
-        assert_eq!(nav.h[(i, 0)], dx_m, "x test failed [({},{})]", i, 0);
-        assert_eq!(nav.h[(i, 1)], dy_m, "y test failed [({},{})]", i, 1);
-        assert_eq!(nav.h[(i, 2)], dz_m, "z test failed [({},{})]", i, 2);
-        assert_eq!(nav.h[(i, 3)], 1.0, "dt test failed [({},{})]", i, 3);
-
         let dt_s = ((i + 100) as f64) * 1E-9;
         assert_eq!(nav.b[i], r_i[i] - rho[i] + SPEED_OF_LIGHT_M_S * dt_s);
 
-        nav.iterate().unwrap();
+        nav.iterate(t0_gpst, &candidates, 4).unwrap();
     }
 
     cfg.modeling.relativistic_path_range = true;
 
-    let mut nav = Navigation::new(&cfg, state, &candidates).unwrap();
+    let mut nav = Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4).unwrap();
 
     for i in 0..4 {
         let r_sat =
@@ -308,17 +301,12 @@ fn pvt_matrix() {
             (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / (rho[i] + dr),
         );
 
-        assert_eq!(nav.h[(i, 0)], dx_m, "x test failed [({},{})]", i, 0);
-        assert_eq!(nav.h[(i, 1)], dy_m, "y test failed [({},{})]", i, 1);
-        assert_eq!(nav.h[(i, 2)], dz_m, "z test failed [({},{})]", i, 2);
-        assert_eq!(nav.h[(i, 3)], 1.0, "dt test failed [({},{})]", i, 3);
-
         let dt_s = ((i + 100) as f64) * 1E-9;
         let b_model = r_i[i] - (rho[i] + dr) + SPEED_OF_LIGHT_M_S * dt_s;
 
         let err = (nav.b[i] - b_model).abs();
         assert!(err < 1E-6);
 
-        nav.iterate().unwrap();
+        nav.iterate(t0_gpst, &candidates, 4).unwrap();
     }
 }

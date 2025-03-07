@@ -16,7 +16,7 @@ use log::{debug, error, info, warn};
 use anise::{
     almanac::metaload::{MetaAlmanac, MetaFile},
     constants::frames::{EARTH_ITRF93, IAU_EARTH_FRAME, SUN_J2000},
-    math::{Matrix3, Vector3},
+    math::{Matrix3, Vector3, Vector6},
     prelude::{Almanac, Frame, Unit},
 };
 
@@ -26,14 +26,7 @@ use crate::{
     candidate::Candidate,
     cfg::{Config, LoopExitCriteria, Method},
     constants::Constants,
-    navigation::{
-        //solutions::validator::{InvalidationCause, Validator as SolutionValidator},
-        //Input as NavigationInput,
-        Navigation,
-        PVTSolution,
-        PVTSolutionType,
-        State,
-    },
+    navigation::{Navigation, PVTSolution, PVTSolutionType, State},
     orbit::OrbitSource,
     prelude::{Duration, Epoch, Error, Orbit, SV},
 };
@@ -52,15 +45,12 @@ pub struct Solver<O: OrbitSource> {
     state: Option<State>,
     /// Possible initial (very first) preset
     initial_ecef_m: Option<Vector3>,
-    // /// [AmbiguitySolver]
-    // ambiguity: AmbiguitySolver,
-    // Post fit KF
-    // postfit_kf: Option<KF<State3D, U3, U3>>,
-    /* prev. solution for internal logic */
-    // /// Previous solution (internal logic)
-    // prev_solution: Option<(Epoch, PVTSolution)>,
     /// Stored sky view, for internal logic.
     sv_orbits: HashMap<SV, Orbit>,
+    /// For internal logic
+    past_t: Option<Epoch>,
+    past_pos_m: Option<(f64, f64, f64)>,
+    past_clock: Option<Duration>,
 }
 
 pub(crate) fn sv_orbital_fixup(
@@ -337,8 +327,10 @@ impl<O: OrbitSource> Solver<O> {
             orbit_source,
             cfg: cfg.clone(),
             initial_ecef_m,
-            // prev_solution: None,
             sv_orbits: HashMap::new(),
+            past_t: None,
+            past_clock: None,
+            past_pos_m: None,
         }
     }
 
@@ -363,15 +355,16 @@ impl<O: OrbitSource> Solver<O> {
         let iono_modeling = self.cfg.modeling.iono_delay;
         let tropo_modeling = self.cfg.modeling.tropo_delay;
 
+        // TODO
         // Self::signal_condition_filter(t, method, &mut pool);
 
         if let Some(min_snr) = self.cfg.min_snr {
+            // TODO
             // Self::signal_quality_filter(min_snr, &mut pool);
         }
 
         if pool.len() < min_required {
             // no need to proceed further
-            panic!("MIN-REEQUIRED [1]");
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
@@ -580,24 +573,42 @@ impl<O: OrbitSource> Solver<O> {
             }
         }
 
-        // Form Solution
-        let mut solution = PVTSolution {
-            state: Orbit::from_position(
-                nav.state.pos_m.0 / 1.0E3,
-                nav.state.pos_m.1 / 1.0E3,
-                nav.state.pos_m.2 / 1.0E3,
-                t,
-                self.earth_cef,
-            ),
-            dt: nav.state.dt,
-            d_dt: 0.0_f64,
+        // Validated solution
+        let solution = PVTSolution {
+            state: {
+                let mut pos_vel_km = Vector6::new(
+                    nav.state.pos_m.0 / 1.0E3,
+                    nav.state.pos_m.1 / 1.0E3,
+                    nav.state.pos_m.2 / 1.0E3,
+                    nav.state.vel_m_s.0 / 1.0E3,
+                    nav.state.vel_m_s.1 / 1.0E3,
+                    nav.state.vel_m_s.2 / 1.0E3,
+                );
+
+                if let Some(past_t) = self.past_t {
+                    let (past_x_m, past_y_m, past_z_m) = self.past_pos_m.unwrap();
+                    let dt_s = (t - past_t).to_seconds();
+                    pos_vel_km[3] = (pos_vel_km[0] - past_x_m / 1.0E3) / dt_s;
+                    pos_vel_km[4] = (pos_vel_km[1] - past_y_m / 1.0E3) / dt_s;
+                    pos_vel_km[5] = (pos_vel_km[2] - past_z_m / 1.0E3) / dt_s;
+                }
+
+                Orbit::from_cartesian_pos_vel(pos_vel_km, t, self.earth_cef)
+            },
+            clock_offset: nav.state.clock,
+            clock_drift_s_s: if let Some(past_t) = self.past_t {
+                let dt_s = (t - past_t).to_seconds();
+                let clock_offset = self.past_clock.unwrap();
+                ((nav.state.clock - clock_offset) / dt_s).to_seconds()
+            } else {
+                0.0_f64
+            },
             timescale: self.cfg.timescale,
-            // ambiguities: Default::default(),
-            q: Default::default(),    //output.q_covar4x4(),
-            sv: Default::default(),   //input.sv.clone(),
-            gdop: Default::default(), //output.gdop,
-            tdop: Default::default(), //output.tdop,
-            pdop: Default::default(), //output.pdop,
+            sv: Default::default(), //input.sv.clone(),
+            gdop: nav.dop.gdop,
+            tdop: nav.dop.tdop,
+            vdop: nav.dop.vdop,
+            hdop: nav.dop.hdop,
         };
 
         //let (lat, long, alt_km) = solution.state.latlongalt().map_err(|e| Error::Physics(e))?;
@@ -649,12 +660,10 @@ impl<O: OrbitSource> Solver<O> {
             //}
         }
 
-        // update & store for next time
-        // self.update_solution(t, &mut solution);
-
-        // Self::rework_solution(t, self.earth_cef, &self.cfg, &mut solution);
+        self.past_t = Some(t);
+        self.past_pos_m = Some(nav.state.pos_m);
+        self.past_clock = Some(nav.state.clock);
         Ok((t, solution))
-        // Ok((Default::default(), Default::default()))
     }
 
     /// Apply signal quality criteria
