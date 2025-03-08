@@ -1,11 +1,10 @@
 use log::{debug, error};
 
 pub mod solutions;
-pub use solutions::{
-    //InvalidationCause,
-    PVTSolution,
-    PVTSolutionType,
-};
+pub use solutions::{PVTSolution, PVTSolutionType};
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 pub(crate) mod dop;
 pub(crate) mod state;
@@ -25,6 +24,7 @@ use crate::{
 
 /// SV Navigation information
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SVContribution {
     /// Identitity
     pub sv: SV,

@@ -1,16 +1,11 @@
-//! PVT Solutions
-use super::SVContribution;
-use crate::prelude::{Duration, Orbit, TimeScale};
-
-// pub(crate) mod validator;
-// pub use validator::InvalidationCause;
-
-// /// InstrumentBias, estimated per SV and signal for each solution (ie., in Time),
-// /// when navigation is based on Phase Range observations.
-// pub type InstrumentBias = HashMap<(SV, Carrier), f64>;
+//! PVT Solution
+use crate::{
+    navigation::{DilutionOfPrecision, SVContribution, State},
+    prelude::{Duration, Orbit, TimeScale},
+};
 
 #[cfg(feature = "serde")]
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
@@ -26,9 +21,6 @@ pub enum PVTSolutionType {
 }
 
 impl std::fmt::Display for PVTSolutionType {
-    /*
-     * Prints self
-     */
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::PositionVelocityTime => write!(f, "PVT"),
@@ -40,10 +32,15 @@ impl std::fmt::Display for PVTSolutionType {
 /// PVT Solution, always expressed as the correction to apply
 /// to an Apriori / static position.
 #[derive(Debug, Clone)]
-// #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
-    /// Receiver state, expressed as ECEF [Orbit]
-    pub state: Orbit,
+    /// Position in meters ECEF.
+    pub pos_m: (f64, f64, f64),
+    /// Velocity in m.s⁻¹ ECEF
+    pub vel_m_s: (f64, f64, f64),
+    /// Latitude, longitude and altitude above mean sea level,
+    /// in degrees and meters.
+    pub lat_long_alt_deg_deg_m: (f64, f64, f64),
     /// Timescale
     pub timescale: TimeScale,
     /// Clock offset (s)
@@ -61,4 +58,30 @@ pub struct PVTSolution {
     pub hdop: f64,
     /// Temporal Dilution of Precision
     pub tdop: f64,
+}
+
+impl PVTSolution {
+    pub(crate) fn new(
+        state: &State,
+        dop: &DilutionOfPrecision,
+        contributions: &[SVContribution],
+    ) -> Self {
+        Self {
+            gdop: dop.gdop,
+            tdop: dop.tdop,
+            vdop: dop.vdop,
+            hdop: dop.hdop,
+            pos_m: state.pos_m,
+            vel_m_s: state.vel_m_s,
+            sv: contributions.to_vec(),
+            timescale: state.t.time_scale,
+            clock_offset: state.clock,
+            clock_drift_s_s: state.clock_drift_s_s,
+            lat_long_alt_deg_deg_m: (
+                state.lat_long_alt_deg_deg_km.0,
+                state.lat_long_alt_deg_deg_km.1,
+                state.lat_long_alt_deg_deg_km.2 * 1.0E3,
+            ),
+        }
+    }
 }

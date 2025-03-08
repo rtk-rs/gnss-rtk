@@ -538,20 +538,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             }
         }
 
-        // Validated solution
-        // TODO: move to PVTSolution::from_state
-        let solution = PVTSolution {
-            state: nav.state.to_orbit(),
-            timescale: self.cfg.timescale,
-            clock_offset: nav.state.clock,
-            clock_drift_s_s: nav.state.clock_drift_s_s,
-            sv: nav.sv.clone(),
-            gdop: nav.dop.gdop,
-            tdop: nav.dop.tdop,
-            vdop: nav.dop.vdop,
-            hdop: nav.dop.hdop,
-        };
-
         if self.cfg.solver.postfit_kf {
             //if let Some(kf) = &mut self.postfit_kf {
             //} else {
@@ -567,6 +553,9 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             //    self.postfit_kf = Some(KF::no_snc(kf_estim, noise));
             //}
         }
+
+        // Validated solution
+        let solution = PVTSolution::new(&nav.state, &nav.dop, &nav.sv);
 
         self.past_t = Some(t);
         self.past_pos_m = Some(nav.state.pos_m);
@@ -657,9 +646,11 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         } else {
             Matrix3::new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
         };
+
         let state = orbit.to_cartesian_pos_vel() * 1.0E3;
         let position = Vector3::new(state[0], state[1], state[2]);
         let position = dcm3 * position;
+
         Orbit::from_position(
             position[0] / 1.0E3,
             position[1] / 1.0E3,
@@ -668,30 +659,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             frame,
         )
     }
-
-    fn update_velocity(orbit: Orbit, p_orbit: Orbit, dt_sec: f64) -> Orbit {
-        let state = orbit.to_cartesian_pos_vel();
-        let p_state = p_orbit.to_cartesian_pos_vel();
-        let (x, y, z) = (state[0], state[1], state[2]);
-        let (p_x, p_y, p_z) = (p_state[0], p_state[1], p_state[2]);
-        orbit.with_velocity_km_s(Vector3::new(
-            (x - p_x) / dt_sec,
-            (y - p_y) / dt_sec,
-            (z - p_z) / dt_sec,
-        ))
-    }
-
-    // fn rework_solution(t: Epoch, frame: Frame, cfg: &Config, pvt: &mut PVTSolution) {
-    //     // emphazise we only resolve dt by setting null attitude
-    //     if cfg.sol_type == PVTSolutionType::TimeOnly {
-    //         pvt.state = Orbit::zero_at_epoch(t, frame);
-    //     }
-    //     // TODO:
-    //     //  1. replace height component with user input
-    //     //  2. static in altitude: needs to reflect on velocity
-    //     // to emphasize that it is being used
-    //     if let Some(_alt_m) = cfg.fixed_altitude {}
-    // }
 }
 
 #[cfg(test)]

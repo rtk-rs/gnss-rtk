@@ -32,8 +32,15 @@ pub struct State {
 impl State {
     /// Create new [State] from ECEF coordinates.
     pub fn from_ecef_m(pos_m: Vector3, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
-        let pos_vel = Vector6::new(pos_m[0], pos_m[1], pos_m[2], 0.0, 0.0, 0.0);
-        let orbit = Orbit::from_cartesian_pos_vel(pos_vel / 1.0E3, t, frame);
+        let pos_vel = Vector6::new(
+            pos_m[0] / 1.0E3,
+            pos_m[1] / 1.0E3,
+            pos_m[2] / 1.0E3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let orbit = Orbit::from_cartesian_pos_vel(pos_vel, t, frame);
         Self::from_orbit(&orbit, frame)
     }
 
@@ -86,16 +93,16 @@ impl State {
                 (new_pos_m.2 - self.pos_m.2) / dt_s,
             );
 
-            self.clock_drift_s_s = (self.clock - new_clock).to_seconds() / dt_s;
+            self.clock_drift_s_s = (new_clock - self.clock).to_seconds() / dt_s;
         }
 
+        self.t = t;
         self.pos_m = new_pos_m;
 
         // update orbital attitude
         let new_orbit = self.to_orbit();
         self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
-        self.t = t;
         self.clock = new_clock;
         self.first_update = false;
 
