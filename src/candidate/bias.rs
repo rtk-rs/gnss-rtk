@@ -1,5 +1,5 @@
 use crate::{
-    navigation::State,
+    navigation::state::State,
     prelude::{BiasRuntime, Candidate, Epoch},
 };
 
@@ -9,7 +9,6 @@ impl Candidate {
         let rx_orbit = self.orbit?;
         let sv_elevation_azimuth_deg_deg = self.attitude()?;
         let pos_vel_m = rx_orbit.to_cartesian_pos_vel() * 1.0E3;
-        let rx_lat_long_alt_deg_deg_km = (state.lat_ddeg, state.long_ddeg, state.alt_km);
 
         let obs = self.best_snr_observation()?;
         let frequency_hz = obs.carrier.frequency();
@@ -19,7 +18,7 @@ impl Candidate {
             frequency_hz,
             sv_elevation_azimuth_deg_deg,
             rx_position_m: state.pos_m,
-            rx_lat_long_alt_deg_deg_km,
+            rx_lat_long_alt_deg_deg_km: state.lat_long_alt_deg_deg_km,
             sv_position_m: (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]),
         })
     }

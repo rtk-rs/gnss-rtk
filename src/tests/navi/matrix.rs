@@ -7,12 +7,13 @@ use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 use crate::{
     cfg::Modeling,
     constants::Constants,
-    navigation::{Navigation, State},
+    navigation::{state::State, Navigation},
     prelude::{
         Almanac, Candidate, Carrier, ClockCorrection, Config, Epoch, Error, Observation, Orbit,
         Vector3,
     },
     tests::{
+        bias::NullBias,
         gps::{G01, G02, G03, G04},
         REFERENCE_COORDS_ECEF_M,
     },
@@ -41,7 +42,9 @@ fn pvt_failures() {
         vec![Observation::pseudo_range(Carrier::L1, 1.0, None)],
     )];
 
-    match Navigation::new(t, &cfg, state.clone(), &candidates, 1) {
+    let null_bias = NullBias {};
+
+    match Navigation::new(t, &cfg, state.clone(), &candidates, 1, &null_bias) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -62,7 +65,7 @@ fn pvt_failures() {
         ),
     ];
 
-    match Navigation::new(t, &cfg, state.clone(), &candidates, 2) {
+    match Navigation::new(t, &cfg, state.clone(), &candidates, 2, &null_bias) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -88,7 +91,7 @@ fn pvt_failures() {
         ),
     ];
 
-    match Navigation::new(t, &cfg, state.clone(), &candidates, 3) {
+    match Navigation::new(t, &cfg, state.clone(), &candidates, 3, &null_bias) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -119,7 +122,7 @@ fn pvt_failures() {
         ),
     ];
 
-    match Navigation::new(t, &cfg, state.clone(), &candidates, 4) {
+    match Navigation::new(t, &cfg, state.clone(), &candidates, 4, &null_bias) {
         Ok(_) => panic!("Matrix formation should not be feasible (unresolved states!)"),
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
@@ -171,6 +174,8 @@ fn pvt_matrix() {
         ),
     ];
 
+    let null_bias = NullBias {};
+
     let state = &State::from_ecef_m(coords_ecef_m, t0_gpst, frame).unwrap();
 
     let sv_coords_m = vec![
@@ -187,7 +192,8 @@ fn pvt_matrix() {
         assert!(candidates[nth].orbit.is_some());
     }
 
-    let mut nav = Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4).unwrap();
+    let mut nav =
+        Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4, &null_bias).unwrap();
 
     let r_i = vec![
         candidates[0].l1_pseudo_range().unwrap().1,
@@ -222,15 +228,15 @@ fn pvt_matrix() {
     ];
 
     for i in 0..4 {
-        let (dx_m, dy_m, dz_m) = (
-            (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
-            (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
-            (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
-        );
+        // let (dx_m, dy_m, dz_m) = (
+        //     (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
+        //     (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
+        //     (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
+        // );
 
         assert_eq!(nav.b[i], r_i[i] - rho[i], "b (noclock) test failed [{}]", i);
 
-        nav.iterate(t0_gpst, &candidates, 4).unwrap();
+        nav.iterate(t0_gpst, &candidates, 4, &null_bias).unwrap();
     }
 
     assert_eq!(nav.iter, 4);
@@ -240,7 +246,7 @@ fn pvt_matrix() {
 
     cfg.modeling.sv_clock_bias = true;
 
-    match Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4) {
+    match Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4, &null_bias) {
         Ok(_) => panic!("Should have failed (noclock!)"),
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
@@ -268,24 +274,26 @@ fn pvt_matrix() {
         );
     }
 
-    let mut nav = Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4).unwrap();
+    let mut nav =
+        Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4, &null_bias).unwrap();
 
     for i in 0..4 {
-        let (dx_m, dy_m, dz_m) = (
-            (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
-            (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
-            (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
-        );
+        // let (dx_m, dy_m, dz_m) = (
+        //     (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
+        //     (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
+        //     (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
+        // );
 
         let dt_s = ((i + 100) as f64) * 1E-9;
         assert_eq!(nav.b[i], r_i[i] - rho[i] + SPEED_OF_LIGHT_M_S * dt_s);
 
-        nav.iterate(t0_gpst, &candidates, 4).unwrap();
+        nav.iterate(t0_gpst, &candidates, 4, &null_bias).unwrap();
     }
 
     cfg.modeling.relativistic_path_range = true;
 
-    let mut nav = Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4).unwrap();
+    let mut nav =
+        Navigation::new(t0_gpst, &cfg, state.clone(), &candidates, 4, &null_bias).unwrap();
 
     for i in 0..4 {
         let r_sat =
@@ -295,11 +303,11 @@ fn pvt_matrix() {
         let dr = 2.0 * Constants::EARTH_GRAVITATION / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
             * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
-        let (dx_m, dy_m, dz_m) = (
-            (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / (rho[i] + dr),
-            (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / (rho[i] + dr),
-            (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / (rho[i] + dr),
-        );
+        // let (dx_m, dy_m, dz_m) = (
+        //     (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / (rho[i] + dr),
+        //     (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / (rho[i] + dr),
+        //     (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / (rho[i] + dr),
+        // );
 
         let dt_s = ((i + 100) as f64) * 1E-9;
         let b_model = r_i[i] - (rho[i] + dr) + SPEED_OF_LIGHT_M_S * dt_s;
@@ -307,6 +315,6 @@ fn pvt_matrix() {
         let err = (nav.b[i] - b_model).abs();
         assert!(err < 1E-6);
 
-        nav.iterate(t0_gpst, &candidates, 4).unwrap();
+        nav.iterate(t0_gpst, &candidates, 4, &null_bias).unwrap();
     }
 }

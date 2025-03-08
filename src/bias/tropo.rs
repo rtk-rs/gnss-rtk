@@ -1,15 +1,11 @@
 use log::debug;
 use std::f64::consts::PI;
 
-use crate::{
-    bias::{Bias, BiasRuntime},
-    cfg::Error,
-};
+use crate::{bias::BiasRuntime, cfg::Error};
 
 /// [TroposphereModel]s that we propose, but you can also implement your own.
 #[derive(Default, Copy, Clone, Debug)]
 pub enum TroposphereModel {
-    None,
     #[default]
     Niel,
     UNB3,
@@ -181,12 +177,10 @@ impl TroposphereModel {
 
         f * delta_r
     }
-}
 
-impl Bias for TroposphereModel {
-    fn bias_m(&self, rtm: &BiasRuntime) -> f64 {
+    /// Returns [TroposphereModel] metric bias, evaluated [BiasRuntime] parameters.
+    pub fn bias_m(&self, rtm: &BiasRuntime) -> f64 {
         match self {
-            Self::None => 0.0f64,
             Self::Niel => Self::niel_model(rtm),
             Self::UNB3 => {
                 let (zwd, zdd) = Self::unb3_model(rtm);

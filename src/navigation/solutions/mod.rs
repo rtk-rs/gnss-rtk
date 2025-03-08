@@ -1,17 +1,13 @@
 //! PVT Solutions
-use std::collections::HashMap;
-
-use crate::prelude::{Carrier, Duration, Orbit, TimeScale, SV};
-
-use super::SVInput;
-use nalgebra::base::{Matrix3, Matrix4};
+use super::SVContribution;
+use crate::prelude::{Duration, Orbit, TimeScale};
 
 // pub(crate) mod validator;
 // pub use validator::InvalidationCause;
 
-/// InstrumentBias, estimated per SV and signal for each solution (ie., in Time),
-/// when navigation is based on Phase Range observations.
-pub type InstrumentBias = HashMap<(SV, Carrier), f64>;
+// /// InstrumentBias, estimated per SV and signal for each solution (ie., in Time),
+// /// when navigation is based on Phase Range observations.
+// pub type InstrumentBias = HashMap<(SV, Carrier), f64>;
 
 #[cfg(feature = "serde")]
 use serde::Deserialize;
@@ -56,7 +52,7 @@ pub struct PVTSolution {
     pub clock_drift_s_s: f64,
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV
-    pub sv: HashMap<SV, SVInput>,
+    pub sv: Vec<SVContribution>,
     /// Geometric Dilution of Precision
     pub gdop: f64,
     /// Vertical Dilution of Precision

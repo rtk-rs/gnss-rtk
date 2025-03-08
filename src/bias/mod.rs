@@ -6,23 +6,38 @@ pub use tropo::TroposphereModel;
 pub(crate) mod iono;
 pub use iono::{IonosphereBias, IonosphereModel, KbModel};
 
+#[cfg(doc)]
+use crate::prelude::{Config, Method, SV};
+
 pub trait Bias {
-    /// Compute bias as meters of propagation delay using the [BiasRuntime] infos.
-    fn bias_m(&self, rtm: &BiasRuntime) -> f64;
+    /// Return a metric propagation bias using your own Troposphere model
+    /// using [BiasRuntime] evaluation parameters.
+    /// You can use one of the models we propose in case you have no better options.
+    /// Otherwise, simply return 0 but it will impact the accuracy of your solutions.  
+    fn troposphere_bias_m(&self, rtm: &BiasRuntime) -> f64;
+
+    /// Return a metric propagation bias using your own Ionosphere model
+    /// using [BiasRuntime] evaluation parameters.
+    /// You can use one of the models we propose in case you have no better options.
+    /// Otherwise, simply return 0 but it will impact the accuracy of your solutions,
+    /// unless you [Config]ured the solver to use one of the physical cancellation techniques,
+    /// like [Method::CPP].
+    fn ionosphere_bias_m(&self, rtm: &BiasRuntime) -> f64;
 }
 
 /// [BiasRuntime] contains everything to compute your [Bias] estimate.
 pub struct BiasRuntime {
-    /// Current [Epoch]
+    /// [Epoch] of computation.
     pub t: Epoch,
-    /// SV position expressed in meters ECEF.
+    /// Selected [SV] position, in meters ECEF.
     pub sv_position_m: (f64, f64, f64),
-    /// SV (elevation, azimuth) attitude in degrees.
+    /// Selected [SV] (elevation, azimuth) attitude in degrees.
     pub sv_elevation_azimuth_deg_deg: (f64, f64),
-    /// Latest receiver position estimate, in meters ECEF
+    /// Estimated receiver state, in meters ECEF.
     pub rx_position_m: (f64, f64, f64),
-    /// Latest receiver (latitude, longitude, altitude above sea) estimates, in degrees and kilometers.
+    /// Estimated receiver state, as (latitude, longitude, altitude above sea),
+    /// in degrees and kilometers.
     pub rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
-    /// Prefered signal frequency used in navigation process, in Hertz.
+    /// Selected signal frequency, in Hertz.
     pub frequency_hz: f64,
 }

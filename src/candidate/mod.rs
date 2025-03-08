@@ -38,10 +38,6 @@ pub struct Candidate {
     pub(crate) elevation_deg: Option<f64>,
     /// azimuth at reception time
     pub(crate) azimuth_deg: Option<f64>,
-    /// Ionosphere bias in meters.
-    pub(crate) iono_bias_m: f64,
-    /// Tropospheric bias in meters.
-    pub(crate) tropo_bias_m: f64,
 }
 
 impl Candidate {
@@ -67,8 +63,6 @@ impl Candidate {
             azimuth_deg: Default::default(),
             elevation_deg: Default::default(),
             clock_corr: Default::default(),
-            tropo_bias_m: Default::default(),
-            iono_bias_m: Default::default(),
         }
     }
 
@@ -152,7 +146,7 @@ impl Candidate {
     pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, Duration), Error> {
         let total_seconds = self.t.duration.to_seconds();
 
-        let pr = self
+        let (_, pr) = self
             .best_snr_pseudo_range_m()
             .ok_or(Error::MissingPseudoRange)?;
 
@@ -270,16 +264,7 @@ impl Candidate {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
-    use crate::{
-        prelude::{Almanac, Candidate, Carrier, Epoch, Observation, EARTH_J2000, SV},
-        tests::{
-            // gps::{G09, J2020_06_25_DNK_GPS_EPOCHS},
-            // orbits::J2020_06_25_DNK_GPS_ORBITS,
-            reference_orbit,
-        },
-    };
+    use crate::prelude::{Candidate, Carrier, Epoch, Observation, SV};
 
     #[test]
     fn cpp_compatibility() {
@@ -308,39 +293,4 @@ mod test {
             assert_eq!(cd.cpp_compatible(), cpp_compatible);
         }
     }
-
-    // #[test]
-    // fn orbital_state_definition() {
-    //     let almanac = Almanac::until_2035().unwrap();
-    //     let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
-
-    //     let t01 = Epoch::from_str(GPS_EPOCHS[0]).unwrap();
-    //     let rx_orbit = reference_orbit(frame);
-
-    //     let sv_orbit = GPSOrbits::find_orbit(t01, G09, frame).expect("G09 test orbit does exist!");
-
-    //     let mut cd = Candidate::new(G09, t01, vec![]).with_orbit(sv_orbit);
-
-    //     cd.orbital_attitude_fixup(&almanac, rx_orbit).unwrap();
-
-    //     let (elev_deg, azim_deg) = cd
-    //         .attitude()
-    //         .expect("Orbital attitude should now be defined!");
-
-    //     let elev_err_deg = (elev_deg - 13.40264).abs();
-    //     assert!(elev_err_deg < 0.1);
-
-    //     let azim_err_deg = (azim_deg - 104.2191).abs();
-    //     assert!(azim_err_deg < 0.1);
-
-    //     cd.orbital_velocity_fixup((1.0, 2.0, 3.0));
-
-    //     let sv_orbit = cd.orbit.unwrap();
-
-    //     let pos_vel = sv_orbit.to_cartesian_pos_vel();
-
-    //     assert_eq!(pos_vel[3], 1.0);
-    //     assert_eq!(pos_vel[4], 2.0);
-    //     assert_eq!(pos_vel[5], 3.0);
-    // }
 }

@@ -120,4 +120,10 @@ pub enum Error {
     MissingRemoteRTKObservations,
     #[error("unknown or non supported frequency")]
     InvalidFrequency,
+    #[error("rejected troposhere delay: model divergence?")]
+    RejectedTropoDelay,
+    #[error("rejected ionosphere delay: model divergence?")]
+    RejectedIonoDelay,
+    #[error("nav filter converged to physicaly invalid state")]
+    StateUpdate,
 }

@@ -142,13 +142,17 @@ impl Candidate {
     }
 
     /// Returns pseudo range (in meters) with best SNR value, among all observed frequencies.
-    pub(crate) fn best_snr_pseudo_range_m(&self) -> Option<f64> {
-        self.best_snr_observation().map(|ob| ob.pseudo_range_m)?
+    pub(crate) fn best_snr_pseudo_range_m(&self) -> Option<(Carrier, f64)> {
+        let obs = self.best_snr_observation()?;
+        let pr = obs.pseudo_range_m?;
+        Some((obs.carrier, pr))
     }
 
     /// Returns pseudo range (in meters) with best SNR value, among all observed frequencies.
-    pub(crate) fn best_snr_phase_range_m(&self) -> Option<f64> {
-        self.best_snr_observation().map(|ob| ob.phase_range_m)?
+    pub(crate) fn best_snr_phase_range_m(&self) -> Option<(Carrier, f64)> {
+        let obs = self.best_snr_observation()?;
+        let pr = obs.phase_range_m?;
+        Some((obs.carrier, pr))
     }
 
     /// True if Self is [Method::CPP] compatible

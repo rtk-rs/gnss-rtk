@@ -5,7 +5,7 @@ use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 use crate::{
     constants::Constants,
-    prelude::{Candidate, Config, Epoch, Error, Method},
+    prelude::{Bias, BiasRuntime, Candidate, Config, Epoch, Error, Method},
 };
 
 impl Candidate {
@@ -14,11 +14,20 @@ impl Candidate {
     /// - State has been previously resolved
     /// - Range estimate is available
     /// - Preset modeling are matched
-    pub(crate) fn vector_contribution(
+    /// ## Input
+    /// - t: [Epoch] of computation
+    /// - cfg: [Config] preset
+    /// - x0_y0_z0: current state (metric)
+    /// - rx_lat_long_alt_ddeg_km: state as geodetic lat, long both
+    /// in decimal degrees, and altitude above mean sea level (km)
+    /// - bias: [Bias] model
+    pub(crate) fn vector_contribution<B: Bias>(
         &self,
         t: Epoch,
         cfg: &Config,
         x0_y0_z0_m: (f64, f64, f64),
+        rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
+        bias: &B,
     ) -> Result<(f64, f64), Error> {
         let mu = Constants::EARTH_GRAVITATION;
 
@@ -47,14 +56,18 @@ impl Candidate {
             rho += dr;
         }
 
-        let range_m = match cfg.method {
-            Method::SPP => self
-                .best_snr_pseudo_range_m()
-                .ok_or(Error::MissingPseudoRange)?,
+        let (frequency_hz, range_m) = match cfg.method {
+            Method::SPP => {
+                let (carrier, pr) = self
+                    .best_snr_pseudo_range_m()
+                    .ok_or(Error::MissingPseudoRange)?;
+                (carrier.frequency(), pr)
+            },
             _ => {
-                self.code_if_combination()
-                    .ok_or(Error::MissingPseudoRange)?
-                    .value
+                let comb = self
+                    .code_if_combination()
+                    .ok_or(Error::MissingPseudoRange)?;
+                (comb.rhs.frequency(), comb.value)
             },
         };
 
@@ -77,12 +90,43 @@ impl Candidate {
             }
         }
 
-        // if cfg.modeling.iono_delay && !iono_compensated {
-        //     bias_m += self.iono_bias_m;
-        // }
+        let rtm = BiasRuntime {
+            t,
+            sv_position_m: (sv_x_m, sv_y_m, sv_z_m),
+            sv_elevation_azimuth_deg_deg: self
+                .attitude()
+                .expect("internal error: state not fully defined"),
+            rx_position_m: x0_y0_z0_m,
+            rx_lat_long_alt_deg_deg_km,
+            frequency_hz,
+        };
+
+        if cfg.modeling.iono_delay && cfg.method != Method::SPP {
+            let iono_bias_m = bias.ionosphere_bias_m(&rtm);
+
+            // model verification (iono)
+            if iono_bias_m < cfg.max_tropo_bias {
+                debug!("{}({}) - iono delay {:.3E}[m]", t, self.sv, iono_bias_m);
+
+                bias_m += iono_bias_m;
+            } else {
+                debug!("{}({}) - rejected (extreme iono delay)", t, self.sv);
+                return Err(Error::RejectedIonoDelay);
+            }
+        }
 
         if cfg.modeling.tropo_delay {
-            bias_m += self.tropo_bias_m;
+            let tropo_bias_m = bias.troposphere_bias_m(&rtm);
+
+            // model verification (tropo)
+            if tropo_bias_m < cfg.max_tropo_bias {
+                debug!("{}({}) - tropo delay {:.3E}[m]", t, self.sv, tropo_bias_m);
+
+                bias_m += tropo_bias_m;
+            } else {
+                debug!("{}({}) - rejected (extreme tropo delay)", t, self.sv);
+                return Err(Error::RejectedTropoDelay);
+            }
         }
 
         Ok((range_m - rho - bias_m, dr))

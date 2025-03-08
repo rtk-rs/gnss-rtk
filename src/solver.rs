@@ -1,8 +1,4 @@
-//! PVT solver
-use nyx::cosmic::{
-    // eclipse::EclipseLocator,
-    SPEED_OF_LIGHT_M_S,
-};
+use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 use std::{
     collections::HashMap,
@@ -23,16 +19,20 @@ use anise::{
 use crate::{
     //ambiguity::Solver as AmbiguitySolver,
     bancroft::Bancroft,
+    bias::Bias,
     candidate::Candidate,
-    cfg::{Config, LoopExitCriteria, Method},
+    cfg::{Config, Method},
     constants::Constants,
-    navigation::{Navigation, PVTSolution, PVTSolutionType, State},
+    navigation::{state::State, Navigation, PVTSolution, PVTSolutionType},
     orbit::OrbitSource,
     prelude::{Duration, Epoch, Error, Orbit, SV},
 };
 
 /// [Solver] to resolve [PVTSolution]s.
-pub struct Solver<O: OrbitSource> {
+/// ## Generics:
+/// - O: [OrbitSource], custom [Orbit] provider.
+/// - B: custom [Bias] model.
+pub struct Solver<O: OrbitSource, B: Bias> {
     /// Solver [Config]uration preset
     pub cfg: Config,
     /// [Almanac]
@@ -41,6 +41,8 @@ pub struct Solver<O: OrbitSource> {
     earth_cef: Frame,
     /// [OrbitSource]
     orbit_source: O,
+    /// [Bias] model implementation
+    bias: B,
     /// Latest [State].
     state: Option<State>,
     /// Possible initial (very first) preset
@@ -60,10 +62,7 @@ pub(crate) fn sv_orbital_fixup(
     pool: &mut Vec<Candidate>,
 ) {
     pool.retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, state) {
-        Ok(_) => {
-            let (elev, azim) = cd.attitude().unwrap();
-            true
-        },
+        Ok(_) => true,
         Err(e) => {
             debug!("{}({}) - orbital fixup: {}", t, cd.sv, e);
             false
@@ -160,7 +159,7 @@ fn update_sky_view(pool: &[Candidate], sv_orbits: &mut HashMap<SV, Orbit>) {
     });
 }
 
-impl<O: OrbitSource> Solver<O> {
+impl<O: OrbitSource, B: Bias> Solver<O, B> {
     const ALMANAC_LOCAL_STORAGE: &str = ".cache";
 
     fn nyx_anise_de440s_bsp() -> MetaFile {
@@ -261,11 +260,13 @@ impl<O: OrbitSource> Solver<O> {
     /// ## Input
     /// - cfg: solver [Config]uration
     /// - orbit_source: custom [OrbitSource] implementation.
+    /// - bias: [Bias] model implementation
     /// - state_ecef_m: if you have accurate knowledge of the initial position,
     /// you may define it here. Otherwise, we recommend you tie this to None.
     pub fn new(
         cfg: Config,
         orbit_source: O,
+        bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Result<Self, Error> {
         let (almanac, earth_cef) = Self::build_almanac_frame_model()?;
@@ -274,13 +275,14 @@ impl<O: OrbitSource> Solver<O> {
             almanac,
             earth_cef,
             orbit_source,
+            bias,
             state_ecef_m,
         ))
     }
 
     /// Creates a new Position [Solver] without knowledge of apriori position (full survey)
-    pub fn new_survey(cfg: Config, orbit_source: O) -> Result<Self, Error> {
-        Self::new(cfg, orbit_source, None)
+    pub fn new_survey(cfg: Config, orbit_source: O, bias: B) -> Result<Self, Error> {
+        Self::new(cfg, orbit_source, bias, None)
     }
 
     /// Creates a new Position, Velocity, Time [Solver] with your own [Almanac] and [Frame] definitions.
@@ -289,6 +291,7 @@ impl<O: OrbitSource> Solver<O> {
     /// - almanac: [Almanac] definition
     /// - frame: [Frame] which must be an ECEF for valid results
     /// - orbit_source: custom [OrbitSource] implementation.
+    /// - bias: [Bias] model implementation
     /// - state_ecef_m: if you have accurate knowledge of the initial position,
     /// you may define it here. Otherwise, we recommend you tie this to None.
     pub fn new_almanac_frame(
@@ -296,6 +299,7 @@ impl<O: OrbitSource> Solver<O> {
         almanac: Almanac,
         earth_cef: Frame,
         orbit_source: O,
+        bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
         // Analyze preset
@@ -322,6 +326,7 @@ impl<O: OrbitSource> Solver<O> {
         Self {
             almanac,
             earth_cef,
+            bias,
             state: None,
             orbit_source,
             cfg: cfg.clone(),
@@ -345,14 +350,8 @@ impl<O: OrbitSource> Solver<O> {
             return Err(Error::NotEnoughCandidates);
         }
 
-        let mut pool = pool.to_vec();
-
-        let method = self.cfg.method;
+        let pool = pool.to_vec();
         let modeling = self.cfg.modeling;
-        let max_iono_bias = self.cfg.max_iono_bias;
-        let max_tropo_bias = self.cfg.max_tropo_bias;
-        let iono_modeling = self.cfg.modeling.iono_delay;
-        let tropo_modeling = self.cfg.modeling.tropo_delay;
 
         // TODO
         // Self::signal_condition_filter(t, method, &mut pool);
@@ -367,7 +366,7 @@ impl<O: OrbitSource> Solver<O> {
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
-        // "time" to be used by orbit
+        // "time" to be used by TX orbits
         // on very first iter, it is the provided time.
         // On following iterations, it is the past solution.
         // There is an issue with orbital fixup that needs time to be aligned.
@@ -443,11 +442,12 @@ impl<O: OrbitSource> Solver<O> {
             .as_mut()
             .expect("internal error: solver initialization");
 
-        let orbit_state = state.to_orbit(self.earth_cef);
+        let orbit_state = state.to_orbit();
 
         // Real time navigation
         sv_orbital_fixup(&self.almanac, t, orbit_state, &mut pool);
 
+        // TODO
         // sv_velocities_fixup(
         //     &mut pool,
         //     &self.sv_orbits,
@@ -489,15 +489,6 @@ impl<O: OrbitSource> Solver<O> {
 
         sv_attitude_filters(&self.cfg, &mut pool);
 
-        // tropo + ionosphere modeling, if need be
-        for cd in &mut pool {
-            if let Some(rtm) = cd.to_bias_runtime(t, &state) {
-                if self.cfg.modeling.tropo_delay {}
-
-                if self.cfg.modeling.iono_delay {}
-            }
-        }
-
         // // Resolve ambiguities
         // let ambiguities = if method == Method::PPP {
         //     self.ambiguity.resolve(&pool)
@@ -514,32 +505,6 @@ impl<O: OrbitSource> Solver<O> {
             retained
         });
 
-        // last verification (tropo)
-        pool.retain(|cd| {
-            let retained = cd.tropo_bias_m < max_tropo_bias;
-            if retained {
-                debug!(
-                    "{}({}) - tropo delay {:.3E}[m]",
-                    cd.t, cd.sv, cd.tropo_bias_m
-                );
-            } else {
-                debug!("{}({}) - rejected (extreme tropo delay)", cd.t, cd.sv);
-            }
-            retained
-        });
-
-        // last verification (iono)
-        // TODO: when cancelled from signal, fill cd.iono_bias_m
-        pool.retain(|cd| {
-            let retained = cd.iono_bias_m < max_iono_bias;
-            if retained {
-                debug!("{}({}) - iono delay {:.3E}[m]", cd.t, cd.sv, cd.iono_bias_m);
-            } else {
-                debug!("{}({}) - rejected (extreme iono delay)", cd.t, cd.sv);
-            }
-            retained
-        });
-
         let pool_size = pool.len();
 
         if pool_size < min_required {
@@ -549,17 +514,18 @@ impl<O: OrbitSource> Solver<O> {
         update_sky_view(&pool, &mut self.sv_orbits);
 
         // Build nav filter
-        let mut nav = match Navigation::new(t, &self.cfg, state.clone(), &pool, pool_size) {
-            Ok(nav) => nav,
-            Err(e) => {
-                error!("matrix formation error: {}", e);
-                return Err(e);
-            },
-        };
+        let mut nav =
+            match Navigation::new(t, &self.cfg, state.clone(), &pool, pool_size, &self.bias) {
+                Ok(nav) => nav,
+                Err(e) => {
+                    error!("matrix formation error: {}", e);
+                    return Err(e);
+                },
+            };
 
         // iterate nav filter
         loop {
-            match nav.iterate(t, &pool, pool_size) {
+            match nav.iterate(t, &pool, pool_size, &self.bias) {
                 Ok(converged) => {
                     if converged {
                         break;
@@ -573,76 +539,19 @@ impl<O: OrbitSource> Solver<O> {
         }
 
         // Validated solution
+        // TODO: move to PVTSolution::from_state
         let solution = PVTSolution {
-            state: {
-                let mut pos_vel_km = Vector6::new(
-                    nav.state.pos_m.0 / 1.0E3,
-                    nav.state.pos_m.1 / 1.0E3,
-                    nav.state.pos_m.2 / 1.0E3,
-                    nav.state.vel_m_s.0 / 1.0E3,
-                    nav.state.vel_m_s.1 / 1.0E3,
-                    nav.state.vel_m_s.2 / 1.0E3,
-                );
-
-                if let Some(past_t) = self.past_t {
-                    let (past_x_m, past_y_m, past_z_m) = self.past_pos_m.unwrap();
-                    let dt_s = (t - past_t).to_seconds();
-                    pos_vel_km[3] = (pos_vel_km[0] - past_x_m / 1.0E3) / dt_s;
-                    pos_vel_km[4] = (pos_vel_km[1] - past_y_m / 1.0E3) / dt_s;
-                    pos_vel_km[5] = (pos_vel_km[2] - past_z_m / 1.0E3) / dt_s;
-                }
-
-                Orbit::from_cartesian_pos_vel(pos_vel_km, t, self.earth_cef)
-            },
-            clock_offset: nav.state.clock,
-            clock_drift_s_s: if let Some(past_t) = self.past_t {
-                let dt_s = (t - past_t).to_seconds();
-                let clock_offset = self.past_clock.unwrap();
-                ((nav.state.clock - clock_offset) / dt_s).to_seconds()
-            } else {
-                0.0_f64
-            },
+            state: nav.state.to_orbit(),
             timescale: self.cfg.timescale,
-            sv: Default::default(), //input.sv.clone(),
+            clock_offset: nav.state.clock,
+            clock_drift_s_s: nav.state.clock_drift_s_s,
+            sv: nav.sv.clone(),
             gdop: nav.dop.gdop,
             tdop: nav.dop.tdop,
             vdop: nav.dop.vdop,
             hdop: nav.dop.hdop,
         };
 
-        //let (lat, long, alt_km) = solution.state.latlongalt().map_err(|e| Error::Physics(e))?;
-
-        // debug!(
-        //     "{} new solution lat={:.5}°, long={:.5}°, alt={:.5}m",
-        //     t,
-        //     lat,
-        //     long,
-        //     alt_km * 1.0E3,
-        // );
-
-        // // First solution
-        // if self.prev_solution.is_none() {
-        //     self.prev_solution = Some((t, solution.clone()));
-        //     // always discard 1st solution
-        //     return Err(Error::InvalidatedSolution(InvalidationCause::FirstSolution));
-        // }
-
-        // let validator =
-        //     SolutionValidator::new(Vector3::<f64>::new(x0, y0, z0), &pool, &input, &output);
-
-        // match validator.validate(&self.cfg) {
-        //     Ok(_) => {
-        //         self.nav.validate();
-        //     },
-        //     Err(cause) => {
-        //         error!("solution invalidated - {}", cause);
-        //         return Err(Error::InvalidatedSolution(cause));
-        //     },
-        // };
-
-        /*
-         * Post-fit KF
-         */
         if self.cfg.solver.postfit_kf {
             //if let Some(kf) = &mut self.postfit_kf {
             //} else {
@@ -662,6 +571,7 @@ impl<O: OrbitSource> Solver<O> {
         self.past_t = Some(t);
         self.past_pos_m = Some(nav.state.pos_m);
         self.past_clock = Some(nav.state.clock);
+
         Ok((t, solution))
     }
 
@@ -746,16 +656,6 @@ impl<O: OrbitSource> Solver<O> {
         )
     }
 
-    fn update_solution(&self, t: Epoch, sol: &mut PVTSolution) {
-        //if let Some((prev_t, prev_sol)) = &self.prev_solution {
-        //    let dt_s = (t - *prev_t).to_seconds();
-        //    // update clock drift
-        //    sol.d_dt = dt_s;
-        //    // update velocity
-        //    sol.state = Self::update_velocity(sol.state, prev_sol.state, dt_s);
-        //}
-    }
-
     fn update_velocity(orbit: Orbit, p_orbit: Orbit, dt_sec: f64) -> Orbit {
         let state = orbit.to_cartesian_pos_vel();
         let p_state = p_orbit.to_cartesian_pos_vel();
@@ -792,6 +692,7 @@ mod test {
         },
         solver::sv_orbital_fixup,
         tests::{
+            bias::NullBias,
             gps::{G02, G05, G07, G08, G09, G13, G15},
             orbits::{GpsOrbits, NullOrbits},
             reference_orbit,
@@ -809,7 +710,8 @@ mod test {
                 4,
             ),
         ] {
-            let solver = Solver::new(preset, NullOrbits {}, None).unwrap();
+            let null_bias = NullBias {};
+            let solver = Solver::new(preset, NullOrbits {}, null_bias, None).unwrap();
 
             assert_eq!(solver.min_sv_required(), expected);
         }
@@ -817,18 +719,30 @@ mod test {
         let mut preset = Config::default();
         preset.fixed_altitude = Some(1.0);
 
-        let solver = Solver::new(preset.clone(), NullOrbits {}, None).unwrap();
+        let solver = Solver::new(preset.clone(), NullOrbits {}, NullBias {}, None).unwrap();
         assert_eq!(solver.min_sv_required(), 4);
 
-        let solver = Solver::new(preset.clone(), NullOrbits {}, Some((1.0, 2.0, 3.0))).unwrap();
+        let solver = Solver::new(
+            preset.clone(),
+            NullOrbits {},
+            NullBias {},
+            Some((1.0, 2.0, 3.0)),
+        )
+        .unwrap();
         assert_eq!(solver.min_sv_required(), 3);
 
         let preset = Config::default().with_pvt_solutions_type(PVTSolutionType::TimeOnly);
 
-        let solver = Solver::new(preset.clone(), NullOrbits {}, None).unwrap();
+        let solver = Solver::new(preset.clone(), NullOrbits {}, NullBias {}, None).unwrap();
         assert_eq!(solver.min_sv_required(), 4);
 
-        let solver = Solver::new(preset.clone(), NullOrbits {}, Some((1.0, 2.0, 3.0))).unwrap();
+        let solver = Solver::new(
+            preset.clone(),
+            NullOrbits {},
+            NullBias {},
+            Some((1.0, 2.0, 3.0)),
+        )
+        .unwrap();
         assert_eq!(solver.min_sv_required(), 1);
     }
 

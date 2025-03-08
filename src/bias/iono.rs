@@ -1,7 +1,4 @@
-use crate::{
-    bias::{Bias, BiasRuntime},
-    prelude::TimeScale,
-};
+use crate::{bias::BiasRuntime, prelude::TimeScale};
 
 use std::f64::consts::PI;
 
@@ -9,11 +6,8 @@ use std::f64::consts::PI;
 use serde::{Deserialize, Serialize};
 
 /// Ionopheric delay components that we propose.
-#[derive(Default, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum IonosphereModel {
-    /// Unknown
-    #[default]
-    Unknown,
     /// Provide a [KbModel]
     KbModel(KbModel),
     // /// Provide a [NgModel]
@@ -22,10 +16,11 @@ pub enum IonosphereModel {
     // BdModel(BdModel),
 }
 
-impl Bias for IonosphereModel {
-    fn bias_m(&self, rtm: &BiasRuntime) -> f64 {
+impl IonosphereModel {
+    /// Return selected [IonosphereModel] metric bias, evaluated
+    /// using provided [BiasRuntime] parameters.
+    pub fn bias_m(&self, rtm: &BiasRuntime) -> f64 {
         match self {
-            Self::Unknown => 0.0,
             Self::KbModel(kb) => kb.bias_m(rtm),
             // Self::BdModel(bd) => bd.bias_m(rtm),
             // Self::NgModel(ng) => ng.bias_m(rtm),
@@ -44,7 +39,7 @@ pub struct KbModel {
     pub h_km: f64,
 }
 
-impl Bias for KbModel {
+impl KbModel {
     fn bias_m(&self, rtm: &BiasRuntime) -> f64 {
         const PHI_P: f64 = 78.3;
         const R_EARTH: f64 = 6378.0;
