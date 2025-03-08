@@ -10,10 +10,6 @@ pub use solutions::{
 pub(crate) mod dop;
 pub(crate) mod state;
 
-// mod filter;
-// mod input;
-// mod output;
-
 use nalgebra::{base::dimension::U4, DVector, DimName, MatrixXx4};
 
 use anise::prelude::Epoch;

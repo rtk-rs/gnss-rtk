@@ -91,8 +91,8 @@ pub struct FilterOpts {
 impl Default for FilterOpts {
     fn default() -> Self {
         Self {
-            model_update: true,
             weight_matrix: None,
+            model_update: default_model_update(),
             loop_exit: LoopExitCriteria::default(),
         }
     }

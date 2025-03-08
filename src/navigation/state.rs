@@ -77,9 +77,9 @@ impl State {
 
         let new_clock = self.clock + (dx[3] / SPEED_OF_LIGHT_M_S) * Unit::Second;
 
-        if !self.first_update {
-            let dt_s = (t - self.t).to_seconds();
+        let dt_s = (t - self.t).to_seconds();
 
+        if dt_s > 0.0 {
             self.vel_m_s = (
                 (new_pos_m.0 - self.pos_m.0) / dt_s,
                 (new_pos_m.1 - self.pos_m.1) / dt_s,
