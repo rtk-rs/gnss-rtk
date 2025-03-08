@@ -10,7 +10,10 @@ pub use solutions::{
 pub(crate) mod dop;
 pub(crate) mod state;
 
-use nalgebra::{base::dimension::U4, DVector, DimName, MatrixXx4};
+use nalgebra::{
+    base::dimension::{U1, U4},
+    DVector, DimName, MatrixXx4,
+};
 
 use anise::prelude::Epoch;
 
@@ -81,20 +84,13 @@ impl Navigation {
 
         let size = candidates.len();
 
-        match cfg.solution {
-            PVTSolutionType::PositionVelocityTime => {
-                if size < U4::USIZE {
-                    return Err(Error::MatrixMinimalDimension);
-                }
-                if size < U4::USIZE {
-                    return Err(Error::MatrixDimension);
-                }
-            },
-            PVTSolutionType::TimeOnly => {
-                if size < 1 {
-                    return Err(Error::MatrixMinimalDimension);
-                }
-            },
+        let min_size = match cfg.solution {
+            PVTSolutionType::PositionVelocityTime => 4,
+            PVTSolutionType::TimeOnly => 1,
+        };
+
+        if size < min_size {
+            return Err(Error::MatrixDimension);
         }
 
         let mut j = 0;
@@ -132,7 +128,7 @@ impl Navigation {
             }
         }
 
-        if j < U4::USIZE {
+        if j < min_size {
             Err(Error::MatrixMinimalDimension)
         } else {
             Ok(Self {

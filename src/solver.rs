@@ -614,8 +614,21 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
     }
 
     fn min_sv_required(&self) -> usize {
-        if self.state.is_none() && self.initial_ecef_m.is_none() {
-            4
+        if self.state.is_none() {
+            if self.initial_ecef_m.is_none() {
+                4
+            } else {
+                match self.cfg.solution {
+                    PVTSolutionType::TimeOnly => 1,
+                    _ => {
+                        if self.cfg.fixed_altitude.is_some() {
+                            3
+                        } else {
+                            4
+                        }
+                    },
+                }
+            }
         } else {
             match self.cfg.solution {
                 PVTSolutionType::TimeOnly => 1,
