@@ -156,7 +156,6 @@ fn update_sky_view(t: Epoch, pool: &[Candidate], sv_orbits: &mut HashMap<SV, Orb
                 .orbit
                 .expect("internal error: state is not fully defined");
             sv_orbits.insert(cd.sv, orbit);
-            debug!("{}({}) - rising", t, cd.sv);
         }
     }
 

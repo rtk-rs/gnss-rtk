@@ -42,6 +42,10 @@ impl Candidate {
         let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
 
+        let (elev_deg, azim_deg) = self.attitude().ok_or(Error::UnresolvedState)?;
+        contribution.elevation = elev_deg;
+        contribution.azimuth = azim_deg;
+
         let (sv_x_m, sv_y_m, sv_z_m) = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
 
         let mut rho =
@@ -114,31 +118,32 @@ impl Candidate {
         if cfg.modeling.iono_delay && cfg.method == Method::SPP {
             let iono_bias_m = bias.ionosphere_bias_m(&rtm);
 
-            // model verification (iono)
-            if iono_bias_m < cfg.max_tropo_bias {
-                debug!("{}({}) - iono delay {:.3E}[m]", t, self.sv, iono_bias_m);
+            // TODO: model verification (iono)
+            // if iono_bias_m < cfg.max_tropo_bias {
 
-                bias_m += iono_bias_m;
-                contribution.iono_bias = Some(IonosphereBias::modeled(iono_bias_m));
-            } else {
-                debug!("{}({}) - rejected (extreme iono delay)", t, self.sv);
-                return Err(Error::RejectedIonoDelay);
-            }
+            debug!("{}({}) - iono delay {:.3E}[m]", t, self.sv, iono_bias_m);
+
+            bias_m += iono_bias_m;
+            contribution.iono_bias = Some(IonosphereBias::modeled(iono_bias_m));
+            // } else {
+            //     debug!("{}({}) - rejected (extreme iono delay)", t, self.sv);
+            //     return Err(Error::RejectedIonoDelay);
+            // }
         }
 
         if cfg.modeling.tropo_delay {
             let tropo_bias_m = bias.troposphere_bias_m(&rtm);
 
-            // model verification (tropo)
-            if tropo_bias_m < cfg.max_tropo_bias {
-                debug!("{}({}) - tropo delay {:.3E}[m]", t, self.sv, tropo_bias_m);
+            // TODO: model verification (tropo)
+            //if tropo_bias_m < cfg.max_tropo_bias {
+            debug!("{}({}) - tropo delay {:.3E}[m]", t, self.sv, tropo_bias_m);
 
-                bias_m += tropo_bias_m;
-                contribution.tropo_bias = Some(tropo_bias_m);
-            } else {
-                debug!("{}({}) - rejected (extreme tropo delay)", t, self.sv);
-                return Err(Error::RejectedTropoDelay);
-            }
+            bias_m += tropo_bias_m;
+            contribution.tropo_bias = Some(tropo_bias_m);
+            //} else {
+            //    debug!("{}({}) - rejected (extreme tropo delay)", t, self.sv);
+            //    return Err(Error::RejectedTropoDelay);
+            //}
         }
 
         Ok((range_m - rho - bias_m, dr))

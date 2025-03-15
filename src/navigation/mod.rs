@@ -253,6 +253,8 @@ impl Navigation {
         // update models (if desired)
         if !converged {
             let mut j = 0;
+            // does not update the contribution
+            let mut dummy = SVContribution::default();
             if self.cfg.solver.filter.model_update {
                 for i in 0..size {
                     match candidates[i].vector_contribution(
@@ -260,7 +262,7 @@ impl Navigation {
                         &self.cfg,
                         self.state.pos_m,
                         self.state.lat_long_alt_deg_deg_km,
-                        &mut self.sv[j],
+                        &mut dummy,
                         bias,
                     ) {
                         Ok((b_i, _)) => {
