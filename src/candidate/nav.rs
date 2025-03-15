@@ -4,8 +4,10 @@ use log::debug;
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 use crate::{
+    bias::IonosphereBias,
     constants::Constants,
-    prelude::{Bias, BiasRuntime, Candidate, Config, Epoch, Error, Method},
+    navigation::SVContribution,
+    prelude::{Bias, BiasRuntime, Candidate, Config, Epoch, Error, Method, Signal},
 };
 
 impl Candidate {
@@ -27,6 +29,7 @@ impl Candidate {
         cfg: &Config,
         x0_y0_z0_m: (f64, f64, f64),
         rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
+        contribution: &mut SVContribution,
         bias: &B,
     ) -> Result<(f64, f64), Error> {
         let mu = Constants::EARTH_GRAVITATION;
@@ -54,6 +57,9 @@ impl Candidate {
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
             rho += dr;
+            contribution.relativistic_path_range_m = dr;
+        } else {
+            contribution.relativistic_path_range_m = 0.0_f64;
         }
 
         let (frequency_hz, range_m) = match cfg.method {
@@ -61,18 +67,22 @@ impl Candidate {
                 let (carrier, pr) = self
                     .best_snr_pseudo_range_m()
                     .ok_or(Error::MissingPseudoRange)?;
+
+                contribution.signal = Signal::Single(carrier);
                 (carrier.frequency(), pr)
             },
             _ => {
                 let comb = self
                     .code_if_combination()
                     .ok_or(Error::MissingPseudoRange)?;
+                contribution.signal = Signal::Dual((comb.lhs, comb.rhs));
                 (comb.rhs.frequency(), comb.value)
             },
         };
 
         if cfg.modeling.sv_clock_bias {
             let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
+            contribution.clock_correction = Some(dt.duration);
             bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
         }
 
@@ -101,7 +111,7 @@ impl Candidate {
             frequency_hz,
         };
 
-        if cfg.modeling.iono_delay && cfg.method != Method::SPP {
+        if cfg.modeling.iono_delay && cfg.method == Method::SPP {
             let iono_bias_m = bias.ionosphere_bias_m(&rtm);
 
             // model verification (iono)
@@ -109,6 +119,7 @@ impl Candidate {
                 debug!("{}({}) - iono delay {:.3E}[m]", t, self.sv, iono_bias_m);
 
                 bias_m += iono_bias_m;
+                contribution.iono_bias = Some(IonosphereBias::modeled(iono_bias_m));
             } else {
                 debug!("{}({}) - rejected (extreme iono delay)", t, self.sv);
                 return Err(Error::RejectedIonoDelay);
@@ -123,6 +134,7 @@ impl Candidate {
                 debug!("{}({}) - tropo delay {:.3E}[m]", t, self.sv, tropo_bias_m);
 
                 bias_m += tropo_bias_m;
+                contribution.tropo_bias = Some(tropo_bias_m);
             } else {
                 debug!("{}({}) - rejected (extreme tropo delay)", t, self.sv);
                 return Err(Error::RejectedTropoDelay);

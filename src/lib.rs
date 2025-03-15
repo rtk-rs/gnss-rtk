@@ -35,7 +35,7 @@ pub mod prelude {
     pub use crate::{
         bias::{Bias, BiasRuntime, IonosphereBias, IonosphereModel, KbModel, TroposphereModel},
         candidate::{Candidate, ClockCorrection, Observation},
-        carrier::Carrier,
+        carrier::{Carrier, Signal},
         cfg::{Config, Method},
         error::Error,
         navigation::{PVTSolution, PVTSolutionType},

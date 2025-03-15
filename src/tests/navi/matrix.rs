@@ -236,7 +236,8 @@ fn pvt_matrix() {
 
         assert_eq!(nav.b[i], r_i[i] - rho[i], "b (noclock) test failed [{}]", i);
 
-        nav.iterate(t0_gpst, &candidates, 4, &null_bias).unwrap();
+        nav.iterate(t0_gpst, &cfg, &candidates, 4, &null_bias)
+            .unwrap();
     }
 
     assert_eq!(nav.iter, 4);
@@ -287,7 +288,8 @@ fn pvt_matrix() {
         let dt_s = ((i + 100) as f64) * 1E-9;
         assert_eq!(nav.b[i], r_i[i] - rho[i] + SPEED_OF_LIGHT_M_S * dt_s);
 
-        nav.iterate(t0_gpst, &candidates, 4, &null_bias).unwrap();
+        nav.iterate(t0_gpst, &cfg, &candidates, 4, &null_bias)
+            .unwrap();
     }
 
     cfg.modeling.relativistic_path_range = true;
@@ -315,6 +317,7 @@ fn pvt_matrix() {
         let err = (nav.b[i] - b_model).abs();
         assert!(err < 1E-6);
 
-        nav.iterate(t0_gpst, &candidates, 4, &null_bias).unwrap();
+        nav.iterate(t0_gpst, &cfg, &candidates, 4, &null_bias)
+            .unwrap();
     }
 }

@@ -147,13 +147,23 @@ pub(crate) fn sv_velocities_fixup(
     Ok(())
 }
 
-fn update_sky_view(pool: &[Candidate], sv_orbits: &mut HashMap<SV, Orbit>) {
+fn update_sky_view(t: Epoch, pool: &[Candidate], sv_orbits: &mut HashMap<SV, Orbit>) {
     let svnn = pool.iter().map(|cd| cd.sv).unique().collect::<Vec<_>>();
+
+    for cd in pool.iter() {
+        if !sv_orbits.contains_key(&cd.sv) {
+            let orbit = cd
+                .orbit
+                .expect("internal error: state is not fully defined");
+            sv_orbits.insert(cd.sv, orbit);
+            debug!("{}({}) - rising", t, cd.sv);
+        }
+    }
 
     sv_orbits.retain(|sv, _| {
         let retain = svnn.contains(&sv);
         if !retain {
-            debug!("{} loss of sight", sv);
+            debug!("{}({}) - loss of sight", t, sv);
         }
         retain
     });
@@ -511,7 +521,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
-        update_sky_view(&pool, &mut self.sv_orbits);
+        update_sky_view(t, &pool, &mut self.sv_orbits);
 
         // Build nav filter
         let mut nav =
@@ -525,14 +535,14 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
 
         // iterate nav filter
         loop {
-            match nav.iterate(t, &pool, pool_size, &self.bias) {
+            match nav.iterate(t, &self.cfg, &pool, pool_size, &self.bias) {
                 Ok(converged) => {
                     if converged {
                         break;
                     }
                 },
                 Err(e) => {
-                    error!("{} - filter iter={}, FAILURE: {}", t, nav.iter, e);
+                    error!("{} - filter iter={}: {}", t, nav.iter, e);
                     break;
                 },
             }

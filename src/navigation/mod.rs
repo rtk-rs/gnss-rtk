@@ -19,7 +19,7 @@ use anise::prelude::Epoch;
 use crate::{
     cfg::LoopExitCriteria,
     navigation::{dop::DilutionOfPrecision, state::State},
-    prelude::{Bias, Candidate, Config, Duration, Error, IonosphereBias, SV},
+    prelude::{Bias, Candidate, Carrier, Config, Duration, Error, IonosphereBias, Signal, SV},
 };
 
 /// SV Navigation information
@@ -28,6 +28,8 @@ use crate::{
 pub struct SVContribution {
     /// Identitity
     pub sv: SV,
+    /// [Signal] being used
+    pub signal: Signal,
     /// Orbital state
     pub sv_pos_km: (f64, f64, f64),
     /// Orbital velocity
@@ -82,35 +84,36 @@ impl Navigation {
     ) -> Result<Self, Error> {
         let mut sv = Vec::with_capacity(size);
 
-        let size = candidates.len();
-
         let min_size = match cfg.solution {
             PVTSolutionType::PositionVelocityTime => 4,
             PVTSolutionType::TimeOnly => 1,
         };
 
         if size < min_size {
-            return Err(Error::MatrixDimension);
+            return Err(Error::MatrixMinimalDimension);
         }
 
         let mut j = 0;
-        let mut b = DVector::<f64>::zeros(size);
+
+        let mut b = match cfg.solution {
+            PVTSolutionType::TimeOnly => DVector::<f64>::zeros(size * 4),
+            _ => DVector::<f64>::zeros(size),
+        };
 
         for i in 0..size {
+            let mut contrib = SVContribution::default();
+            contrib.sv = candidates[i].sv;
+
             match candidates[i].vector_contribution(
                 t,
                 cfg,
                 state.pos_m,
                 state.lat_long_alt_deg_deg_km,
+                &mut contrib,
                 bias,
             ) {
                 Ok((b_i, dr_i)) => {
                     b[j] = b_i;
-
-                    let mut input = SVContribution::default();
-
-                    input.sv = candidates[i].sv;
-                    input.relativistic_path_range_m = dr_i;
 
                     if cfg.modeling.relativistic_path_range {
                         debug!(
@@ -119,7 +122,7 @@ impl Navigation {
                         );
                     }
 
-                    sv.push(input);
+                    sv.push(contrib);
                     j += 1;
                 },
                 Err(e) => {
@@ -128,7 +131,16 @@ impl Navigation {
             }
         }
 
-        if j < min_size {
+        if size == 1 && cfg.solution == PVTSolutionType::TimeOnly {
+            for i in 0..j {
+                // replicate x3
+                for k in 0..4 {
+                    b[i * 4 + k] = b[i * 4];
+                }
+            }
+        }
+
+        if b.len() < U4::USIZE {
             Err(Error::MatrixMinimalDimension)
         } else {
             Ok(Self {
@@ -146,13 +158,27 @@ impl Navigation {
     pub fn iterate<B: Bias>(
         &mut self,
         t: Epoch,
+        cfg: &Config,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
     ) -> Result<bool, Error> {
         let mut j = 0;
         let mut converged = false;
-        let mut h = MatrixXx4::<f64>::zeros(size);
+
+        let mut h = match cfg.solution {
+            PVTSolutionType::TimeOnly => MatrixXx4::<f64>::zeros(size * 4),
+            _ => MatrixXx4::<f64>::zeros(size),
+        };
+
+        let min_size = match cfg.solution {
+            PVTSolutionType::PositionVelocityTime => 4,
+            PVTSolutionType::TimeOnly => 1,
+        };
+
+        if size < min_size {
+            return Err(Error::MatrixMinimalDimension);
+        }
 
         // form matrix
         for i in 0..size {
@@ -172,9 +198,22 @@ impl Navigation {
             }
         }
 
-        // verify matrix formation validity
-        if j < U4::USIZE {
+        if j < min_size {
             return Err(Error::MatrixMinimalDimension);
+        }
+
+        if j == 1 && cfg.solution == PVTSolutionType::TimeOnly {
+            for i in 0..j {
+                // replicate x3
+                for r in 0..4 {
+                    self.b[i * 4 + r] = self.b[i * 4];
+
+                    h[(i * 4 + r, 0)] = h[(i * 4, 0)];
+                    h[(i * 4 + r, 1)] = h[(i * 4, 1)];
+                    h[(i * 4 + r, 2)] = h[(i * 4, 2)];
+                    h[(i * 4 + r, 3)] = h[(i * 4, 3)];
+                }
+            }
         }
 
         // run
@@ -221,6 +260,7 @@ impl Navigation {
                         &self.cfg,
                         self.state.pos_m,
                         self.state.lat_long_alt_deg_deg_km,
+                        &mut self.sv[j],
                         bias,
                     ) {
                         Ok((b_i, _)) => {
