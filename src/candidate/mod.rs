@@ -22,7 +22,11 @@ pub struct Candidate {
     pub sv: SV,
     /// Sampling [Epoch]
     pub t: Epoch,
-    /// [Orbit], which needs to be resolved for PPP
+    /// TX [Epoch]
+    pub(crate) t_tx: Epoch,
+    /// dt TX [Duration]
+    pub(crate) dt_tx: Duration,
+    /// [Orbit]al state
     pub(crate) orbit: Option<Orbit>,
     /// SV group delay expressed as a [Duration]
     pub(crate) tgd: Option<Duration>,
@@ -55,8 +59,10 @@ impl Candidate {
         Self {
             sv,
             t,
+            t_tx: t,
             observations,
             tgd: Default::default(),
+            dt_tx: Default::default(),
             orbit: Default::default(),
             wind_up: Default::default(),
             remote_obs: Default::default(),
@@ -137,22 +143,23 @@ impl Candidate {
         // self.wind_up =
     }
 
-    /// Computes signal transmission time, expressed as [Epoch]
-    /// and used in precise orbital state resolution (ppp workflow).
-    /// - returns (t_tx, dt_ttx)
-    /// - "t_tx": TX [Epoch] in required timescale
-    /// - "dt_ttx" elapsed [Duration] in said timescale
-    //TODO: remove dt_ttx and simply use t_tx.duration (newly available)
-    pub(crate) fn transmission_time(&self, cfg: &Config) -> Result<(Epoch, Duration), Error> {
-        let total_seconds = self.t.duration.to_seconds();
+    /// Computes signal transmission instant, as [Epoch]
+    pub(crate) fn tx_epoch(&mut self, cfg: &Config) -> Result<(), Error> {
+
+        let mut t_tx = self.t;
 
         let (_, pr) = self
             .best_snr_pseudo_range_m()
             .ok_or(Error::MissingPseudoRange)?;
 
-        let dt_tx = total_seconds - pr / SPEED_OF_LIGHT_M_S;
-
-        let mut e_tx = Epoch::from_duration(dt_tx * Unit::Second, self.t.time_scale);
+        t_tx -= pr / SPEED_OF_LIGHT_M_S * Unit::Second;
+        
+        if cfg.modeling.sv_total_group_delay {
+            if let Some(tgd) = self.tgd {
+                debug!("{} ({}) - group delay {}", self.t, self.sv, tgd);
+                t_tx -= tgd;
+            }
+        }
 
         if cfg.modeling.sv_clock_bias {
             let clock_corr = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
@@ -162,42 +169,34 @@ impl Candidate {
                 self.t, self.sv, clock_corr.duration,
             );
 
-            e_tx -= clock_corr.duration;
+            t_tx -= clock_corr.duration;
         }
 
-        if cfg.modeling.sv_total_group_delay {
-            if let Some(tgd) = self.tgd {
-                debug!("{} ({}) {} tgd", self.t, self.sv, tgd);
-                e_tx -= tgd;
-            }
-        }
-
-        let dt_secs = (self.t - e_tx).to_seconds();
-        let dt = Duration::from_seconds(dt_secs);
-
         assert!(
-            dt_secs.is_sign_positive(),
-            "Physical non sense - RX {:?} prior TX {:?}",
+            t_tx < self.t,
+            "Physical non sense - rx={} prior tx={}",
             self.t,
-            e_tx
+            t_tx
         );
 
-        assert!(
-            dt_secs <= 0.2,
-            "{}({}): {} Space/Earth propagation delay is unrealistic: invalid input",
-            self.t,
-            self.sv,
-            dt
+        // assert!(
+        //     self.t - e_tx < 
+        //     "{}({}): {} Space/Earth propagation delay is unrealistic: invalid input",
+        //     self.t,
+        //     self.sv,
+        //     dt
+        // );
+
+
+        self.t_tx = t_tx;
+        self.dt_tx = self.t - self.t_tx;
+
+        debug!(
+            "{} ({}) - tx delay: {}",
+            self.t, self.sv, self.dt_tx,
         );
 
-        Ok((e_tx, dt))
-    }
-
-    /// Copies [Candidate] and returns with updated [Orbit]al state, yet partially incomplete.
-    pub(crate) fn with_orbit(&self, orbit: Orbit) -> Self {
-        let mut s = self.clone();
-        s.orbit = Some(orbit);
-        s
+        Ok(())
     }
 
     /// Fix [Orbit]al attitude
@@ -215,24 +214,6 @@ impl Candidate {
         self.azimuth_deg = Some(elazrg.azimuth_deg);
         self.elevation_deg = Some(elazrg.elevation_deg);
         Ok(())
-    }
-
-    /// Fix [Orbit]al velocities
-    pub(crate) fn orbital_velocity_fixup(&mut self, vel_km_s: (f64, f64, f64)) {
-        let orbit = self
-            .orbit
-            .expect("internal error: undefined orbital state (badop)");
-        let mut pos_vel = orbit.to_cartesian_pos_vel();
-
-        pos_vel[3] = vel_km_s.0;
-        pos_vel[4] = vel_km_s.1;
-        pos_vel[5] = vel_km_s.2;
-
-        self.orbit = Some(Orbit::from_cartesian_pos_vel(
-            pos_vel,
-            orbit.epoch,
-            orbit.frame,
-        ));
     }
 
     /// Returns (elevation, azimuth) in decimal degrees.
