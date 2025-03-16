@@ -82,7 +82,7 @@ impl State {
             self.pos_m.2 + dx[2],
         );
 
-        let new_clock = self.clock + (dx[3] / SPEED_OF_LIGHT_M_S) * Unit::Second;
+        let new_clock = dx[3] / SPEED_OF_LIGHT_M_S * Unit::Second;
 
         let dt_s = (t - self.t).to_seconds();
 

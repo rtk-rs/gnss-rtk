@@ -11,7 +11,7 @@ pub(crate) mod state;
 
 use nalgebra::{
     base::dimension::{U1, U4},
-    DVector, DimName, MatrixXx4,
+    DVector, DimName, Matrix4, MatrixXx4, Vector4,
 };
 
 use anise::prelude::Epoch;
@@ -19,7 +19,10 @@ use anise::prelude::Epoch;
 use crate::{
     cfg::LoopExitCriteria,
     navigation::{dop::DilutionOfPrecision, state::State},
-    prelude::{Bias, Candidate, Carrier, Config, Duration, Error, IonosphereBias, Signal, SV},
+    prelude::{
+        Bias, Candidate, Carrier, Config, Duration, Error, IonosphereBias, Signal,
+        SPEED_OF_LIGHT_M_S, SV,
+    },
 };
 
 /// SV Navigation information
@@ -96,7 +99,7 @@ impl Navigation {
         let mut j = 0;
 
         let mut b = match cfg.solution {
-            PVTSolutionType::TimeOnly => DVector::<f64>::zeros(size * 4),
+            PVTSolutionType::TimeOnly => DVector::<f64>::zeros(std::cmp::max(4, size)),
             _ => DVector::<f64>::zeros(size),
         };
 
@@ -132,17 +135,15 @@ impl Navigation {
         }
 
         if size == 1 && cfg.solution == PVTSolutionType::TimeOnly {
-            for i in 0..j {
-                // replicate x3
-                for k in 0..4 {
-                    b[i * 4 + k] = b[i * 4];
-                }
+            for r in 1..=3 {
+                b[r] = b[0];
             }
         }
 
         if b.len() < U4::USIZE {
             Err(Error::MatrixMinimalDimension)
         } else {
+            debug!("initial state: {:?}", state.pos_m);
             Ok(Self {
                 b,
                 sv,
@@ -154,7 +155,7 @@ impl Navigation {
         }
     }
 
-    /// Iterates [Navigation] filter, updates initial state internally.
+    /// Iterates mutable [Navigation] filter.
     pub fn iterate<B: Bias>(
         &mut self,
         t: Epoch,
@@ -167,7 +168,7 @@ impl Navigation {
         let mut converged = false;
 
         let mut h = match cfg.solution {
-            PVTSolutionType::TimeOnly => MatrixXx4::<f64>::zeros(size * 4),
+            PVTSolutionType::TimeOnly => MatrixXx4::<f64>::zeros(std::cmp::max(4, size)),
             _ => MatrixXx4::<f64>::zeros(size),
         };
 
@@ -182,14 +183,14 @@ impl Navigation {
 
         // form matrix
         for i in 0..size {
-            let dr_j = self.sv[j].relativistic_path_range_m;
+            let dr_i = self.sv[i].relativistic_path_range_m;
 
-            match candidates[i].matrix_contribution(&self.cfg, dr_j, self.state.pos_m) {
-                Ok((dx, dy, dz, dt)) => {
+            match candidates[i].matrix_contribution(&self.cfg, dr_i, self.state.pos_m) {
+                Ok((dx, dy, dz)) => {
                     h[(j, 0)] = dx;
                     h[(j, 1)] = dy;
                     h[(j, 2)] = dz;
-                    h[(j, 3)] = dt;
+                    h[(j, 3)] = 1.0;
                     j += 1;
                 },
                 Err(e) => {
@@ -203,16 +204,11 @@ impl Navigation {
         }
 
         if j == 1 && cfg.solution == PVTSolutionType::TimeOnly {
-            for i in 0..j {
-                // replicate x3
-                for r in 0..4 {
-                    self.b[i * 4 + r] = self.b[i * 4];
-
-                    h[(i * 4 + r, 0)] = h[(i * 4, 0)];
-                    h[(i * 4 + r, 1)] = h[(i * 4, 1)];
-                    h[(i * 4 + r, 2)] = h[(i * 4, 2)];
-                    h[(i * 4 + r, 3)] = h[(i * 4, 3)];
-                }
+            for r in 1..=3 {
+                h[(r, 0)] = h[(0, 0)];
+                h[(r, 1)] = h[(0, 1)];
+                h[(r, 2)] = h[(0, 2)];
+                h[(r, 3)] = h[(0, 3)];
             }
         }
 
@@ -221,6 +217,7 @@ impl Navigation {
         let ht_h = ht.clone() * h.clone();
         let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
         let ht_b = ht * self.b.clone();
+
         let dx = ht_h_inv * ht_b;
 
         self.iter += 1;
@@ -232,23 +229,16 @@ impl Navigation {
 
         self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
 
-        match self.cfg.solver.filter.loop_exit {
-            LoopExitCriteria::Iteration(max_iter) => {
-                if self.iter == max_iter {
-                    converged = true;
-                    debug!(
-                        "{} - {}/{} - filter convergence x={}, y={}, z={}, dt={}",
-                        t,
-                        self.iter,
-                        max_iter,
-                        self.state.pos_m.0,
-                        self.state.pos_m.1,
-                        self.state.pos_m.2,
-                        self.state.clock,
-                    );
-                }
-            },
-        }
+        let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
+
+        // let norm = match cfg.solution {
+        //     PVTSolutionType::TimeOnly => {
+        //         dx[3]
+        //     },
+        //     _ => {
+        //         (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt()
+        //     },
+        // };
 
         // update models (if desired)
         if !converged {
@@ -277,7 +267,7 @@ impl Navigation {
             }
         }
 
-        Ok(converged)
+        Ok(self.iter == 8)
     }
 }
 

@@ -419,7 +419,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                 Some(initial_ecef_m) => {
                     // Define initial state
 
-                    let state = State::from_ecef_m(initial_ecef_m, t, self.earth_cef)
+                    let mut state = State::from_ecef_m(initial_ecef_m, t, self.earth_cef)
                         .unwrap_or_else(|e| panic!("solver state initialization failure: {}", e));
 
                     debug!("{}: initialized with {}", t, initial_ecef_m);
@@ -433,8 +433,10 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                     let coords = Vector3::new(solution[0], solution[1], solution[2]);
 
                     // Define initial state
-                    let state = State::from_ecef_m(coords, t, self.earth_cef)
+                    let mut state = State::from_ecef_m(coords, t, self.earth_cef)
                         .unwrap_or_else(|e| panic!("solver initialization error: {}", e));
+
+                    state.clock = solution[3] / SPEED_OF_LIGHT_M_S * Unit::Second;
 
                     debug!(
                         "{}: initial solution: {:?} [COMPARE LOCAL TIME HERE PLEASE]",
@@ -538,11 +540,16 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                 Ok(converged) => {
                     if converged {
                         break;
+                    } else {
+                        debug!(
+                            "iter={} | {:?} dt={}",
+                            nav.iter, nav.state.pos_m, nav.state.clock
+                        );
                     }
                 },
                 Err(e) => {
                     error!("{} - filter iter={}: {}", t, nav.iter, e);
-                    break;
+                    return Err(e);
                 },
             }
         }

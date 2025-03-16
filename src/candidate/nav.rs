@@ -159,7 +159,7 @@ impl Candidate {
         cfg: &Config,
         dr: f64,
         x0_y0_z0_m: (f64, f64, f64),
-    ) -> Result<(f64, f64, f64, f64), Error> {
+    ) -> Result<(f64, f64, f64), Error> {
         let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
 
         let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
@@ -179,6 +179,6 @@ impl Candidate {
             (z0_m - sv_z_m) / rho,
         );
 
-        Ok((dx_m, dy_m, dz_m, 1.0))
+        Ok((dx_m, dy_m, dz_m))
     }
 }
