@@ -6,23 +6,17 @@ pub use solutions::{PVTSolution, PVTSolutionType};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+pub(crate) mod apriori;
 pub(crate) mod dop;
 pub(crate) mod state;
 
-use nalgebra::{
-    base::dimension::{U1, U4},
-    DVector, DimName, Matrix4, MatrixXx4, Vector4,
-};
+use nalgebra::{base::dimension::U4, DVector, DimName, MatrixXx4};
 
 use anise::prelude::Epoch;
 
 use crate::{
-    cfg::LoopExitCriteria,
-    navigation::{dop::DilutionOfPrecision, state::State},
-    prelude::{
-        Bias, Candidate, Carrier, Config, Duration, Error, IonosphereBias, Signal,
-        SPEED_OF_LIGHT_M_S, SV,
-    },
+    navigation::{apriori::Apriori, dop::DilutionOfPrecision, state::State},
+    prelude::{Bias, Candidate, Config, Duration, Error, IonosphereBias, Signal, SV},
 };
 
 /// SV Navigation information
@@ -71,7 +65,7 @@ impl Navigation {
     /// Creates new [Navigation] filter
     /// ## Input
     /// - cfg: [Config] preset
-    /// - state: initial state
+    /// - apriori: [Apriori] input
     /// - candidates: selected [Candidate]s
     /// - size: number of proposal
     /// - bias: [Bias] model implementation
@@ -80,7 +74,7 @@ impl Navigation {
     pub fn new<B: Bias>(
         t: Epoch,
         cfg: &Config,
-        state: State,
+        apriori: Apriori,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
@@ -110,8 +104,8 @@ impl Navigation {
             match candidates[i].vector_contribution(
                 t,
                 cfg,
-                state.pos_m,
-                state.lat_long_alt_deg_deg_km,
+                apriori.pos_m,
+                apriori.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
             ) {
@@ -143,7 +137,10 @@ impl Navigation {
         if b.len() < U4::USIZE {
             Err(Error::MatrixMinimalDimension)
         } else {
+            let state = State::from_apriori(&apriori).or(Err(Error::NavigationFilterInitError))?;
+
             debug!("initial state: {:?}", state.pos_m);
+
             Ok(Self {
                 b,
                 sv,
@@ -284,9 +281,8 @@ mod test {
 
         let state = State {
             frame,
-            first_update: true,
             t: Default::default(),
-            clock: Default::default(),
+            clock_dt: Default::default(),
             clock_drift_s_s: 0.0,
             pos_m: (1.0, 2.0, 3.0),
             lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0),

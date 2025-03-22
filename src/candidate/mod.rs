@@ -145,7 +145,6 @@ impl Candidate {
 
     /// Computes signal transmission instant, as [Epoch]
     pub(crate) fn tx_epoch(&mut self, cfg: &Config) -> Result<(), Error> {
-
         let mut t_tx = self.t;
 
         let (_, pr) = self
@@ -153,7 +152,7 @@ impl Candidate {
             .ok_or(Error::MissingPseudoRange)?;
 
         t_tx -= pr / SPEED_OF_LIGHT_M_S * Unit::Second;
-        
+
         if cfg.modeling.sv_total_group_delay {
             if let Some(tgd) = self.tgd {
                 debug!("{} ({}) - group delay {}", self.t, self.sv, tgd);
@@ -180,21 +179,17 @@ impl Candidate {
         );
 
         // assert!(
-        //     self.t - e_tx < 
+        //     self.t - e_tx <
         //     "{}({}): {} Space/Earth propagation delay is unrealistic: invalid input",
         //     self.t,
         //     self.sv,
         //     dt
         // );
 
-
         self.t_tx = t_tx;
         self.dt_tx = self.t - self.t_tx;
 
-        debug!(
-            "{} ({}) - tx delay: {}",
-            self.t, self.sv, self.dt_tx,
-        );
+        debug!("{} ({}) - tx delay: {}", self.t, self.sv, self.dt_tx,);
 
         Ok(())
     }

@@ -1,7 +1,7 @@
 //! PVT Solution
 use crate::{
     navigation::{DilutionOfPrecision, SVContribution, State},
-    prelude::{Duration, Orbit, TimeScale},
+    prelude::{Duration, TimeScale},
 };
 
 #[cfg(feature = "serde")]
@@ -75,7 +75,7 @@ impl PVTSolution {
             vel_m_s: state.vel_m_s,
             sv: contributions.to_vec(),
             timescale: state.t.time_scale,
-            clock_offset: state.clock,
+            clock_offset: state.clock_dt,
             clock_drift_s_s: state.clock_drift_s_s,
             lat_long_alt_deg_deg_m: (
                 state.lat_long_alt_deg_deg_km.0,

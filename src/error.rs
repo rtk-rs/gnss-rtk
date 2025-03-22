@@ -48,6 +48,9 @@ pub enum Error {
     /// to abort.
     #[error("internal navigation error")]
     NavigationError,
+    /// Failed to initialize navigation filter
+    #[error("nav filter initialization error")]
+    NavigationFilterInitError,
     #[error("missing pseudo range observation")]
     MissingPseudoRange,
     /// [Method::CPP] requires the special signal combination to exist.
