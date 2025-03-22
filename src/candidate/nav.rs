@@ -159,10 +159,13 @@ impl Candidate {
         cfg: &Config,
         dr: f64,
         x0_y0_z0_m: (f64, f64, f64),
-    ) -> Result<(f64, f64, f64), Error> {
+    ) -> (f64, f64, f64) {
         let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
 
-        let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
+        let orbit = self.orbit.unwrap_or_else(|| {
+            panic!("internal error: matrix contribution prior vector contribution")
+        });
+
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let (sv_x_m, sv_y_m, sv_z_m) = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
 
@@ -179,6 +182,6 @@ impl Candidate {
             (z0_m - sv_z_m) / rho,
         );
 
-        Ok((dx_m, dy_m, dz_m))
+        (dx_m, dy_m, dz_m)
     }
 }

@@ -12,7 +12,7 @@ pub use crate::{
     carrier::Signal,
     cfg::solver::SolverOpts,
     cfg::{method::Method, modeling::Modeling, profile::Profile},
-    prelude::{PVTSolutionType, TimeScale},
+    prelude::TimeScale,
 };
 
 pub(crate) use crate::cfg::solver::LoopExitCriteria;
@@ -59,10 +59,6 @@ pub struct InternalDelay {
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
 pub struct Config {
-    /// Type of Solutions to resolve, defined as [PVTSolutionType].
-    /// [PVTSolutionType::PositionVelocityTime] is the default.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub solution: PVTSolutionType,
     /// Time scale in which we express the PVT solutions,
     /// [TimeScale::GPST] is the default value.
     #[cfg_attr(feature = "serde", serde(default = "default_timescale"))]
@@ -204,10 +200,10 @@ impl Config {
         s
     }
 
-    /// Copies and returns [Config] with desired [PVTSolutionType].
-    pub fn with_pvt_solutions_type(&self, pvt: PVTSolutionType) -> Self {
+    /// Returns new [Config] with desired navigation [Method]
+    pub fn with_navigation_method(&self, method: Method) -> Self {
         let mut s = self.clone();
-        s.solution = pvt;
+        s.method = method;
         s
     }
 

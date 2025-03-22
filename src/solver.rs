@@ -16,7 +16,7 @@ use crate::{
     candidate::Candidate,
     cfg::{Config, Method},
     constants::Constants,
-    navigation::{apriori::Apriori, state::State, Navigation, PVTSolution, PVTSolutionType},
+    navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     prelude::{Duration, Epoch, Error, Orbit},
 };
@@ -125,18 +125,13 @@ fn sv_velocities_fixup(
                             pos_vel_km_s[2] * 1.0E3,
                         );
 
-                        let vel_m_s = (
-                            vel_km_s.0 * 1.0E3,
-                            vel_km_s.1 * 1.0E3,
-                            vel_km_s.2 * 1.0E3,
-                        );
-                        
-                        let r_v_sat = pos_m.0 * vel_m_s.0
-                            + pos_m.1 * vel_m_s.1
-                            + pos_m.2 * vel_m_s.2;
+                        let vel_m_s = (vel_km_s.0 * 1.0E3, vel_km_s.1 * 1.0E3, vel_km_s.2 * 1.0E3);
 
-                        let bias = -2.0 * r_v_sat / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
-                            * Unit::Second;
+                        let r_v_sat =
+                            pos_m.0 * vel_m_s.0 + pos_m.1 * vel_m_s.1 + pos_m.2 * vel_m_s.2;
+
+                        let bias =
+                            -2.0 * r_v_sat / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S * Unit::Second;
                         // let ea_deg = sv_orbit.ea_deg().map_err(Error::Physics)?;
 
                         // let ea_rad = ea_deg.to_radians();
@@ -308,7 +303,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                     let source = &mut self.orbit_source;
 
                     if let Some(orbit) = source.next_at(cd.t_tx, cd.sv, self.earth_cef) {
-                        
                         debug!("{} - sv dt_tx={} sv t={}", t, cd.t_tx, cd.t);
                         let orbit = Self::rotate_orbit_dcm3x3(
                             cd.t,
@@ -442,6 +436,12 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             },
         };
 
+        // discard non contributing data
+        let contributing = nav.sv.iter().map(|contrib| contrib.sv).collect::<Vec<_>>();
+        pool.retain(|cd| contributing.contains(&cd.sv));
+
+        let pool_size = pool.len();
+
         // iterate nav filter
         loop {
             match nav.iterate(t, &self.cfg, &pool, pool_size, &self.bias) {
@@ -533,27 +533,17 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             if self.initial_ecef_m.is_none() {
                 4
             } else {
-                match self.cfg.solution {
-                    PVTSolutionType::TimeOnly => 1,
-                    _ => {
-                        if self.cfg.fixed_altitude.is_some() {
-                            3
-                        } else {
-                            4
-                        }
-                    },
+                if self.cfg.fixed_altitude.is_some() {
+                    3
+                } else {
+                    4
                 }
             }
         } else {
-            match self.cfg.solution {
-                PVTSolutionType::TimeOnly => 1,
-                _ => {
-                    if self.cfg.fixed_altitude.is_some() {
-                        3
-                    } else {
-                        4
-                    }
-                },
+            if self.cfg.fixed_altitude.is_some() {
+                3
+            } else {
+                4
             }
         }
     }
@@ -593,9 +583,7 @@ mod test {
     use std::str::FromStr;
 
     use crate::{
-        prelude::{
-            Almanac, Candidate, Config, Epoch, OrbitSource, PVTSolutionType, Solver, EARTH_J2000,
-        },
+        prelude::{Almanac, Candidate, Config, Epoch, OrbitSource, Solver, EARTH_J2000},
         solver::sv_orbital_attitude_fixup,
         tests::{
             bias::NullBias,

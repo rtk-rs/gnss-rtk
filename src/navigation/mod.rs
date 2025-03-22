@@ -1,7 +1,7 @@
 use log::{debug, error};
 
 pub mod solutions;
-pub use solutions::{PVTSolution, PVTSolutionType};
+pub use solutions::PVTSolution;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -10,7 +10,7 @@ pub(crate) mod apriori;
 pub(crate) mod dop;
 pub(crate) mod state;
 
-use nalgebra::{base::dimension::U4, DVector, DimName, MatrixXx4};
+use nalgebra::{DVector, MatrixXx4};
 
 use anise::prelude::Epoch;
 
@@ -80,22 +80,7 @@ impl Navigation {
         bias: &B,
     ) -> Result<Self, Error> {
         let mut sv = Vec::with_capacity(size);
-
-        let min_size = match cfg.solution {
-            PVTSolutionType::PositionVelocityTime => 4,
-            PVTSolutionType::TimeOnly => 1,
-        };
-
-        if size < min_size {
-            return Err(Error::MatrixMinimalDimension);
-        }
-
-        let mut j = 0;
-
-        let mut b = match cfg.solution {
-            PVTSolutionType::TimeOnly => DVector::<f64>::zeros(std::cmp::max(4, size)),
-            _ => DVector::<f64>::zeros(size),
-        };
+        let mut b = Vec::<f64>::with_capacity(size);
 
         for i in 0..size {
             let mut contrib = SVContribution::default();
@@ -110,7 +95,7 @@ impl Navigation {
                 bias,
             ) {
                 Ok((b_i, dr_i)) => {
-                    b[j] = b_i;
+                    b.push(b_i);
 
                     if cfg.modeling.relativistic_path_range {
                         debug!(
@@ -120,7 +105,6 @@ impl Navigation {
                     }
 
                     sv.push(contrib);
-                    j += 1;
                 },
                 Err(e) => {
                     error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
@@ -128,28 +112,28 @@ impl Navigation {
             }
         }
 
-        if size == 1 && cfg.solution == PVTSolutionType::TimeOnly {
-            for r in 1..=3 {
-                b[r] = b[0];
-            }
+        let len = b.len();
+        if len < 4 {
+            return Err(Error::MatrixMinimalDimension);
         }
 
-        if b.len() < U4::USIZE {
-            Err(Error::MatrixMinimalDimension)
-        } else {
-            let state = State::from_apriori(&apriori).or(Err(Error::NavigationFilterInitError))?;
+        let mut b_vec = DVector::<f64>::zeros(len);
 
-            debug!("initial state: {:?}", state.pos_m);
-
-            Ok(Self {
-                b,
-                sv,
-                state,
-                iter: 0,
-                cfg: cfg.clone(),
-                dop: DilutionOfPrecision::default(),
-            })
+        for i in 0..len {
+            b_vec[i] = b[i];
         }
+
+        let state = State::from_apriori(&apriori).or(Err(Error::NavigationFilterInitError))?;
+        debug!("initial state: {:?}", state.pos_m);
+
+        Ok(Self {
+            sv,
+            state,
+            iter: 0,
+            b: b_vec,
+            cfg: cfg.clone(),
+            dop: DilutionOfPrecision::default(),
+        })
     }
 
     /// Iterates mutable [Navigation] filter.
@@ -161,55 +145,27 @@ impl Navigation {
         size: usize,
         bias: &B,
     ) -> Result<bool, Error> {
-        let mut j = 0;
+        let len = self.b.len();
+
         let mut converged = false;
-
-        let mut h = match cfg.solution {
-            PVTSolutionType::TimeOnly => MatrixXx4::<f64>::zeros(std::cmp::max(4, size)),
-            _ => MatrixXx4::<f64>::zeros(size),
-        };
-
-        let min_size = match cfg.solution {
-            PVTSolutionType::PositionVelocityTime => 4,
-            PVTSolutionType::TimeOnly => 1,
-        };
-
-        if size < min_size {
-            return Err(Error::MatrixMinimalDimension);
-        }
+        let mut h = MatrixXx4::<f64>::zeros(len);
 
         // form matrix
         for i in 0..size {
             let dr_i = self.sv[i].relativistic_path_range_m;
 
-            match candidates[i].matrix_contribution(&self.cfg, dr_i, self.state.pos_m) {
-                Ok((dx, dy, dz)) => {
-                    h[(j, 0)] = dx;
-                    h[(j, 1)] = dy;
-                    h[(j, 2)] = dz;
-                    h[(j, 3)] = 1.0;
-                    j += 1;
-                },
-                Err(e) => {
-                    error!("({}) does not contribute: {}", candidates[i].sv, e);
-                },
-            }
+            let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, self.state.pos_m);
+
+            h[(i, 0)] = dx;
+            h[(i, 1)] = dy;
+            h[(i, 2)] = dz;
+            h[(i, 3)] = 1.0;
         }
 
-        if j < min_size {
-            return Err(Error::MatrixMinimalDimension);
+        if h.nrows() != self.b.nrows() {
+            return Err(Error::MatrixDimension);
         }
 
-        if j == 1 && cfg.solution == PVTSolutionType::TimeOnly {
-            for r in 1..=3 {
-                h[(r, 0)] = h[(0, 0)];
-                h[(r, 1)] = h[(0, 1)];
-                h[(r, 2)] = h[(0, 2)];
-                h[(r, 3)] = h[(0, 3)];
-            }
-        }
-
-        // run
         let ht = h.transpose();
         let ht_h = ht.clone() * h.clone();
         let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
@@ -227,15 +183,6 @@ impl Navigation {
         self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
 
         let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
-
-        // let norm = match cfg.solution {
-        //     PVTSolutionType::TimeOnly => {
-        //         dx[3]
-        //     },
-        //     _ => {
-        //         (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt()
-        //     },
-        // };
 
         // update models (if desired)
         if !converged {

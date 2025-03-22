@@ -7,28 +7,6 @@ use crate::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-pub enum PVTSolutionType {
-    /// Default, complete solution with Position,
-    /// Velocity and Time components. Requires either
-    /// 4 vehicles in sight, or 3 if you're working in fixed altitude
-    /// (provided ahead of time).
-    #[default]
-    PositionVelocityTime,
-    /// Resolve Time component only. Only requires 1 vehicle in sight.
-    TimeOnly,
-}
-
-impl std::fmt::Display for PVTSolutionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::PositionVelocityTime => write!(f, "PVT"),
-            Self::TimeOnly => write!(f, "TimeOnly"),
-        }
-    }
-}
-
 /// PVT Solution, always expressed as the correction to apply
 /// to an Apriori / static position.
 #[derive(Debug, Clone)]

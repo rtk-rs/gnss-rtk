@@ -38,7 +38,7 @@ pub mod prelude {
         carrier::{Carrier, Signal},
         cfg::{Config, Method},
         error::Error,
-        navigation::{PVTSolution, PVTSolutionType},
+        navigation::PVTSolution,
         orbit::OrbitSource,
         solver::Solver,
     };

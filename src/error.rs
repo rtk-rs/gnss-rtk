@@ -32,7 +32,7 @@ pub enum Error {
     InvalidStrategy,
     #[error("not enough post-fit candidates to form a matrix")]
     MatrixMinimalDimension,
-    #[error("internal error: invalid alloc size")]
+    #[error("internal error: invalid matrix setup")]
     MatrixDimension,
     #[error("failed to form matrix (invalid input or not enough data)")]
     MatrixFormationError,
