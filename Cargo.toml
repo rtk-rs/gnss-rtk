@@ -10,6 +10,9 @@ keywords = ["timing", "positioning", "gps", "glonass", "galileo"]
 categories = ["science", "science::geo"]
 edition = "2021"
 readme = "README.md"
+exlude = [
+    examples_need_update/*,
+]
 
 [features]
 default = []
