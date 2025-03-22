@@ -119,16 +119,34 @@ fn sv_velocities_fixup(
 
                 if let Some(clock_corr) = &mut cd.clock_corr {
                     if relativistic_clock_bias && clock_corr.needs_relativistic_correction {
-                        let ea_deg = sv_orbit.ea_deg().map_err(Error::Physics)?;
+                        let pos_m = (
+                            pos_vel_km_s[0] * 1.0E3,
+                            pos_vel_km_s[1] * 1.0E3,
+                            pos_vel_km_s[2] * 1.0E3,
+                        );
 
-                        let ea_rad = ea_deg.to_radians();
-                        let gm = (w_e * mu).sqrt();
-                        let ecc = sv_orbit.ecc().map_err(Error::Physics)?;
+                        let vel_m_s = (
+                            vel_km_s.0 * 1.0E3,
+                            vel_km_s.1 * 1.0E3,
+                            vel_km_s.2 * 1.0E3,
+                        );
+                        
+                        let r_v_sat = pos_m.0 * vel_m_s.0
+                            + pos_m.1 * vel_m_s.1
+                            + pos_m.2 * vel_m_s.2;
 
-                        let bias = -2.0_f64 * ecc * ea_rad.sin() * gm
-                            / SPEED_OF_LIGHT_M_S
-                            / SPEED_OF_LIGHT_M_S
+                        let bias = -2.0 * r_v_sat / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                             * Unit::Second;
+                        // let ea_deg = sv_orbit.ea_deg().map_err(Error::Physics)?;
+
+                        // let ea_rad = ea_deg.to_radians();
+                        // let gm = (w_e * mu).sqrt();
+                        // let ecc = sv_orbit.ecc().map_err(Error::Physics)?;
+
+                        // let bias = -2.0_f64 * ecc * ea_rad.sin() * gm
+                        //     / SPEED_OF_LIGHT_M_S
+                        //     / SPEED_OF_LIGHT_M_S
+                        //     * Unit::Second;
 
                         debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
                         // clock_corr.duration += bias;
@@ -290,8 +308,10 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                     let source = &mut self.orbit_source;
 
                     if let Some(orbit) = source.next_at(cd.t_tx, cd.sv, self.earth_cef) {
+                        
+                        debug!("{} - sv dt_tx={} sv t={}", t, cd.t_tx, cd.t);
                         let orbit = Self::rotate_orbit_dcm3x3(
-                            t,
+                            cd.t,
                             cd.dt_tx,
                             orbit,
                             modeling.earth_rotation,
@@ -458,6 +478,11 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             //}
         }
 
+        if let Some(past_state) = self.past_state {
+            nav.state
+                .velocity_update(past_state.t, past_state.pos_m, past_state.clock_dt);
+        }
+
         // Validated solution
         let solution = PVTSolution::new(&nav.state, &nav.dop, &nav.sv);
         self.past_state = Some(nav.state.clone());
@@ -548,9 +573,9 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             Matrix3::new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
         };
 
-        let state = orbit.to_cartesian_pos_vel() * 1.0E3;
-        let position = Vector3::new(state[0], state[1], state[2]);
-        let position = dcm3 * position;
+        let state_m = orbit.to_cartesian_pos_vel() * 1.0E3;
+        let position_m = Vector3::new(state_m[0], state_m[1], state_m[2]);
+        let position = dcm3 * position_m;
 
         Orbit::from_position(
             position[0] / 1.0E3,

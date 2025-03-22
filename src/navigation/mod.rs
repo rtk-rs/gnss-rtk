@@ -114,7 +114,7 @@ impl Navigation {
 
                     if cfg.modeling.relativistic_path_range {
                         debug!(
-                            "{}({}) - relativisitic path range: {:.3}m",
+                            "{}({}) - relativistic path range: {:.3}m",
                             t, candidates[i].sv, dr_i
                         );
                     }

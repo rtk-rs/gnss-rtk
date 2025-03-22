@@ -82,24 +82,21 @@ impl State {
     }
 
     /// Derivative mutable update
-    pub fn velocity_update(&mut self, t: Epoch, dx: Vector4<f64>) {
-        let new_pos_m = (
-            self.pos_m.0 + dx[0],
-            self.pos_m.1 + dx[1],
-            self.pos_m.2 + dx[2],
-        );
-
-        let new_clock_dt = dx[3] / SPEED_OF_LIGHT_M_S * Unit::Second;
-
-        let dt_s = (t - self.t).to_seconds();
+    pub fn velocity_update(
+        &mut self,
+        past_t: Epoch,
+        past_pos_m: (f64, f64, f64),
+        past_dt: Duration,
+    ) {
+        let dt_s = (self.t - past_t).to_seconds();
 
         self.vel_m_s = (
-            (new_pos_m.0 - self.pos_m.0) / dt_s,
-            (new_pos_m.1 - self.pos_m.1) / dt_s,
-            (new_pos_m.2 - self.pos_m.2) / dt_s,
+            (self.pos_m.0 - past_pos_m.0) / dt_s,
+            (self.pos_m.1 - past_pos_m.1) / dt_s,
+            (self.pos_m.2 - past_pos_m.2) / dt_s,
         );
 
-        self.clock_drift_s_s = (new_clock_dt - self.clock_dt).to_seconds() / dt_s;
+        self.clock_drift_s_s = (self.clock_dt - past_dt).to_seconds() / dt_s;
     }
 
     /// Temporal mutable update
