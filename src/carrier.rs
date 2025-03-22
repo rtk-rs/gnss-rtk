@@ -1,6 +1,11 @@
+use crate::prelude::Error;
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Carrier {
     /// L1 (GPS/QZSS/SBAS) same frequency as E1 and B1aB1c
     #[default]
@@ -57,6 +62,50 @@ impl std::fmt::Display for Carrier {
     }
 }
 
+impl std::str::FromStr for Carrier {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if trimmed.eq("L1") {
+            Ok(Self::L1)
+        } else if trimmed.eq("L2") {
+            Ok(Self::L2)
+        } else if trimmed.eq("L5") {
+            Ok(Self::L5)
+        } else if trimmed.eq("L6") {
+            Ok(Self::L6)
+        } else if trimmed.eq("E1") {
+            Ok(Self::E1)
+        } else if trimmed.eq("E5") {
+            Ok(Self::E5)
+        } else if trimmed.eq("E6") {
+            Ok(Self::E6)
+        } else if trimmed.eq("E5A") {
+            Ok(Self::E5A)
+        } else if trimmed.eq("E5B") {
+            Ok(Self::E5B)
+        } else if trimmed.eq("B1I") {
+            Ok(Self::B1I)
+        } else if trimmed.eq("B2") {
+            Ok(Self::B2)
+        } else if trimmed.eq("B3") {
+            Ok(Self::B3)
+        } else if trimmed.eq("B2A") {
+            Ok(Self::B2A)
+        } else if trimmed.contains("B1A") {
+            Ok(Self::B1aB1c)
+        } else if trimmed.contains("B1C") {
+            Ok(Self::B1aB1c)
+        } else if trimmed.contains("B2I") {
+            Ok(Self::B2iB2b)
+        } else if trimmed.contains("B2B") {
+            Ok(Self::B2iB2b)
+        } else {
+            Err(Error::InvalidFrequency)
+        }
+    }
+}
+
 impl Carrier {
     pub fn frequency(&self) -> f64 {
         match self {
@@ -77,17 +126,15 @@ impl Carrier {
 
 /// Signal used in [PVTSolution] resolution
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Signal {
     Single(Carrier),
     Dual((Carrier, Carrier)),
 }
 
-impl Signal {
-    pub(crate) fn single(carrier: Carrier) -> Self {
-        Self::Single(carrier)
-    }
-    pub(crate) fn dual(lhs: Carrier, rhs: Carrier) -> Self {
-        Self::Dual((lhs, rhs))
+impl Default for Signal {
+    fn default() -> Self {
+        Self::Single(Default::default())
     }
 }
 
@@ -97,5 +144,14 @@ impl std::fmt::Display for Signal {
             Self::Single(carrier) => write!(f, "{}", carrier),
             Self::Dual((lhs, rhs)) => write!(f, "{}/{}", rhs, lhs),
         }
+    }
+}
+
+impl Signal {
+    pub(crate) fn single(carrier: Carrier) -> Self {
+        Self::Single(carrier)
+    }
+    pub(crate) fn dual(lhs: Carrier, rhs: Carrier) -> Self {
+        Self::Dual((lhs, rhs))
     }
 }

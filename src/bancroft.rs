@@ -1,5 +1,5 @@
 //! Brancroft solver
-use crate::{prelude::Candidate, solver::Error};
+use crate::{constants::Constants, error::Error, prelude::Candidate};
 use log::error;
 
 use nalgebra::{Matrix4, Vector4};
@@ -18,22 +18,25 @@ fn lorentz_4_4(a: Vector4<f64>, b: Vector4<f64>, m: &Matrix4<f64>) -> f64 {
 }
 
 impl Bancroft {
-    const EARTHRADIUS_M: f64 = 6_371.0E3;
+    /// Generates the m [Matrix4]
     fn m_matrix() -> Matrix4<f64> {
         let mut m = Matrix4::<f64>::identity();
         m[(3, 3)] = -1.0;
         m
     }
+
+    /// Generates a [Vector4] with 1's
     fn one_vector() -> Vector4<f64> {
         Vector4::<f64>::new(1.0_f64, 1.0_f64, 1.0_f64, 1.0_f64)
     }
+
     /// Builds new Bancroft solver
     pub fn new(cd: &[Candidate]) -> Result<Self, Error> {
         let m = Self::m_matrix();
         let mut a = Vector4::<f64>::default();
         let mut b = Matrix4::<f64>::default();
         if cd.len() < 4 {
-            return Err(Error::NotEnoughCandidatesBancroft);
+            return Err(Error::NotEnoughInitializationCandidates);
         }
 
         let mut j = 0;
@@ -42,29 +45,24 @@ impl Bancroft {
                 let state = orbit.to_cartesian_pos_vel() * 1.0E3;
                 let (x_i, y_i, z_i) = (state[0], state[1], state[2]);
 
-                if let Some(r_i) = cd[i].prefered_pseudorange() {
-                    let r_i = r_i.pseudo.unwrap();
+                if let Some((_, r_i)) = cd[i].best_snr_pseudo_range_m() {
                     if let Some(clock_corr) = cd[i].clock_corr {
                         let dt_i = clock_corr.duration.to_seconds();
                         let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
                         let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
+
                         b[(j, 0)] = x_i;
                         b[(j, 1)] = y_i;
                         b[(j, 2)] = z_i;
                         b[(j, 3)] = pr_i;
                         a[j] = 0.5 * (x_i.powi(2) + y_i.powi(2) + z_i.powi(2) - pr_i.powi(2));
+
                         j += 1;
+
                         if j == 4 {
                             break;
                         }
-                    } else {
-                        error!(
-                            "{}({}) bancroft needs onboard clock correction",
-                            cd[i].t, cd[i].sv
-                        );
                     }
-                } else {
-                    error!("{}({}) bancroft needs 1 pseudo range", cd[i].t, cd[i].sv);
                 }
             } else {
                 error!(
@@ -84,14 +82,23 @@ impl Bancroft {
             })
         }
     }
+
+    /// [Bancroft] resolution
     pub fn resolve(&self) -> Result<Vector4<f64>, Error> {
-        let b_inv = self.b.try_inverse().ok_or(Error::MatrixInversionError)?;
+        let r_e = Constants::EARTH_EQUATORIAL_RADIUS_KM * 1.0E3;
+
+        let b_inv = self.b.try_inverse().ok_or(Error::MatrixInversion)?;
+
         let b_1 = b_inv * self.ones;
         let b_a = b_inv * self.a;
+
         let a = lorentz_4_4(b_1, b_1, &self.m);
         let b = 2.0 * (lorentz_4_4(b_1, b_a, &self.m) - 1.0);
+
         let c = lorentz_4_4(b_a, b_a, &self.m);
+
         let delta = b.powi(2) - 4.0 * a * c;
+
         if delta > 0.0 {
             let delta_sqrt = delta.sqrt();
             let x = ((-b + delta_sqrt) / 2.0 / a, (-b - delta_sqrt) / 2.0 / a);
@@ -104,10 +111,8 @@ impl Bancroft {
                 (solutions.1[0].powi(2) + solutions.1[1].powi(2) + solutions.1[2].powi(2)).sqrt(),
             );
 
-            let err = (
-                (rho.0 - Self::EARTHRADIUS_M).abs(),
-                (rho.1 - Self::EARTHRADIUS_M).abs(),
-            );
+            let err = ((rho.0 - r_e).abs(), (rho.1 - r_e).abs());
+
             if err.0 < err.1 {
                 Ok(solutions.0)
             } else {

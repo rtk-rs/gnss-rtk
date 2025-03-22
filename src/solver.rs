@@ -1,414 +1,294 @@
-//! PVT solver
-use hifitime::Unit;
-use nalgebra::Vector3;
-use thiserror::Error;
+use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
-use nyx::cosmic::{
-    // eclipse::EclipseLocator,
-    SPEED_OF_LIGHT_M_S,
-};
-
-use std::{
-    collections::HashMap,
-    fs::{create_dir_all, File},
-    io::Write,
-};
-
-use log::{debug, error, info, warn};
+use itertools::Itertools;
+use log::{debug, error, warn};
 
 use anise::{
-    almanac::{
-        metaload::{MetaAlmanac, MetaAlmanacError, MetaFile},
-        planetary::PlanetaryDataError,
-    },
-    constants::frames::{EARTH_ITRF93, IAU_EARTH_FRAME, SUN_J2000},
-    errors::{AlmanacError, PhysicsError},
-    math::Matrix3,
-    prelude::{Almanac, Frame},
+    constants::frames::SUN_J2000,
+    math::{Matrix3, Vector3},
+    prelude::{Almanac, Frame, Unit},
 };
 
 use crate::{
-    ambiguity::AmbiguitySolver,
+    //ambiguity::Solver as AmbiguitySolver,
     bancroft::Bancroft,
+    bias::Bias,
     candidate::Candidate,
     cfg::{Config, Method},
     constants::Constants,
-    navigation::{
-        solutions::validator::{InvalidationCause, Validator as SolutionValidator},
-        Input as NavigationInput, Navigation, PVTSolution, PVTSolutionType,
-    },
+    navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
-    prelude::{Duration, Epoch, Orbit, SV},
+    prelude::{Duration, Epoch, Error, Orbit},
 };
 
-#[derive(Debug, PartialEq, Error)]
-pub enum Error {
-    /// Not enough candidates were proposed: we do not attempt resolution
-    #[error("not enough candidates provided")]
-    NotEnoughCandidates,
-    /// Survey initialization (no apriori = internal guess)
-    /// requires at least 4 SV in sight temporarily, whatever
-    /// your navigation technique.
-    #[error("needs 4 SV in sight at least temporarily")]
-    NotEnoughCandidatesBancroft,
-    /// PreFit (signal quality, other..) criterias
-    /// have been applied but we're left with not enough vehicles that match
-    /// the navigation technique: no attempt.
-    #[error("not enough candidates match pre-fit criteria")]
-    NotEnoughPreFitCandidates,
-    /// PostFit (state solver and other) have been resolved,
-    /// but we're left with not enough vehicles that match
-    /// the navigation technique: no attempt.
-    #[error("not enough candidates match post-fit criteria")]
-    NotEnoughPostFitCandidates,
-    /// Failed to parse navigation method
-    #[error("non supported/invalid strategy")]
-    InvalidStrategy,
-    #[error("failed to form matrix (invalid input or not enough data)")]
-    MatrixFormationError,
-    /// Invalid orbital states or bad signal data may cause the algebric calculations
-    /// to wind up here.
-    #[error("failed to invert matrix")]
-    MatrixInversionError,
-    /// Invalid orbital states or bad signal data may cause the algebric calculations
-    /// to wind up here.
-    #[error("resolved time is `nan` (invalid value(s))")]
-    TimeIsNan,
-    /// Invalid orbital states or bad signal data may cause the algebric calculations
-    /// to abort.
-    #[error("internal navigation error")]
-    NavigationError,
-    #[error("missing pseudo range observation")]
-    MissingPseudoRange,
-    /// [Method::CPP] requires the special signal combination to exist.
-    /// This require the user to sample PR on two separate frequencies.
-    #[error("failed to form pseudo range combination")]
-    PseudoRangeCombination,
-    /// [Method::PPP] requires the special signal combination to exist.
-    /// This require the user to sample PR + PH on two separate frequencies.
-    #[error("failed to form phase range combination")]
-    PhaseRangeCombination,
-    /// Each [Candidate] state needs to be resolved to contribute to any PPP resolution attempt.
-    #[error("unresolved candidate state")]
-    UnresolvedState,
-    /// Each [Candidate] presented to the Bancroft solver needs a resolved state.
-    #[error("bancroft requires 4 fully resolved candidates")]
-    UnresolvedStateBancroft,
-    /// When [Modeling.sv_clock_bias] is turned on and we attempt PPP resolution,
-    /// it is mandatory for the user to provide [ClockCorrection].
-    #[error("missing clock correction")]
-    UnknownClockCorrection,
-    /// Physical non sense due to bad signal data or invalid orbital state, will cause us
-    /// abort with this message.
-    #[error("physical non sense: rx prior tx")]
-    PhysicalNonSenseRxPriorTx,
-    /// Physical non sense due to bad signal data or invalid orbital state, will cause us
-    /// abort with this message.
-    #[error("physical non sense: t_rx is too late")]
-    PhysicalNonSenseRxTooLate,
-    /// Solutions may be invalidated and are rejected with [InvalidationCause].
-    #[error("invalidated solution, cause: {0}")]
-    InvalidatedSolution(InvalidationCause),
-    /// In pure PPP survey (no RTK, no position apriori knowledge = worst case scenario),
-    /// [Solver] is initiliazed by [Bancroft] algorithm, which requires
-    /// temporary 4x4 navigation and pseudo range sampling (whatever your navigation technique),
-    /// until at least initialization is achieved.
-    #[error("bancroft solver error: invalid input ?")]
-    BancroftError,
-    /// [Bancroft] initialization process (see [BancroftError]) will wind up here
-    /// in case unrealistic or bad signal observation or orbital states were forwarded.
-    #[error("bancroft solver error: invalid input (imaginary solution)")]
-    BancroftImaginarySolution,
-    /// PPP navigation technique requires phase ambiguity to be solved prior any attempt.
-    /// It is Okay to wind up here for a few iterations, until the ambiguities are fixed
-    /// and we may proceed to precise navigation. We will reject solving attempt until then.
-    /// Hardware and external events may reset the ambiguity fixes and it is okay to need to
-    /// rerun through this phase for a short period of time. Normally not too often, when good
-    /// equipment is properly operated.
-    #[error("unresolved signal ambiguity")]
-    UnresolvedAmbiguity,
-    /// [Solver] requires [Almanac] determination at build up and may wind-up here this step is in failure.
-    #[error("issue with Almanac: {0}")]
-    Almanac(AlmanacError),
-    /// [Solver] uses local [Almanac] storage for efficient deployments
-    #[error("almanac setup issue: {0}")]
-    MetaAlmanac(MetaAlmanacError),
-    /// [Solver] requires to determine a [Frame] from [Almanac] and we wind-up here if this step is in failure.
-    #[error("frame model error: {0}")]
-    EarthFrame(PlanetaryDataError),
-    /// Any physical non sense detected by ANISE will cause us to abort with this error.
-    #[error("physics issue: {0}")]
-    Physics(PhysicsError),
-    /// Remote observation is required for a [Candidate] to contribute in RTK solving attempt.
-    /// You need up to four of them to resolve. We may print this internal message and still
-    /// proceed to resolve, as [SV] may go out of sight of rover or reference site.
-    #[error("missing observation on remote site {0}({1})")]
-    MissingRemoteRTKObservation(Epoch, SV),
-    /// In RTK resolution attempt, you need to observe all pending [SV] on reference site as well.
-    /// If that is not the case, we abort with this error.
-    #[error("missing observations on remote site")]
-    MissingRemoteRTKObservations,
-}
-
 /// [Solver] to resolve [PVTSolution]s.
-pub struct Solver<O: OrbitSource> {
-    /// [OrbitSource]
-    orbit: O,
-    /// Solver parametrization
+/// ## Generics:
+/// - O: [OrbitSource], custom [Orbit] provider.
+/// - B: custom [Bias] model.
+pub struct Solver<O: OrbitSource, B: Bias> {
+    /// Solver [Config]uration preset
     pub cfg: Config,
-    /// Initial [Orbit] either forwarded by User
-    /// or guess by a first Iteration. The latest [Orbit]
-    /// that we have resolved is contained in [prev_solution].
-    initial: Option<Orbit>,
     /// [Almanac]
     almanac: Almanac,
     /// [Frame]
     earth_cef: Frame,
-    /// [Navigation]
-    nav: Navigation,
-    /// [AmbiguitySolver]
-    ambiguity: AmbiguitySolver,
-    // Post fit KF
-    // postfit_kf: Option<KF<State3D, U3, U3>>,
-    /* prev. solution for internal logic */
-    /// Previous solution (internal logic)
-    prev_solution: Option<(Epoch, PVTSolution)>,
-    /// Stored previous SV state (internal logic)
-    sv_orbits: HashMap<SV, Orbit>,
+    /// [OrbitSource]
+    orbit_source: O,
+    /// [Bias] model implementation
+    bias: B,
+    /// Previous resolved [State].
+    past_state: Option<State>,
+    /// Possible initial (very first) preset
+    initial_ecef_m: Option<Vector3>,
+    /// Past elected
+    past_elected: Vec<Candidate>,
 }
 
-/// Apply signal condition criteria
-fn signal_condition_filter(method: Method, pool: &mut Vec<Candidate>) {
-    pool.retain(|cd| match method {
-        Method::SPP => {
-            if cd.prefered_pseudorange().is_some() {
-                true
-            } else {
-                error!("{} ({}) missing pseudo range observation", cd.t, cd.sv);
-                false
-            }
+pub(crate) fn sv_orbital_attitude_fixup(
+    almanac: &Almanac,
+    apriori: &Apriori,
+    pool: &mut Vec<Candidate>,
+) {
+    let rx_orbit = apriori.to_orbit();
+
+    pool.retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, rx_orbit) {
+        Ok(_) => true,
+        Err(e) => {
+            debug!("{}({}) - orbital fixup: {}", apriori.t, cd.sv, e);
+            false
         },
-        Method::CPP => {
-            if cd.cpp_compatible() {
-                true
-            } else {
-                debug!("{} ({}) missing secondary frequency", cd.t, cd.sv);
-                false
-            }
-        },
-        Method::PPP => {
-            if cd.ppp_compatible() {
-                true
-            } else {
-                debug!("{} ({}) missing phase or phase combination", cd.t, cd.sv);
-                false
-            }
-        },
-    })
+    });
 }
 
-/// Apply signal quality criteria
-fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
-    pool.retain_mut(|cd| {
-        cd.min_snr_mask(min_snr);
-        !cd.observations.is_empty()
-    })
+// Apply attitude filters
+pub(crate) fn sv_attitude_filters(cfg: &Config, pool: &mut Vec<Candidate>) {
+    let min_elev_deg = cfg.min_sv_elev.unwrap_or(0.0);
+    let min_azim_deg = cfg.min_sv_azim.unwrap_or(0.0);
+    let max_azim_deg = cfg.max_sv_azim.unwrap_or(360.0);
+
+    pool.retain(|cd| {
+        if let Some((elev, azim)) = cd.attitude() {
+            if elev < min_elev_deg {
+                debug!("{}({}) - rejected (below elevation mask)", cd.t, cd.sv);
+                false
+            } else if azim < min_azim_deg {
+                debug!("{}({}) - rejected (below azimuth mask)", cd.t, cd.sv);
+                false
+            } else if azim > max_azim_deg {
+                debug!("{}({}) - rejected (above azimuth mask)", cd.t, cd.sv);
+                false
+            } else {
+                debug!("{}({}) - elev={:.3}° azim={:.3}°", cd.t, cd.sv, elev, azim);
+                true
+            }
+        } else {
+            true
+        }
+    });
 }
 
-impl<O: OrbitSource> Solver<O> {
-    const ALMANAC_LOCAL_STORAGE: &str = ".cache";
+/// - Define velocities when feasible
+/// - Account for relativistic effects
+fn sv_velocities_fixup(
+    relativistic_clock_bias: bool,
+    past_elected: &Vec<Candidate>,
+    pool: &mut Vec<Candidate>,
+) -> Result<(), Error> {
+    let mu = Constants::EARTH_GRAVITATION;
+    let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
 
-    fn nyx_anise_de440s_bsp() -> MetaFile {
-        MetaFile {
-            crc32: Some(1921414410),
-            uri: String::from("http://public-data.nyxspace.com/anise/de440s.bsp"),
+    for cd in pool.iter_mut() {
+        if let Some(sv_orbit) = &mut cd.orbit {
+            if let Some(past_elected) = past_elected.iter().find(|elected| elected.sv == cd.sv) {
+                let pos_vel_km_s = sv_orbit.to_cartesian_pos_vel();
+
+                let dt_s = (cd.t_tx - past_elected.t_tx).to_seconds();
+                let past_orbit = past_elected.orbit.unwrap();
+                let pos_vel_z1_km_s = past_orbit.to_cartesian_pos_vel();
+
+                let vel_km_s = (
+                    (pos_vel_km_s[0] - pos_vel_z1_km_s[0]) / dt_s,
+                    (pos_vel_km_s[1] - pos_vel_z1_km_s[1]) / dt_s,
+                    (pos_vel_km_s[2] - pos_vel_z1_km_s[2]) / dt_s,
+                );
+
+                debug!("{} ({}) : vel {:?} km/s", cd.t, cd.sv, vel_km_s);
+
+                *sv_orbit =
+                    sv_orbit.with_velocity_km_s(Vector3::new(vel_km_s.0, vel_km_s.1, vel_km_s.2));
+
+                if let Some(clock_corr) = &mut cd.clock_corr {
+                    if relativistic_clock_bias && clock_corr.needs_relativistic_correction {
+                        let pos_m = (
+                            pos_vel_km_s[0] * 1.0E3,
+                            pos_vel_km_s[1] * 1.0E3,
+                            pos_vel_km_s[2] * 1.0E3,
+                        );
+
+                        let vel_m_s = (vel_km_s.0 * 1.0E3, vel_km_s.1 * 1.0E3, vel_km_s.2 * 1.0E3);
+
+                        let r_v_sat =
+                            pos_m.0 * vel_m_s.0 + pos_m.1 * vel_m_s.1 + pos_m.2 * vel_m_s.2;
+
+                        let bias =
+                            -2.0 * r_v_sat / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S * Unit::Second;
+                        // let ea_deg = sv_orbit.ea_deg().map_err(Error::Physics)?;
+
+                        // let ea_rad = ea_deg.to_radians();
+                        // let gm = (w_e * mu).sqrt();
+                        // let ecc = sv_orbit.ecc().map_err(Error::Physics)?;
+
+                        // let bias = -2.0_f64 * ecc * ea_rad.sin() * gm
+                        //     / SPEED_OF_LIGHT_M_S
+                        //     / SPEED_OF_LIGHT_M_S
+                        //     * Unit::Second;
+
+                        debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
+                        // clock_corr.duration += bias;
+                    }
+                } //clockbias
+            } //velocity
+        }
+    }
+    Ok(())
+}
+
+fn update_sky_view(t: Epoch, pool: &[Candidate], elected: &mut Vec<Candidate>) {
+    for cd in pool.iter() {
+        if elected.iter().find(|elected| elected.sv == cd.sv).is_none() {
+            elected.push(cd.clone());
         }
     }
 
-    fn nyx_anise_pck11_pca() -> MetaFile {
-        MetaFile {
-            crc32: Some(0x8213b6e9),
-            uri: String::from("http://public-data.nyxspace.com/anise/v0.5/pck11.pca"),
+    let current_sv = pool.iter().map(|cd| cd.sv).unique().collect::<Vec<_>>();
+
+    elected.retain(|elected| {
+        let retained = current_sv.contains(&elected.sv);
+        if !retained {
+            debug!("{} ({}) - loss of sight", t, elected.sv);
         }
-    }
+        retained
+    });
+}
 
-    fn nyx_anise_jpl_bpc() -> MetaFile {
-        MetaFile {
-            crc32: None,
-            uri:
-                "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bpc"
-                    .to_string(),
-        }
-    }
-
-    /// Builds an [Almanac] and [Frame] model, with prefered
-    /// high precision models. We only use Earth centered [Frame],
-    /// so this library is currently limited Earth ground navigation.
-    /// We always prefer the highest precision model, which requires daily internet access.
-    /// If internet access is in failure, the [Almanac] relies on an offline model.
-    fn build_almanac_frame_model() -> Result<(Almanac, Frame), Error> {
-        let mut initial_setup = false;
-
-        // Meta almanac for local storage management
-        let local_storage = format!(
-            "{}/{}/anise.dhall",
-            env!("CARGO_MANIFEST_DIR"),
-            Self::ALMANAC_LOCAL_STORAGE
-        );
-
-        let mut meta_almanac = match MetaAlmanac::new(local_storage.clone()) {
-            Ok(meta) => {
-                debug!("(anise) from local storage");
-                meta
-            },
-            Err(_) => {
-                debug!("(anise) local storage setup");
-                initial_setup = true;
-                MetaAlmanac {
-                    files: vec![
-                        Self::nyx_anise_de440s_bsp(),
-                        Self::nyx_anise_pck11_pca(),
-                        Self::nyx_anise_jpl_bpc(),
-                    ],
-                }
-            },
-        };
-
-        // download (if need be)
-        let almanac = meta_almanac.process(true).map_err(|e| Error::Almanac(e))?;
-
-        if initial_setup {
-            let updated = meta_almanac.dumps().map_err(|e| Error::MetaAlmanac(e))?;
-
-            let _ = create_dir_all(&format!(
-                "{}/{}",
-                env!("CARGO_MANIFEST_DIR"),
-                Self::ALMANAC_LOCAL_STORAGE
-            ));
-
-            let mut fd = File::create(&local_storage)
-                .unwrap_or_else(|e| panic!("almanac storage setup error: {}", e));
-
-            fd.write_all(updated.as_bytes())
-                .unwrap_or_else(|e| panic!("almanac storage setup error: {}", e));
-        }
-
-        match almanac.frame_from_uid(EARTH_ITRF93) {
-            Ok(itrf93) => {
-                info!("highest precision context setup");
-                return Ok((almanac, itrf93));
-            },
-            Err(e) => {
-                error!("(anise) jpl_bpc: {}", e);
-            },
-        }
-
-        let earth_cef = almanac
-            .frame_from_uid(IAU_EARTH_FRAME)
-            .map_err(|e| Error::EarthFrame(e))?;
-
-        warn!("deployed with offline model");
-        Ok((almanac, earth_cef))
-    }
-
-    /// Create a new Position [Solver] with desired [Almanac] and [Frame] to work with.
-    /// The specified [Frame] needs to be one of the available ECEF for the following process to work
-    /// correctly. Prefer this method over others, if you already have [Almanac] and [Frame] (ECEF)
-    /// definitions, and avoid possibly re-downloading and re-defining a context.
-    /// See [Self::new] for other options.
-    pub fn new_almanac_frame(
-        cfg: &Config,
-        initial: Option<Orbit>,
-        orbit: O,
+impl<O: OrbitSource, B: Bias> Solver<O, B> {
+    /// Creates a new Position, Velocity, Time [Solver] without
+    /// apriori knowledge of the initial position.
+    /// ## Input
+    /// - almanac: provided valid [Almanac]
+    /// - earth_cef: [Frame] that must be an ECEF
+    /// - cfg: solver [Config]uration
+    /// - orbit_source: custom [OrbitSource] implementation.
+    /// - bias: [Bias] model implementation
+    /// - state_ecef_m: if you have accurate knowledge of the initial position,
+    /// you may define it here. Otherwise, we recommend you tie this to None.
+    pub fn new(
         almanac: Almanac,
-        frame: Frame,
+        earth_cef: Frame,
+        cfg: Config,
+        orbit_source: O,
+        bias: B,
+        state_ecef_m: Option<(f64, f64, f64)>,
+    ) -> Result<Self, Error> {
+        Ok(Self::new_almanac_frame(
+            cfg,
+            almanac,
+            earth_cef,
+            orbit_source,
+            bias,
+            state_ecef_m,
+        ))
+    }
+
+    /// Creates a new Position [Solver] without apriori knowledge.
+    /// The solver will have to initiliaze iteself.
+    /// ## Input
+    /// - almanac: provided valid [Almanac]
+    /// - earth_cef: [Frame] that must be an ECEF
+    /// - cfg: solver [Config]uration
+    /// - orbit_source: custom [OrbitSource] implementation.
+    /// - bias: [Bias] model implementation
+    pub fn new_survey(
+        almanac: Almanac,
+        earth_cef: Frame,
+        cfg: Config,
+        orbit_source: O,
+        bias: B,
+    ) -> Result<Self, Error> {
+        Self::new(almanac, earth_cef, cfg, orbit_source, bias, None)
+    }
+
+    /// Creates a new Position, Velocity, Time [Solver] with your own [Almanac] and [Frame] definitions.
+    /// ## Input
+    /// - cfg: solver [Config]uration
+    /// - almanac: [Almanac] definition
+    /// - frame: [Frame] which must be an ECEF for valid results
+    /// - orbit_source: custom [OrbitSource] implementation.
+    /// - bias: [Bias] model implementation
+    /// - state_ecef_m: if you have accurate knowledge of the initial position,
+    /// you may define it here. Otherwise, we recommend you tie this to None.
+    pub fn new_almanac_frame(
+        cfg: Config,
+        almanac: Almanac,
+        earth_cef: Frame,
+        orbit_source: O,
+        bias: B,
+        state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
-        // Print more information
+        // Analyze preset
         if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
-            warn!("occultation filter is not meaningful in SPP mode");
+            warn!("occultation filter is not meaningful in SPP navigation");
         }
 
         if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
             warn!("RF cable delay compensation is either incomplete or not entirely enabled");
         }
+
         if !cfg.int_delay.is_empty() && !cfg.modeling.cable_delay {
-            warn!("RF cable delay compensation is either incomplete or not entirely enabled");
+            warn!("RF cable delay compensation is not fully supported yet.");
         }
 
         // let eclipse = EclipseLocator::cislunar(Arc::new(almanac.clone()));
         // let almanac = Arc::new(almanac);
 
+        let initial_ecef_m = match state_ecef_m {
+            Some((x0, y0, z0)) => Some(Vector3::new(x0, y0, z0)),
+            _ => None,
+        };
+
         Self {
-            orbit,
             almanac,
-            earth_cef: frame,
-            initial,
+            earth_cef,
+            bias,
+            orbit_source,
             cfg: cfg.clone(),
-            prev_solution: None,
-            // TODO
-            ambiguity: AmbiguitySolver::new(Duration::from_seconds(120.0)),
-            // postfit_kf: None,
-            sv_orbits: HashMap::new(),
-            nav: Navigation::new(cfg.solver.filter),
+            initial_ecef_m,
+            past_state: None,
+            past_elected: Vec::with_capacity(8),
         }
     }
-    /// Create a new Position [Solver] that may support any positioning technique
-    /// and uses internal [Almanac] and [Frame] model definition.
-    /// ## Inputs
-    /// - cfg: Solver [Config]
-    /// - initial: possible initial position expressed as [Orbit] in ECEF.
-    ///   When not provided, the solver will initialize itself autonomously by consuming at least one [Epoch].
-    ///   Note that we need at least 4 valid SV observations to initiliaze the [Solver].
-    ///   You have to take that into account, especially when operating in Fixed Altitude
-    ///   or Time Only modes.
-    /// - orbit: [OrbitSource] must be provided for Direct (1D) PPP
-    pub fn new(cfg: &Config, initial: Option<Orbit>, orbit: O) -> Result<Self, Error> {
-        let (almanac, earth_cef) = Self::build_almanac_frame_model()?;
-        Ok(Self::new_almanac_frame(
-            cfg, initial, orbit, almanac, earth_cef,
-        ))
-    }
-    /// Create new Position [Solver] without knowledge of apriori position (full survey)
-    pub fn new_survey(cfg: &Config, orbit: O) -> Result<Self, Error> {
-        Self::new(cfg, None, orbit)
-    }
-    /// Create new Position [Solver] without knowledge of apriori position (full survey)
-    /// and prefered [Almanac] and [Frame] to work with
-    pub fn new_survey_almanac_frame(
-        cfg: &Config,
-        orbit: O,
-        almanac: Almanac,
-        frame: Frame,
-    ) -> Self {
-        Self::new_almanac_frame(cfg, None, orbit, almanac, frame)
-    }
+
     /// [PVTSolution] resolution attempt.
     /// ## Inputs
     /// - t: desired [Epoch]
     /// - pool: list of [Candidate]
     pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = self.min_sv_required();
+
         if pool.len() < min_required {
             // no need to proceed further
             return Err(Error::NotEnoughCandidates);
         }
 
         let mut pool = pool.to_vec();
-
-        let method = self.cfg.method;
         let modeling = self.cfg.modeling;
-        let interp_order = self.cfg.interp_order;
-        let max_iono_bias = self.cfg.max_iono_bias;
-        let max_tropo_bias = self.cfg.max_tropo_bias;
-        let iono_modeling = self.cfg.modeling.iono_delay;
-        let tropo_modeling = self.cfg.modeling.tropo_delay;
 
-        // signal condition filter
-        signal_condition_filter(method, &mut pool);
+        // TODO
+        // Self::signal_condition_filter(t, method, &mut pool);
 
-        // signal quality filter
         if let Some(min_snr) = self.cfg.min_snr {
-            signal_quality_filter(min_snr, &mut pool);
+            // TODO
+            // Self::signal_quality_filter(min_snr, &mut pool);
         }
 
         if pool.len() < min_required {
@@ -416,77 +296,79 @@ impl<O: OrbitSource> Solver<O> {
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
-        // orbital state solver
-        let mut pool: Vec<Candidate> = pool
-            .iter()
-            .filter_map(|cd| match cd.transmission_time(&self.cfg) {
-                Ok((t_tx, dt_tx)) => {
-                    let orbits = &mut self.orbit;
-                    debug!("{} ({}) : signal propagation {}", cd.t, cd.sv, dt_tx);
-                    if let Some(tx_orbit) =
-                        orbits.next_at(t_tx, cd.sv, self.earth_cef, interp_order)
-                    {
+        pool.retain_mut(|cd| {
+            match cd.tx_epoch(&self.cfg) {
+                Ok(_) => {
+                    // fix orbital state
+                    let source = &mut self.orbit_source;
+
+                    if let Some(orbit) = source.next_at(cd.t_tx, cd.sv, self.earth_cef) {
+                        debug!("{} - sv dt_tx={} sv t={}", t, cd.t_tx, cd.t);
                         let orbit = Self::rotate_orbit_dcm3x3(
                             cd.t,
-                            dt_tx,
-                            tx_orbit,
+                            cd.dt_tx,
+                            orbit,
                             modeling.earth_rotation,
                             self.earth_cef,
                         );
-                        Some(cd.with_orbit(orbit))
+
+                        cd.orbit = Some(orbit);
+                        true
                     } else {
-                        // preserve: may still apply to RTK
-                        Some(cd.clone())
+                        false
                     }
                 },
                 Err(e) => {
-                    error!("{} - transmision time error: {}", cd.sv, e);
-                    None
+                    error!("{} ({}) - transmision time error: {}", t, cd.sv, e);
+                    false
                 },
-            })
-            .collect();
+            }
+        });
 
-        // initialize (if need be)
-        if self.initial.is_none() {
-            let solver = Bancroft::new(&pool)?;
-            let output = solver.resolve()?;
-            let (x0, y0, z0) = (output[0], output[1], output[2]);
-            let orbit = Orbit::from_position(
-                x0 / 1.0E3,
-                y0 / 1.0E3,
-                z0 / 1.0E3,
-                pool[0].t,
-                self.earth_cef,
-            );
-            let (lat_deg, long_deg, alt_km) = orbit.latlongalt().unwrap_or_else(|e| {
+        // Obtain apriori
+        let apriori = match self.past_state {
+            Some(state) => Apriori::from_state(t, &state).unwrap_or_else(|e| {
                 panic!(
-                    "resolved invalid initial position: {}, verify your input",
+                    "Internal error. Solver reinit procedure failed due to physical error: {}",
                     e
                 )
-            });
+            }),
+            None => match self.initial_ecef_m {
+                Some(x0_y0_z0_m) => {
+                    debug!("{}: initializing with external preset {}", t, x0_y0_z0_m);
 
-            info!(
-                "{} estimated initial position lat={:.5}°, lon={:.5}°, alt={:.3}m",
-                pool[0].t,
-                lat_deg,
-                long_deg,
-                alt_km * 1.0E3,
-            );
-            self.initial = Some(orbit); // store
-        }
+                    Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef).unwrap_or_else(|e| {
+                        panic!(
+                            "Solver initialization failure - {}. Invalid user preset?",
+                            e
+                        )
+                    })
+                },
+                None => {
+                    let solver = Bancroft::new(&pool)?;
+                    let solution = solver.resolve()?;
+                    let x0_y0_z0_m = Vector3::new(solution[0], solution[1], solution[2]);
 
-        // (local) rx state: infaillble at this point
-        let rx_orbit = self.initial.unwrap();
+                    debug!("{}: initial solution: {}", t, x0_y0_z0_m);
 
-        let (rx_lat_deg, rx_long_deg, rx_alt_km) =
-            rx_orbit.latlongalt().map_err(|e| Error::Physics(e))?;
-        let rx_alt_m = rx_alt_km * 1.0E3;
-        let rx_rad = (rx_lat_deg.to_radians(), rx_long_deg.to_radians());
+                    Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef).unwrap_or_else(|e| {
+                        panic!("Solver failed to initialize itself. Phyiscal error :{}", e)
+                    })
+                },
+            },
+        };
 
-        let rx_pos_vel = rx_orbit.to_cartesian_pos_vel() * 1.0E3;
-        let (x0, y0, z0) = (rx_pos_vel[0], rx_pos_vel[1], rx_pos_vel[2]);
+        let apriori_orbit = apriori.to_orbit();
 
-        // apply eclipse filter (if need be)
+        sv_orbital_attitude_fixup(&self.almanac, &apriori, &mut pool);
+
+        sv_velocities_fixup(
+            self.cfg.modeling.relativistic_clock_bias,
+            &self.past_elected,
+            &mut pool,
+        )?;
+
+        // Eclipse filter (if need be)
         if let Some(max_occultation_rate) = self.cfg.max_sv_occultation_percent {
             pool.retain(|cd| {
                 if let Some(sv_orbit) = cd.orbit {
@@ -502,44 +384,31 @@ impl<O: OrbitSource> Solver<O> {
                             }
                         },
                         Err(e) => {
-                            error!("(anise) eclipse: {}", e);
-                            // discard in this situation
+                            error!("(anise) eclipse error: {}", e);
+                            // discard in this case
                             false
                         },
                     }
                 } else {
-                    // undefined orbital state
-                    // needs to be preversed for some RTK scenarios
+                    // Undefined orbital state: can't apply.
                     true
                 }
             });
         }
 
-        // sv fixup
-        self.fix_sv_states(rx_orbit, &mut pool)?;
-        Self::sv_state_filter(&self.cfg, &mut pool);
-
-        // Apply models
-        for cd in &mut pool {
-            if let Some((el_deg, az_deg)) = cd.attitude() {
-                cd.apply_models(
-                    method,
-                    tropo_modeling,
-                    iono_modeling,
-                    az_deg,
-                    el_deg,
-                    (rx_lat_deg, rx_long_deg, rx_alt_m),
-                    rx_rad,
-                )?;
-            }
+        if pool.len() < min_required {
+            // no need to proceed further
+            return Err(Error::NotEnoughPreFitCandidates);
         }
 
-        // Resolve ambiguities
-        let ambiguities = if method == Method::PPP {
-            self.ambiguity.resolve(&pool)
-        } else {
-            Default::default()
-        };
+        sv_attitude_filters(&self.cfg, &mut pool);
+
+        // // Resolve ambiguities
+        // let ambiguities = if method == Method::PPP {
+        //     self.ambiguity.resolve(&pool)
+        // } else {
+        //     Default::default()
+        // };
 
         // Prepare for NAV
         pool.retain(|cd| {
@@ -550,143 +419,49 @@ impl<O: OrbitSource> Solver<O> {
             retained
         });
 
-        //  select best candidates, sort (coherent matrix), propose
-        pool.retain(|cd| {
-            let retained = cd.tropo_bias < max_tropo_bias;
-            if retained {
-                debug!("{}({}) - tropo delay {:.3E}[m]", cd.t, cd.sv, cd.tropo_bias);
-            } else {
-                debug!("{}({}) - rejected (extreme tropo delay)", cd.t, cd.sv);
-            }
-            retained
-        });
+        let pool_size = pool.len();
 
-        pool.retain(|cd| {
-            let retained = cd.iono_bias < max_iono_bias;
-            if retained {
-                debug!("{}({}) - iono delay {:.3E}[m]", cd.t, cd.sv, cd.iono_bias);
-            } else {
-                debug!("{}({}) - rejected (extreme iono delay)", cd.t, cd.sv);
-            }
-            retained
-        });
-
-        if pool.len() < min_required {
+        if pool_size < min_required {
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
-        let rx_orbit = if let Some((_, prev_sol)) = &self.prev_solution {
-            self.initial.unwrap()
-        } else {
-            self.initial.unwrap()
-        };
+        update_sky_view(t, &pool, &mut self.past_elected);
 
-        Self::retain_best_elevation(&mut pool, min_required);
-
-        pool.sort_by(|cd_a, cd_b| cd_a.sv.prn.partial_cmp(&cd_b.sv.prn).unwrap());
-
-        let w = self.cfg.solver.weight_matrix(); //sv.values().map(|sv| sv.elevation).collect());
-                                                 // // Reduce contribution of newer (rising) vehicles (rising)
-                                                 // for (i, cd) in pool.iter().enumerate() {
-                                                 //     if !self.prev_used.contains(&cd.sv) {
-                                                 //         w[(i, i)] = 0.05;
-                                                 //         w[(2 * i, 2 * i)] = 0.05;
-                                                 //     }
-                                                 // }
-
-        let input = match NavigationInput::new((x0, y0, z0), &self.cfg, &pool, w, &ambiguities) {
-            Ok(input) => input,
+        // Build nav filter
+        let mut nav = match Navigation::new(t, &self.cfg, apriori, &pool, pool_size, &self.bias) {
+            Ok(nav) => nav,
             Err(e) => {
-                error!("Failed to form navigation matrix: {}", e);
-                return Err(Error::MatrixFormationError);
+                error!("matrix formation error: {}", e);
+                return Err(e);
             },
         };
 
-        // self.prev_used = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
+        // discard non contributing data
+        let contributing = nav.sv.iter().map(|contrib| contrib.sv).collect::<Vec<_>>();
+        pool.retain(|cd| contributing.contains(&cd.sv));
 
-        // Regular Iteration
-        let output = match self.nav.resolve(&input) {
-            Ok(output) => output,
-            Err(e) => {
-                error!("Failed to resolve: {}", e);
-                return Err(Error::NavigationError);
-            },
-        };
+        let pool_size = pool.len();
 
-        let sol_x = output.state.estimate();
-        debug!("x: {}", sol_x);
-
-        let sol_dt = sol_x[3] / SPEED_OF_LIGHT_M_S;
-        let (sol_x, sol_y, sol_z) = (sol_x[0] + x0, sol_x[1] + y0, sol_x[2] + z0);
-
-        // Bias
-        // let mut bias = InstrumentBias::new();
-        //if method == Method::PPP {
-        //    for i in 0..x.ncols() - 4 {
-        //        let b_i = x[i + 4];
-        //        let cd = &pool[i];
-        //        if let Some(l_c) = cd.phase_if_combination() {
-        //            if let Some(amb) = ambiguities.get(&(cd.sv, l_c.reference)) {
-        //                //TODO: c'est n_c pas n_1, puisque b_i est lié à la combinaison LC
-        //                bias.insert((cd.sv, l_c.reference), b_i - amb.n_1);
-        //            }
-        //        }
-        //    }
-        //}
-
-        // Form Solution
-        let mut solution = PVTSolution {
-            state: Orbit::from_position(
-                sol_x / 1.0E3,
-                sol_y / 1.0E3,
-                sol_z / 1.0E3,
-                t,
-                self.earth_cef,
-            ),
-            ambiguities,
-            gdop: output.gdop,
-            tdop: output.tdop,
-            pdop: output.pdop,
-            sv: input.sv.clone(),
-            q: output.q_covar4x4(),
-            timescale: self.cfg.timescale,
-            dt: Duration::from_seconds(sol_dt),
-            d_dt: 0.0_f64,
-        };
-
-        let (lat, long, alt_km) = solution.state.latlongalt().map_err(|e| Error::Physics(e))?;
-
-        debug!(
-            "{} new solution lat={:.5}°, long={:.5}°, alt={:.5}m",
-            t,
-            lat,
-            long,
-            alt_km * 1.0E3,
-        );
-
-        // First solution
-        if self.prev_solution.is_none() {
-            self.prev_solution = Some((t, solution.clone()));
-            // always discard 1st solution
-            return Err(Error::InvalidatedSolution(InvalidationCause::FirstSolution));
+        // iterate nav filter
+        loop {
+            match nav.iterate(t, &self.cfg, &pool, pool_size, &self.bias) {
+                Ok(converged) => {
+                    if converged {
+                        break;
+                    } else {
+                        debug!(
+                            "iter={} | {:?} dt={}",
+                            nav.iter, nav.state.pos_m, nav.state.clock_dt
+                        );
+                    }
+                },
+                Err(e) => {
+                    error!("{} - filter iter={}: {}", t, nav.iter, e);
+                    return Err(e);
+                },
+            }
         }
 
-        let validator =
-            SolutionValidator::new(Vector3::<f64>::new(x0, y0, z0), &pool, &input, &output);
-
-        match validator.validate(&self.cfg) {
-            Ok(_) => {
-                self.nav.validate();
-            },
-            Err(cause) => {
-                error!("solution invalidated - {}", cause);
-                return Err(Error::InvalidatedSolution(cause));
-            },
-        };
-
-        /*
-         * Post-fit KF
-         */
         if self.cfg.solver.postfit_kf {
             //if let Some(kf) = &mut self.postfit_kf {
             //} else {
@@ -703,119 +478,76 @@ impl<O: OrbitSource> Solver<O> {
             //}
         }
 
-        // update & store for next time
-        self.update_solution(t, &mut solution);
-        self.prev_solution = Some((t, solution.clone()));
+        if let Some(past_state) = self.past_state {
+            nav.state
+                .velocity_update(past_state.t, past_state.pos_m, past_state.clock_dt);
+        }
 
-        Self::rework_solution(t, self.earth_cef, &self.cfg, &mut solution);
+        // Validated solution
+        let solution = PVTSolution::new(&nav.state, &nav.dop, &nav.sv);
+        self.past_state = Some(nav.state.clone());
+
         Ok((t, solution))
     }
 
-    fn fix_sv_states(&mut self, rx_orbit: Orbit, pool: &mut Vec<Candidate>) -> Result<(), Error> {
-        // clear loss of sight
-        let svnn = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
-        self.sv_orbits.retain(|sv, _| {
-            let retain = svnn.contains(&sv);
-            if !retain {
-                debug!("{} loss of sight", sv);
-            }
-            retain
-        });
-
-        for cd in pool.iter_mut() {
-            if let Some(orbit) = &mut cd.orbit {
-                // velocities
-                if let Some(past_orbit) = self.sv_orbits.get(&cd.sv) {
-                    let dt_s = (orbit.epoch - past_orbit.epoch).to_seconds();
-                    let current = orbit.to_cartesian_pos_vel();
-                    let past = past_orbit.to_cartesian_pos_vel();
-                    let der = (
-                        (current[0] - past[0]) / dt_s,
-                        (current[1] - past[1]) / dt_s,
-                        (current[2] - past[2]) / dt_s,
-                    );
-                    *orbit = orbit.with_velocity_km_s(Vector3::new(der.0, der.1, der.2));
-                }
-                // clock
-                if orbit.vmag_km_s() > 0.0 {
-                    if self.cfg.modeling.relativistic_clock_bias {
-                        if let Some(clock_corr) = &mut cd.clock_corr {
-                            if clock_corr.needs_relativistic_correction {
-                                let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
-                                let mu = Constants::EARTH_GRAVITATION;
-                                let ea_deg = orbit.ea_deg().map_err(Error::Physics)?;
-                                let ea_rad = ea_deg.to_radians();
-                                let gm = (w_e * mu).sqrt();
-                                let ecc = orbit.ecc().map_err(Error::Physics)?;
-                                let bias = -2.0_f64 * ecc * ea_rad.sin() * gm
-                                    / SPEED_OF_LIGHT_M_S
-                                    / SPEED_OF_LIGHT_M_S
-                                    * Unit::Second;
-                                debug!("{} ({}) : relativistic clock bias: {}", cd.t, cd.sv, bias);
-                                clock_corr.duration += bias;
-                            }
-                        }
-                    } //clockbias
-                } //velocity
-
-                let rx_orbit = Orbit::from_cartesian_pos_vel(
-                    rx_orbit.to_cartesian_pos_vel(),
-                    cd.t,
-                    self.earth_cef,
-                );
-
-                let elazrg = self
-                    .almanac
-                    .azimuth_elevation_range_sez(*orbit, rx_orbit, None, None)
-                    .map_err(|e| Error::Almanac(e))?;
-
-                cd.azimuth_deg = Some(elazrg.azimuth_deg);
-                cd.elevation_deg = Some(elazrg.elevation_deg);
-                self.sv_orbits.insert(cd.sv, *orbit);
-            } //has_orbit
-        }
-        Ok(())
+    /// Apply signal quality criteria
+    fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
+        pool.retain_mut(|cd| {
+            cd.min_snr_mask(min_snr);
+            !cd.observations.is_empty()
+        })
     }
-    fn sv_state_filter(cfg: &Config, pool: &mut Vec<Candidate>) {
-        let min_elev_deg = cfg.min_sv_elev.unwrap_or(0.0);
-        let min_azim_deg = cfg.min_sv_azim.unwrap_or(0.0);
-        let max_azim_deg = cfg.max_sv_azim.unwrap_or(360.0);
-        pool.retain(|cd| {
-            if let Some((elev, azim)) = cd.attitude() {
-                if elev < min_elev_deg {
-                    debug!("{}({}) - rejected (below elevation mask)", cd.t, cd.sv);
-                    false
-                } else if azim < min_azim_deg {
-                    debug!("{}({}) - rejected (below azimuth mask)", cd.t, cd.sv);
-                    false
-                } else if azim > max_azim_deg {
-                    debug!("{}({}) - rejected (above azimuth mask)", cd.t, cd.sv);
-                    false
-                } else {
-                    debug!("{}({}) - elev={:.3}° azim={:.3}°", cd.t, cd.sv, elev, azim);
+
+    /// Apply signal condition criteria
+    fn signal_condition_filter(t: Epoch, method: Method, pool: &mut Vec<Candidate>) {
+        pool.retain(|cd| match method {
+            Method::SPP => {
+                if cd.l1_pseudo_range().is_some() {
                     true
+                } else {
+                    error!("{} ({}) missing pseudo range observation", t, cd.sv);
+                    false
                 }
-            } else {
-                true
-            }
-        });
+            },
+            Method::CPP => {
+                if cd.cpp_compatible() {
+                    true
+                } else {
+                    debug!("{} ({}) missing secondary frequency", t, cd.sv);
+                    false
+                }
+            },
+            Method::PPP => {
+                if cd.ppp_compatible() {
+                    true
+                } else {
+                    debug!("{} ({}) missing phase or phase combination", t, cd.sv);
+                    false
+                }
+            },
+        })
     }
+
     fn min_sv_required(&self) -> usize {
-        if self.initial.is_none() {
-            4
+        if self.past_state.is_none() {
+            if self.initial_ecef_m.is_none() {
+                4
+            } else {
+                if self.cfg.fixed_altitude.is_some() {
+                    3
+                } else {
+                    4
+                }
+            }
         } else {
-            match self.cfg.sol_type {
-                PVTSolutionType::TimeOnly => 1,
-                _ => {
-                    if self.cfg.fixed_altitude.is_some() {
-                        3
-                    } else {
-                        4
-                    }
-                },
+            if self.cfg.fixed_altitude.is_some() {
+                3
+            } else {
+                4
             }
         }
     }
+
     fn rotate_orbit_dcm3x3(
         t: Epoch,
         dt: Duration,
@@ -830,9 +562,11 @@ impl<O: OrbitSource> Solver<O> {
         } else {
             Matrix3::new(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
         };
-        let state = orbit.to_cartesian_pos_vel() * 1.0E3;
-        let position = Vector3::new(state[0], state[1], state[2]);
-        let position = dcm3 * position;
+
+        let state_m = orbit.to_cartesian_pos_vel() * 1.0E3;
+        let position_m = Vector3::new(state_m[0], state_m[1], state_m[2]);
+        let position = dcm3 * position_m;
+
         Orbit::from_position(
             position[0] / 1.0E3,
             position[1] / 1.0E3,
@@ -841,92 +575,123 @@ impl<O: OrbitSource> Solver<O> {
             frame,
         )
     }
-    fn update_solution(&self, t: Epoch, sol: &mut PVTSolution) {
-        if let Some((prev_t, prev_sol)) = &self.prev_solution {
-            let dt_s = (t - *prev_t).to_seconds();
-            // update clock drift
-            sol.d_dt = dt_s;
-            // update velocity
-            sol.state = Self::update_velocity(sol.state, prev_sol.state, dt_s);
-        }
-    }
-    fn update_velocity(orbit: Orbit, p_orbit: Orbit, dt_sec: f64) -> Orbit {
-        let state = orbit.to_cartesian_pos_vel();
-        let p_state = p_orbit.to_cartesian_pos_vel();
-        let (x, y, z) = (state[0], state[1], state[2]);
-        let (p_x, p_y, p_z) = (p_state[0], p_state[1], p_state[2]);
-        orbit.with_velocity_km_s(Vector3::new(
-            (x - p_x) / dt_sec,
-            (y - p_y) / dt_sec,
-            (z - p_z) / dt_sec,
-        ))
-    }
-    fn rework_solution(t: Epoch, frame: Frame, cfg: &Config, pvt: &mut PVTSolution) {
-        // emphazise we only resolve dt by setting null attitude
-        if cfg.sol_type == PVTSolutionType::TimeOnly {
-            pvt.state = Orbit::zero_at_epoch(t, frame);
-        }
-        // TODO:
-        //  1. replace height component with user input
-        //  2. static in altitude: needs to reflect on velocity
-        // to emphasize that it is being used
-        if let Some(_alt_m) = cfg.fixed_altitude {}
-    }
-    fn retain_best_elevation(pool: &mut Vec<Candidate>, min_required: usize) {
-        pool.sort_by(|cd_a, cd_b| {
-            let elev_a_deg = cd_a.elevation_deg.unwrap_or_default();
-            let elev_b_deg = cd_b.elevation_deg.unwrap_or_default();
-            elev_a_deg.partial_cmp(&elev_b_deg).unwrap()
-        });
-
-        let mut index = 0;
-        let total = pool.len();
-
-        if min_required == 1 {
-            pool.retain(|_| {
-                index += 1;
-                index == total
-            });
-        } else {
-            pool.retain(|_| {
-                index += 1;
-                index > total - min_required
-            });
-        }
-    }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use crate::prelude::{Solver, Candidate, Duration, Epoch, Observation, SV, OrbitalState};
-//     #[test]
-//     fn retain_best_elev() {
-//         let mut pool = Vec::<Candidate>::new();
-//         for elev in [0.0, 3.0, 8.0, 16.0, 16.5, 21.0, 45.0] {
-//             let cd = Candidate::new(
-//                 SV::default(),
-//                 Epoch::default(),
-//                 Duration::default(),
-//                 None,
-//                 vec![],
-//                 vec![],
-//             );
-//             let mut state = OrbitalState::from_position((0.0, 0.0, 0.0));
-//             state.set_elevation(elev);
-//             cd.set_state(state);
-//             pool.push(cd);
-//         }
-//
-//         for min_required in [1, 3, 4, 5] {
-//             let mut tested = pool.clone();
-//             Solver::retain_best_elevation(&mut tested, min_required);
-//             if min_required == 1 {
-//                 assert_eq!(tested.len(), 1);
-//                 assert_eq!(tested[0].state.unwrap().elevation, 45.0);
-//             } else if min_required == 3 {
-//             } else if min_required == 4 {
-//             } else if min_required == 5 {
-//             }
-//         }
-//     }
-// }
+#[cfg(test)]
+mod test {
+    use itertools::Itertools;
+    use std::str::FromStr;
+
+    use crate::{
+        prelude::{Almanac, Candidate, Config, Epoch, OrbitSource, Solver, EARTH_J2000},
+        solver::sv_orbital_attitude_fixup,
+        tests::{
+            bias::NullBias,
+            gps::{G02, G05, G07, G08, G09, G13, G15},
+            orbits::{GpsOrbits, NullOrbits},
+            reference_orbit,
+        },
+    };
+
+    use super::sv_attitude_filters;
+
+    // #[test]
+    // fn test_min_sv_required() {
+    //     for (preset, expected) in [
+    //         (Config::default(), 4),
+    //         (
+    //             Config::default().with_pvt_solutions_type(PVTSolutionType::PositionVelocityTime),
+    //             4,
+    //         ),
+    //     ] {
+    //         let null_bias = NullBias {};
+    //         let solver = Solver::new(preset, NullOrbits {}, null_bias, None).unwrap();
+
+    //         assert_eq!(solver.min_sv_required(), expected);
+    //     }
+
+    //     let mut preset = Config::default();
+    //     preset.fixed_altitude = Some(1.0);
+
+    //     let solver = Solver::new(preset.clone(), NullOrbits {}, NullBias {}, None).unwrap();
+    //     assert_eq!(solver.min_sv_required(), 4);
+
+    //     let solver = Solver::new(
+    //         preset.clone(),
+    //         NullOrbits {},
+    //         NullBias {},
+    //         Some((1.0, 2.0, 3.0)),
+    //     )
+    //     .unwrap();
+    //     assert_eq!(solver.min_sv_required(), 3);
+
+    //     let preset = Config::default().with_pvt_solutions_type(PVTSolutionType::TimeOnly);
+
+    //     let solver = Solver::new(preset.clone(), NullOrbits {}, NullBias {}, None).unwrap();
+    //     assert_eq!(solver.min_sv_required(), 4);
+
+    //     let solver = Solver::new(
+    //         preset.clone(),
+    //         NullOrbits {},
+    //         NullBias {},
+    //         Some((1.0, 2.0, 3.0)),
+    //     )
+    //     .unwrap();
+    //     assert_eq!(solver.min_sv_required(), 1);
+    // }
+
+    // #[test]
+    // fn test_attitude_filters() {
+    //     let mut preset = Config::default();
+    //     preset.min_sv_elev = Some(14.0);
+
+    //     let almanac = Almanac::until_2035().unwrap();
+    //     let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+
+    //     let t0_gpst: Epoch = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+    //     let rx_orbit = reference_orbit(frame);
+
+    //     let mut gpst_orbits = GpsOrbits::build();
+
+    //     let mut candidates = vec![
+    //         Candidate::new(G02, t0_gpst, vec![]),
+    //         Candidate::new(G05, t0_gpst, vec![]),
+    //         Candidate::new(G07, t0_gpst, vec![]),
+    //         Candidate::new(G08, t0_gpst, vec![]),
+    //         Candidate::new(G09, t0_gpst, vec![]),
+    //         Candidate::new(G13, t0_gpst, vec![]),
+    //         Candidate::new(G15, t0_gpst, vec![]),
+    //     ];
+
+    //     for cd in candidates.iter_mut() {
+    //         let orbit = gpst_orbits.next_at(t0_gpst, cd.sv, frame).unwrap();
+    //         cd.set_orbit(orbit);
+    //     }
+
+    //     sv_orbital_attitude_fixup(&almanac, t0_gpst, rx_orbit, &mut candidates);
+    //     assert_eq!(candidates.len(), 7, "invalid test initialization");
+
+    //     sv_attitude_filters(&preset, &mut candidates);
+
+    //     let remainder = candidates
+    //         .iter()
+    //         .map(|cd| cd.sv)
+    //         .sorted()
+    //         .collect::<Vec<_>>();
+
+    //     assert_eq!(remainder, vec![G05, G07, G13, G15]);
+
+    //     preset.min_sv_elev = Some(16.0);
+
+    //     sv_attitude_filters(&preset, &mut candidates);
+
+    //     let remainder = candidates
+    //         .iter()
+    //         .map(|cd| cd.sv)
+    //         .sorted()
+    //         .collect::<Vec<_>>();
+
+    //     assert_eq!(remainder, vec![G05, G07, G13]);
+    // }
+}

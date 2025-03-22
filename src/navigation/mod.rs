@@ -1,48 +1,42 @@
+use log::{debug, error};
+
 pub mod solutions;
-pub use solutions::{InvalidationCause, PVTSolution, PVTSolutionType};
+pub use solutions::PVTSolution;
 
-mod filter;
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
-pub use filter::Filter;
-pub(crate) use filter::FilterState;
+pub(crate) mod apriori;
+pub(crate) mod dop;
+pub(crate) mod state;
 
-use log::{
-    debug,
-    //error,
-    warn,
-};
-use std::collections::HashMap;
+use nalgebra::{DVector, MatrixXx4};
+
+use anise::prelude::Epoch;
 
 use crate::{
-    ambiguity::Ambiguities,
-    candidate::Candidate,
-    cfg::Config,
-    // constants::Constants,
-    prelude::{
-        Duration,
-        Error,
-        IonosphereBias, //Method,
-        Orbit,
-        SV,
-    },
+    navigation::{apriori::Apriori, dop::DilutionOfPrecision, state::State},
+    prelude::{Bias, Candidate, Config, Duration, Error, IonosphereBias, Signal, SV},
 };
-
-use nalgebra::{
-    base::dimension::{U4, U8},
-    OMatrix, OVector,
-};
-
-// use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 /// SV Navigation information
 #[derive(Debug, Clone, Default)]
-pub struct SVInput {
-    /// Possible [Orbit] state
-    pub orbit: Option<Orbit>,
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct SVContribution {
+    /// Identitity
+    pub sv: SV,
+    /// [Signal] being used
+    pub signal: Signal,
+    /// Orbital state
+    pub sv_pos_km: (f64, f64, f64),
+    /// Orbital velocity
+    pub sv_vel_km_s: (f64, f64, f64),
     /// Elevation from RX position
     pub elevation: f64,
     /// Azimuth from RX position
     pub azimuth: f64,
+    /// Relativistic path range is evaluated for each contributor (only once)
+    pub relativistic_path_range_m: f64,
     /// Troposphere bias in meters of delay
     pub tropo_bias: Option<f64>,
     /// Ionosphere bias
@@ -51,209 +45,204 @@ pub struct SVInput {
     pub clock_correction: Option<Duration>,
 }
 
-/// Navigation Input
-#[derive(Debug, Clone)]
-pub struct Input {
-    /// Measurement vector
-    pub y: OVector<f64, U8>,
-    /// NAV Matrix
-    pub g: OMatrix<f64, U8, U8>,
-    /// Weight Diagonal Matrix
-    pub w: OMatrix<f64, U8, U8>,
-    /// SV dependent data
-    pub sv: HashMap<SV, SVInput>,
-}
-
-/// Navigation Output
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Output {
-    /// Time Dilution of Precision
-    pub tdop: f64,
-    /// Geometric Dilution of Precision
-    pub gdop: f64,
-    /// Position Dilution of Precision
-    pub pdop: f64,
-    /// Q covariance matrix
-    pub q: OMatrix<f64, U8, U8>,
-    /// Filter state
-    pub state: FilterState,
-}
-
-impl Output {
-    pub(crate) fn q_covar4x4(&self) -> OMatrix<f64, U4, U4> {
-        OMatrix::<f64, U4, U4>::new(
-            self.q[(0, 0)],
-            self.q[(0, 1)],
-            self.q[(0, 2)],
-            self.q[(0, 3)],
-            self.q[(1, 0)],
-            self.q[(1, 1)],
-            self.q[(1, 2)],
-            self.q[(1, 3)],
-            self.q[(2, 0)],
-            self.q[(2, 1)],
-            self.q[(2, 2)],
-            self.q[(2, 3)],
-            self.q[(3, 0)],
-            self.q[(3, 1)],
-            self.q[(3, 2)],
-            self.q[(3, 3)],
-        )
-    }
-}
-
-impl Input {
-    /// Forms new Navigation Input
-    pub fn new(
-        apriori: (f64, f64, f64),
-        cfg: &Config,
-        cd: &[Candidate],
-        w: OMatrix<f64, U8, U8>,
-        _: &Ambiguities,
-    ) -> Result<Self, Error> {
-        let mut y = OVector::<f64, U8>::zeros();
-        let mut g = OMatrix::<f64, U8, U8>::zeros();
-        let mut sv = HashMap::<SV, SVInput>::with_capacity(cd.len());
-        /*
-         * Compensate for ARP (if possible)
-         */
-        let apriori = match cfg.arp_enu {
-            Some(_) => {
-                //apriori.0 + offset.0,
-                //apriori.1 + offset.1,
-                //apriori.2 + offset.2,
-                warn!("ARP compensation is not feasible yet");
-                apriori
-            },
-            None => apriori,
-        };
-
-        let mut j = 0;
-        let mut max = match cfg.sol_type {
-            PVTSolutionType::TimeOnly => 1,
-            _ => 4,
-        };
-        if cfg.fixed_altitude.is_some() {
-            max -= 1;
-        }
-
-        for i in 0..cd.len() {
-            match cd[i].matrix_contribution(cfg, j, &mut y, &mut g, apriori) {
-                Ok(input) => {
-                    sv.insert(cd[i].sv, input);
-                    g[(4 + j, 4 + j)] = 1.0_f64;
-                    y[4 + j] = y[j];
-
-                    j += 1;
-                    if j == cd.len() {
-                        break;
-                    }
-                },
-                Err(e) => {
-                    debug!("{}({}) cannot contribute: {}", cd[i].t, cd[i].sv, e);
-                    continue;
-                },
-            }
-
-            // TODO reestablish phase contribution
-            //if j > 3 {
-            //    g[(j, j)] = 1.0_f64;
-
-            //    if cfg.method == Method::PPP {
-            //        let cmb = cd[i]
-            //            .phase_if_combination()
-            //            .ok_or(Error::PhaseRangeCombination)?;
-
-            //        let f_1 = cmb.rhs.frequency();
-            //        let lambda_j = cmb.lhs.wavelength();
-            //        let f_j = cmb.lhs.frequency();
-
-            //        let (lambda_n, lambda_w) = (
-            //            SPEED_OF_LIGHT_M_S / (f_1 + f_j),
-            //            SPEED_OF_LIGHT_M_S / (f_1 - f_j),
-            //        );
-
-            //        let bias = if let Some(ambiguity) = ambiguities.get(&(cd[i].sv, cmb.rhs)) {
-            //            let (n_1, n_w) = (ambiguity.n_1, ambiguity.n_w);
-            //            let b_c = lambda_n * (n_1 + (lambda_w / lambda_j) * n_w);
-            //            debug!(
-            //                "{} ({}/{}) b_c: {}",
-            //                cd[i].t, cd[i].sv, cmb.rhs, b_c
-            //            );
-            //            b_c
-            //        } else {
-            //            error!(
-            //                "{} ({}/{}): unresolved ambiguity",
-            //                cd[i].t, cd[i].sv, cmb.rhs
-            //            );
-            //            return Err(Error::UnresolvedAmbiguity);
-            //        };
-
-            //        // TODO: conclude windup
-            //        let windup = 0.0_f64;
-
-            //        y[i] = cmb.value - rho - models - windup + bias;
-            //    }
-            //}
-        }
-
-        // TODO: improve matrix formation
-        if max == 3 {
-            y[3] = y[2];
-            g[(3, 3)] = 1.0_f64;
-            y[4 + 3] = y[2];
-            g[(4 + 3, 4 + 3)] = 1.0_f64;
-        }
-
-        // TODO: improve matrix formation
-        if max == 1 {
-            y[1] = y[0];
-            y[2] = y[0];
-            y[3] = y[0];
-
-            g[(1, 1)] = 1.0_f64;
-            g[(2, 2)] = 1.0_f64;
-            g[(3, 3)] = 1.0_f64;
-
-            y[4 + 1] = y[0];
-            y[4 + 2] = y[0];
-            y[4 + 3] = y[0];
-
-            g[(4 + 1, 4 + 1)] = 1.0_f64;
-            g[(4 + 2, 4 + 2)] = 1.0_f64;
-            g[(4 + 3, 4 + 3)] = 1.0_f64;
-        }
-
-        debug!("y: {} g: {}, w: {}", y, g, w);
-        Ok(Self { y, g, w, sv })
-    }
-}
-
-#[derive(Debug, Clone)]
+/// [Navigation] Filter
 pub(crate) struct Navigation {
-    filter: Filter,
-    pending: Output,
-    filter_state: Option<FilterState>,
+    /// [Config] preset
+    cfg: Config,
+    /// Iteration counter
+    pub iter: usize,
+    /// Filter [State]
+    pub state: State,
+    /// Measurement vector
+    pub b: DVector<f64>,
+    /// [SVContribution]s
+    pub sv: Vec<SVContribution>,
+    /// [DilutionOfPrecision]
+    pub dop: DilutionOfPrecision,
 }
 
 impl Navigation {
-    pub fn new(filter: Filter) -> Self {
-        Self {
-            filter,
-            filter_state: None,
-            pending: Default::default(),
+    /// Creates new [Navigation] filter
+    /// ## Input
+    /// - cfg: [Config] preset
+    /// - apriori: [Apriori] input
+    /// - candidates: selected [Candidate]s
+    /// - size: number of proposal
+    /// - bias: [Bias] model implementation
+    /// ## Returns
+    /// - [Navigation], [Error]
+    pub fn new<B: Bias>(
+        t: Epoch,
+        cfg: &Config,
+        apriori: Apriori,
+        candidates: &[Candidate],
+        size: usize,
+        bias: &B,
+    ) -> Result<Self, Error> {
+        let mut sv = Vec::with_capacity(size);
+        let mut b = Vec::<f64>::with_capacity(size);
+
+        for i in 0..size {
+            let mut contrib = SVContribution::default();
+            contrib.sv = candidates[i].sv;
+
+            match candidates[i].vector_contribution(
+                t,
+                cfg,
+                apriori.pos_m,
+                apriori.lat_long_alt_deg_deg_km,
+                &mut contrib,
+                bias,
+            ) {
+                Ok((b_i, dr_i)) => {
+                    b.push(b_i);
+
+                    if cfg.modeling.relativistic_path_range {
+                        debug!(
+                            "{}({}) - relativistic path range: {:.3}m",
+                            t, candidates[i].sv, dr_i
+                        );
+                    }
+
+                    sv.push(contrib);
+                },
+                Err(e) => {
+                    error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                },
+            }
         }
+
+        let len = b.len();
+        if len < 4 {
+            return Err(Error::MatrixMinimalDimension);
+        }
+
+        let mut b_vec = DVector::<f64>::zeros(len);
+
+        for i in 0..len {
+            b_vec[i] = b[i];
+        }
+
+        let state = State::from_apriori(&apriori).or(Err(Error::NavigationFilterInitError))?;
+        debug!("initial state: {:?}", state.pos_m);
+
+        Ok(Self {
+            sv,
+            state,
+            iter: 0,
+            b: b_vec,
+            cfg: cfg.clone(),
+            dop: DilutionOfPrecision::default(),
+        })
     }
-    pub fn reset(&mut self) {
-        self.filter_state = None;
-        self.pending = Default::default();
+
+    /// Iterates mutable [Navigation] filter.
+    pub fn iterate<B: Bias>(
+        &mut self,
+        t: Epoch,
+        cfg: &Config,
+        candidates: &[Candidate],
+        size: usize,
+        bias: &B,
+    ) -> Result<bool, Error> {
+        let len = self.b.len();
+
+        let mut converged = false;
+        let mut h = MatrixXx4::<f64>::zeros(len);
+
+        // form matrix
+        for i in 0..size {
+            let dr_i = self.sv[i].relativistic_path_range_m;
+
+            let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, self.state.pos_m);
+
+            h[(i, 0)] = dx;
+            h[(i, 1)] = dy;
+            h[(i, 2)] = dz;
+            h[(i, 3)] = 1.0;
+        }
+
+        if h.nrows() != self.b.nrows() {
+            return Err(Error::MatrixDimension);
+        }
+
+        let ht = h.transpose();
+        let ht_h = ht.clone() * h.clone();
+        let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
+        let ht_b = ht * self.b.clone();
+
+        let dx = ht_h_inv * ht_b;
+
+        self.iter += 1;
+
+        self.state.temporal_update(t, dx).map_err(|e| {
+            error!("{} - physical error: {}", t, e);
+            Error::StateUpdate
+        })?;
+
+        self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
+
+        let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
+
+        // update models (if desired)
+        if !converged {
+            let mut j = 0;
+            // does not update the contribution
+            let mut dummy = SVContribution::default();
+            if self.cfg.solver.filter.model_update {
+                for i in 0..size {
+                    match candidates[i].vector_contribution(
+                        t,
+                        &self.cfg,
+                        self.state.pos_m,
+                        self.state.lat_long_alt_deg_deg_km,
+                        &mut dummy,
+                        bias,
+                    ) {
+                        Ok((b_i, _)) => {
+                            self.b[j] = b_i;
+                            j += 1;
+                        },
+                        Err(e) => {
+                            error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                        },
+                    }
+                }
+            }
+        }
+
+        Ok(self.iter == 8)
     }
-    pub fn resolve(&mut self, input: &Input) -> Result<Output, Error> {
-        let out = self.filter.resolve(input, self.filter_state.clone())?;
-        self.pending = out.clone();
-        Ok(out)
-    }
-    pub fn validate(&mut self) {
-        self.filter_state = Some(self.pending.state.clone());
+}
+
+#[cfg(test)]
+mod test {
+    use super::{DilutionOfPrecision, State};
+    use crate::prelude::{Almanac, EARTH_J2000};
+    use nalgebra::Matrix4;
+
+    #[test]
+    fn test_dop() {
+        let almanac = Almanac::until_2035().unwrap();
+        let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+
+        let state = State {
+            frame,
+            t: Default::default(),
+            clock_dt: Default::default(),
+            clock_drift_s_s: 0.0,
+            pos_m: (1.0, 2.0, 3.0),
+            lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0),
+            vel_m_s: (4.0, 5.0, 6.0),
+        };
+
+        let matrix = Matrix4::new(
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        );
+
+        let dop = DilutionOfPrecision::new(&state, matrix);
+
+        assert_eq!(dop.gdop, (1.0_f64 + 6.0_f64 + 11.0_f64 + 16.0_f64).sqrt());
+        assert_eq!(dop.tdop, 16.0_f64.sqrt());
     }
 }

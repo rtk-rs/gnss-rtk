@@ -10,6 +10,9 @@ keywords = ["timing", "positioning", "gps", "glonass", "galileo"]
 categories = ["science", "science::geo"]
 edition = "2021"
 readme = "README.md"
+exclude = [
+    "examples_need_update/*",
+]
 
 [features]
 default = []
@@ -20,6 +23,9 @@ serde = [
     "hifitime/serde"
 ]
 
+[dev-dependencies]
+env_logger = "0.11"
+
 [dependencies]
 log = "0.4"
 thiserror = "2"
@@ -27,7 +33,7 @@ map_3d = "0.1.5"
 polyfit-rs = "0.2"
 nalgebra = "0.33"
 itertools = "0.14"
-gnss-rs = "2.3.1"
+gnss-rs = "2.3.5"
 nyx-space = "2.0.0"
 hifitime = { version = "4.0", features = ["std"] }
 anise = { version = "0.5.3", features = ["embed_ephem"] }

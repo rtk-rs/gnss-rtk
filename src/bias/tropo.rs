@@ -1,10 +1,11 @@
-use crate::bias::RuntimeParams;
-use crate::cfg::Error;
 use log::debug;
 use std::f64::consts::PI;
 
+use crate::{bias::BiasRuntime, cfg::Error};
+
+/// [TroposphereModel]s that we propose, but you can also implement your own.
 #[derive(Default, Copy, Clone, Debug)]
-pub enum TropoModel {
+pub enum TroposphereModel {
     #[default]
     Niel,
     UNB3,
@@ -24,33 +25,21 @@ enum UNB3Param {
     Lambda = 4,
 }
 
-impl std::str::FromStr for TropoModel {
+impl std::str::FromStr for TroposphereModel {
     type Err = Error;
-    fn from_str(s: &str) -> Result<TropoModel, Error> {
+    fn from_str(s: &str) -> Result<TroposphereModel, Error> {
         let c = s.trim().to_lowercase();
         match c.as_str() {
-            "niel" => Ok(TropoModel::Niel),
-            "unb3" => Ok(TropoModel::UNB3),
-            _ => Err(Error::UnknownTropoModel),
+            "niel" => Ok(TroposphereModel::Niel),
+            "unb3" => Ok(TroposphereModel::UNB3),
+            _ => Err(Error::InvalidTroposphereModel),
         }
     }
 }
 
-/// Tropospheric delay components you can provide, to improve the internal model.
-#[derive(Default, Copy, Clone, Debug)]
-pub enum TropoComponents {
-    /// Use this to use the internal meteorological model
-    #[default]
-    Unknown,
-    /// Use this to define total Zenith (Wet + Dry) delay components, in meters.
-    Total(f64),
-    /// Use this to define both Zenith Dry and Wet delay components, in meters.
-    WetDry((f64, f64)),
-}
-
-impl TropoComponents {
-    /// returns Zwd, Zdd from UNB3 model
-    fn unb3_model(rtm: &RuntimeParams) -> (f64, f64) {
+impl TroposphereModel {
+    /// Returns (Zwd, Zdd) duplet from UNB3 model
+    fn unb3_model(rtm: &BiasRuntime) -> (f64, f64) {
         const K_1: f64 = 77.604;
         const K_2: f64 = 382000.0_f64;
         const R_D: f64 = 287.054;
@@ -58,7 +47,7 @@ impl TropoComponents {
         const G_M: f64 = 9.784_f64;
 
         let day_of_year = rtm.t.day_of_year();
-        let (lat_ddeg, _, h) = rtm.rx_geo;
+        let (lat_ddeg, _, h) = rtm.rx_lat_long_alt_deg_deg_km;
 
         let mut lat = 15.0_f64;
         let mut min_delta = 180.0_f64;
@@ -112,6 +101,8 @@ impl TropoComponents {
 
         (zwd, zdd)
     }
+
+    /// Computes desired [UNB3Param] using this model for that latitude and DOY.
     fn unb3_parameter(prm: UNB3Param, lat_ddeg: f64, day_of_year: f64, nearest: usize) -> f64 {
         let dmin = match lat_ddeg.is_sign_positive() {
             true => 28.0_f64,
@@ -121,6 +112,8 @@ impl TropoComponents {
         let amplitude = Self::unb3_average_amplitude(prm, lat_ddeg, nearest);
         annual - amplitude * ((day_of_year - dmin) * 2.0_f64 * PI / 365.25_f64).cos()
     }
+
+    /// Returns average amplitude of selected [UNB3Param]
     fn unb3_average_amplitude(prm: UNB3Param, lat_ddeg: f64, nearest: usize) -> f64 {
         const LUT: [(f64, [f64; 5]); 5] = [
             (15.0, [0.0, 0.0, 0.0, 0.0, 0.0]),
@@ -141,6 +134,7 @@ impl TropoComponents {
         }
     }
 
+    /// Average annual value for desired [UNB3Param].
     fn unb3_annual_average(prm: UNB3Param, lat_ddeg: f64, nearest: usize) -> f64 {
         const LUT: [(f64, [f64; 5]); 5] = [
             (15.0, [1013.25, 299.65, 26.31, 6.30E-3, 2.77]),
@@ -161,14 +155,16 @@ impl TropoComponents {
         }
     }
 
-    fn niel_model(prm: &RuntimeParams) -> f64 {
+    /// Niel's tropospheric bias model.
+    fn niel_model(rtm: &BiasRuntime) -> f64 {
         const NS: f64 = 324.8;
 
-        let (_, _, h) = prm.rx_geo;
-        let elev_rad = prm.elevation_rad;
-        let h_km = h / 1000.0;
+        let (_, _, h_km) = rtm.rx_lat_long_alt_deg_deg_km;
 
-        let f = match prm.elevation_deg < 90.0 {
+        let elev_deg = rtm.sv_elevation_azimuth_deg_deg.0;
+        let elev_rad = elev_deg.to_radians();
+
+        let f = match elev_deg < 90.0 {
             true => 1.0_f64 / (elev_rad.sin() + 0.00143 / (elev_rad.tan() + 0.0455)),
             false => 1.0,
         };
@@ -181,21 +177,15 @@ impl TropoComponents {
 
         f * delta_r
     }
-    pub(crate) fn value(&self, model: TropoModel, rtm: &RuntimeParams) -> f64 {
+
+    /// Returns [TroposphereModel] metric bias, evaluated [BiasRuntime] parameters.
+    pub fn bias_m(&self, rtm: &BiasRuntime) -> f64 {
         match self {
-            Self::Unknown => match model {
-                TropoModel::Niel => Self::niel_model(rtm),
-                TropoModel::UNB3 => {
-                    let (zwd, zdd) = Self::unb3_model(rtm);
-                    (zwd + zdd) * 1.001_f64
-                        / (0.002001_f64 + rtm.elevation_rad.sin().powi(2)).sqrt()
-                },
-            },
-            Self::Total(tot) => {
-                tot * 1.001_f64 / (0.002001_f64 + rtm.elevation_rad.sin().powi(2)).sqrt()
-            },
-            Self::WetDry((zwd, zdd)) => {
-                (zwd + zdd) * 1.001_f64 / (0.002001_f64 + rtm.elevation_rad.sin().powi(2)).sqrt()
+            Self::Niel => Self::niel_model(rtm),
+            Self::UNB3 => {
+                let (zwd, zdd) = Self::unb3_model(rtm);
+                let elev_rad = rtm.sv_elevation_azimuth_deg_deg.0.to_radians();
+                (zwd + zdd) * 1.001_f64 / (0.002001_f64 + elev_rad.sin().powi(2)).sqrt()
             },
         }
     }

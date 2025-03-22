@@ -1,0 +1,12 @@
+[
+    {
+	    "sv": "G30",
+	    "epoch": "2020-06-25T00:00:00 GPST",
+        "observation": {
+            "carrier": "L1",
+            "pseudo": 1000.0,
+            "phase": 1000.0,
+            "dopper": 3.0
+        }
+    }
+]
