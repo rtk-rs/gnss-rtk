@@ -107,6 +107,10 @@ impl std::str::FromStr for Carrier {
 }
 
 impl Carrier {
+    pub(crate) fn is_l1_pivot(&self) -> bool {
+        matches!(self, Self::L1 | Self::E1 | Self::B1aB1c)
+    }
+
     pub fn frequency(&self) -> f64 {
         match self {
             Self::L1 | Self::E1 | Self::B1aB1c => 1575.42E6_f64,

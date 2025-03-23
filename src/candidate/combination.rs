@@ -9,23 +9,11 @@ pub(crate) struct Combination {
     pub rhs: Carrier,
     /// Value
     pub value: f64,
-    /// Phase combination ambiguity
-    pub ambiguity: Option<f64>,
 }
 
 impl Combination {
     pub fn new(lhs: Carrier, rhs: Carrier, value: f64) -> Self {
-        Self {
-            lhs,
-            rhs,
-            value,
-            ambiguity: None,
-        }
-    }
-    pub fn with_ambiguity(&self, ambiguity: f64) -> Self {
-        let mut s = self.clone();
-        s.ambiguity = Some(ambiguity);
-        s
+        Self { lhs, rhs, value }
     }
 }
 

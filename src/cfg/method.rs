@@ -22,7 +22,8 @@ pub enum Method {
     /// You might hope for +/- 1m on high quality data.
     #[default]
     CPP,
-    /// Precise Point Positioning (PPP).
+    /// Phase range Precise Point Positioning (PPP).
+    /// Requires two carrier signals and two decoded pseudo range codes.
     PPP,
 }
 
