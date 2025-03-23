@@ -2,9 +2,12 @@
 use hifitime::Unit;
 use log::debug;
 
-use crate::prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SV};
+use crate::{
+    ambiguity::Output as Ambiguities,
+    prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SPEED_OF_LIGHT_M_S, SV},
+};
+
 use anise::errors::AlmanacResult;
-use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 mod bias;
 mod nav;
@@ -114,6 +117,16 @@ impl Candidate {
 
 // private
 impl Candidate {
+    pub(crate) fn update_ambiguities(&mut self, output: Ambiguities) {
+        for obs in self.observations.iter_mut() {
+            if obs.carrier.is_l1_pivot() {
+                obs.ambiguity = Some(output.n1 as f64);
+            } else {
+                obs.ambiguity = Some(output.n2 as f64);
+            }
+        }
+    }
+
     /// Computes phase windup term. Self should be fully resolved, otherwse
     /// will panic.
     pub(crate) fn windup_correction(&mut self, _: Vector3<f64>, _: Vector3<f64>) -> f64 {

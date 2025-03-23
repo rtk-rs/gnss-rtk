@@ -1,6 +1,6 @@
-use nyx::cosmic::SPEED_OF_LIGHT_M_S;
-
 use itertools::Itertools;
+use std::collections::HashMap;
+
 use log::{debug, error, warn};
 
 use anise::{
@@ -10,7 +10,7 @@ use anise::{
 };
 
 use crate::{
-    //ambiguity::Solver as AmbiguitySolver,
+    ambiguity::{Input as AmbiguityInput, Solver as AmbiguitySolver},
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
@@ -18,7 +18,7 @@ use crate::{
     constants::Constants,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
-    prelude::{Duration, Epoch, Error, Orbit},
+    prelude::{Duration, Epoch, Error, Orbit, SPEED_OF_LIGHT_M_S, SV},
 };
 
 /// [Solver] to resolve [PVTSolution]s.
@@ -42,6 +42,8 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     initial_ecef_m: Option<Vector3>,
     /// Past elected
     past_elected: Vec<Candidate>,
+    /// [AmbiguitySolver]
+    ambiguities: HashMap<SV, AmbiguitySolver>,
 }
 
 pub(crate) fn sv_orbital_attitude_fixup(
@@ -132,6 +134,7 @@ fn sv_velocities_fixup(
 
                         let bias =
                             -2.0 * r_v_sat / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S * Unit::Second;
+
                         // let ea_deg = sv_orbit.ea_deg().map_err(Error::Physics)?;
 
                         // let ea_rad = ea_deg.to_radians();
@@ -265,6 +268,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             initial_ecef_m,
             past_state: None,
             past_elected: Vec::with_capacity(8),
+            ambiguities: HashMap::with_capacity(8),
         }
     }
 
@@ -358,8 +362,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             },
         };
 
-        let apriori_orbit = apriori.to_orbit();
-
         sv_orbital_attitude_fixup(&self.almanac, &apriori, &mut pool);
 
         sv_velocities_fixup(
@@ -403,12 +405,60 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
 
         sv_attitude_filters(&self.cfg, &mut pool);
 
-        // // Resolve ambiguities
-        // let ambiguities = if method == Method::PPP {
-        //     self.ambiguity.resolve(&pool)
-        // } else {
-        //     Default::default()
-        // };
+        // ambiguity solving
+        if self.cfg.method == Method::PPP {
+            pool.retain_mut(|cd| {
+                if let Some(l1) = cd.l1_phase_range() {
+                    if let Some(c1) = cd.l1_pseudo_range() {
+                        if let Some(l2) = cd.lj_phase_range() {
+                            if let Some(c2) = cd.lj_pseudo_range() {
+                                let input = AmbiguityInput {
+                                    f1: l1.0.frequency(),
+                                    c1: c1.1,
+                                    l1: l1.1,
+                                    f2: l2.0.frequency(),
+                                    c2: c2.1,
+                                    l2: l2.1,
+                                };
+
+                                let output = if let Some(solver) = self.ambiguities.get_mut(&cd.sv)
+                                {
+                                    solver.solve(input)
+                                } else {
+                                    let mut solver = AmbiguitySolver::new();
+                                    solver.solve(input)
+                                };
+
+                                debug!(
+                                    "{} ({}) - n_1={}(\u{03a3}={}) n_2={}(\u{03a3}w)={})",
+                                    cd.t,
+                                    cd.sv,
+                                    output.n1,
+                                    output.sigma_n1,
+                                    output.n2,
+                                    output.sigma_nw
+                                );
+
+                                cd.update_ambiguities(output);
+                                true
+                            } else {
+                                debug!("{} ({}) - missing lj pseudo range", cd.t, cd.sv);
+                                false
+                            }
+                        } else {
+                            debug!("{} ({}) - missing lj phase range", cd.t, cd.sv);
+                            false
+                        }
+                    } else {
+                        debug!("{} ({}) - missing l1 code", cd.t, cd.sv);
+                        false
+                    }
+                } else {
+                    debug!("{} ({}) - missing l1 phase range", cd.t, cd.sv);
+                    false
+                }
+            });
+        }
 
         // Prepare for NAV
         pool.retain(|cd| {

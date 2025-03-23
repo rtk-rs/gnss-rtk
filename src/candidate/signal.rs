@@ -50,24 +50,6 @@ impl Observation {
         }
     }
 
-    /// Creates new (unambiguous) phase range [Observation] (in meters), with possible
-    /// SNR in dB/Hz, and ambiguity as fraction of signal propagation cycles.
-    pub fn phase_range(
-        carrier: Carrier,
-        range_m: f64,
-        ambiguity: f64,
-        snr_dbhz: Option<f64>,
-    ) -> Self {
-        Self {
-            snr_dbhz,
-            carrier,
-            doppler: None,
-            pseudo_range_m: None,
-            ambiguity: Some(ambiguity),
-            phase_range_m: Some(range_m),
-        }
-    }
-
     /// Creates new Doppler [Observation], with possible SNR in dB/Hz.
     pub fn doppler(carrier: Carrier, doppler: f64, snr_dbhz: Option<f64>) -> Self {
         Self {
@@ -188,12 +170,7 @@ impl Candidate {
         let l1 = self
             .observations
             .iter()
-            .filter(|ob| {
-                matches!(
-                    ob.carrier,
-                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                ) && ob.pseudo_range_m.is_some()
-            })
+            .filter(|ob| ob.carrier.is_l1_pivot() && ob.pseudo_range_m.is_some())
             .reduce(|k, _| k)?;
 
         Some((l1.carrier, l1.pseudo_range_m.unwrap()))
@@ -204,15 +181,15 @@ impl Candidate {
         let l1 = self
             .observations
             .iter()
-            .filter(|ob| {
-                matches!(
-                    ob.carrier,
-                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                ) && ob.phase_range_m.is_some()
-            })
+            .filter(|ob| ob.carrier.is_l1_pivot() && ob.phase_range_m.is_some())
             .reduce(|k, _| k)?;
 
-        Some((l1.carrier, l1.phase_range_m.unwrap()))
+        let mut l_1 = l1.phase_range_m.unwrap();
+        let lambda_1 = l1.carrier.wavelength();
+        let n_1 = l1.ambiguity.unwrap_or_default();
+        l_1 -= n_1 * lambda_1;
+
+        Some((l1.carrier, l_1))
     }
 
     /// Returns the Lj Pseudo Range observation [m] if it exists
@@ -220,12 +197,7 @@ impl Candidate {
         let lj = self
             .observations
             .iter()
-            .filter(|ob| {
-                !matches!(
-                    ob.carrier,
-                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                ) && ob.pseudo_range_m.is_some()
-            })
+            .filter(|ob| !ob.carrier.is_l1_pivot() && ob.pseudo_range_m.is_some())
             .reduce(|k, _| k)?;
 
         Some((lj.carrier, lj.pseudo_range_m.unwrap()))
@@ -236,15 +208,15 @@ impl Candidate {
         let lj = self
             .observations
             .iter()
-            .filter(|ob| {
-                !matches!(
-                    ob.carrier,
-                    Carrier::L1 | Carrier::E1 | Carrier::B1aB1c | Carrier::B1I
-                ) && ob.phase_range_m.is_some()
-            })
+            .filter(|ob| !ob.carrier.is_l1_pivot() && ob.phase_range_m.is_some())
             .reduce(|k, _| k)?;
 
-        Some((lj.carrier, lj.phase_range_m.unwrap()))
+        let mut l_j = lj.phase_range_m.unwrap();
+        let lambda_j = lj.carrier.wavelength();
+        let n_j = lj.ambiguity.unwrap_or_default();
+        l_j -= n_j * lambda_j;
+
+        Some((lj.carrier, l_j))
     }
 
     /// Discards all observations below given SNR mask (>)
