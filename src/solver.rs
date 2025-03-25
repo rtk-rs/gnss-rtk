@@ -430,13 +430,13 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                                 };
 
                                 debug!(
-                                    "{} ({}) - n_1={}(\u{03a3}={}) n_2={}(\u{03a3}w)={})",
+                                    "{} ({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w)={})",
                                     cd.t,
                                     cd.sv,
                                     output.n1,
-                                    output.sigma_n1,
+                                    0.0, // output.sigma_n1,
                                     output.n2,
-                                    output.sigma_nw
+                                    0.0, // output.sigma_nw,
                                 );
 
                                 cd.update_ambiguities(output);
