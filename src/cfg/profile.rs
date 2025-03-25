@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Rover or receiver [Profile], which is application dependent.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Profile {
     /// Receiver held in static.
     /// Typically used in Geodetic surveys (GNSS stations Referencing)

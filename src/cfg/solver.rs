@@ -22,7 +22,7 @@ const fn default_tdop_threshold() -> Option<f64> {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ElevationMappingFunction {
     /// a + b * e-elev/c
     pub a: f64,
@@ -39,7 +39,7 @@ impl ElevationMappingFunction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum WeightMatrix {
     /// a + b e-elev/c
     MappingFunction(ElevationMappingFunction),
@@ -60,7 +60,7 @@ fn default_weight_matrix() -> Option<WeightMatrix> {
 
 /// Filter loop exit criteria
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum LoopExitCriteria {
     /// Exit solver loop when maximal number of iterations has been reached.
     Iteration(usize),
@@ -74,7 +74,7 @@ impl Default for LoopExitCriteria {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct FilterOpts {
     /// Update not only the position but perturbations model as well,
     /// for each filter iteration, at the expense of more processing time.
@@ -99,7 +99,7 @@ impl Default for FilterOpts {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SolverOpts {
     /// GDOP threshold to invalidate ongoing GDOP
     #[cfg_attr(feature = "serde", serde(default = "default_gdop_threshold"))]

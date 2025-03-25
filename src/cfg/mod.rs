@@ -41,7 +41,7 @@ fn max_iono_bias() -> f64 {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// System Internal Delay as defined by BIPM in
 /// "GPS Receivers Accurate Time Comparison" : the (frequency dependent)
 /// time delay introduced by the combination of:
@@ -57,7 +57,7 @@ pub struct InternalDelay {
 }
 
 #[derive(Default, Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
     /// Time scale in which we express the PVT solutions,
     /// [TimeScale::GPST] is the default value.
@@ -213,5 +213,19 @@ impl Config {
         let mut s = self.clone();
         s.modeling = modeling;
         s
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "serde")]
+mod test {
+    use super::Config;
+    use serde::Serialize;
+
+    #[test]
+    fn generate_default_config() {
+        let cfg = Config::default();
+        let string = serde_json::to_string(&cfg).unwrap();
+        println!("{}", string);
     }
 }
