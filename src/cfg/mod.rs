@@ -56,7 +56,7 @@ pub struct InternalDelay {
     pub frequency: f64,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
     /// Time scale in which we express the PVT solutions,
@@ -143,6 +143,32 @@ pub struct Config {
     pub modeling: Modeling,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            timescale: default_timescale(),
+            method: Method::default(),
+            profile: Profile::default(),
+            solver: SolverOpts::default(),
+            code_smoothing: false,
+            int_delay: Default::default(),
+            modeling: Modeling::default(),
+            remote_site: None,
+            fixed_altitude: None,
+            prefered_signal: None,
+            arp_enu: None,
+            externalref_delay: None,
+            max_sv_occultation_percent: None,
+            min_sv_elev: Some(10.0),
+            min_sv_azim: None,
+            max_sv_azim: None,
+            min_snr: None, // TODO
+            max_tropo_bias: 50.0,
+            max_iono_bias: 50.0,
+        }
+    }
+}
+
 impl Config {
     /// Returns [Config] for static PPP positioning, with desired [Method].
     /// You can then customize [Self] as you will.
@@ -219,13 +245,23 @@ impl Config {
 #[cfg(test)]
 #[cfg(feature = "serde")]
 mod test {
-    use super::Config;
+    use super::*;
     use serde::Serialize;
+    use std::io::Write;
 
     #[test]
-    fn generate_default_config() {
-        let cfg = Config::default();
-        let string = serde_json::to_string(&cfg).unwrap();
-        println!("{}", string);
+    fn generate_static_cpp_config() {
+        let cfg = Config::static_ppp_preset(Method::CPP);
+        let string = serde_json::to_string_pretty(&cfg).unwrap();
+        let mut fd = std::fs::File::create("static_cpp.json").unwrap();
+        write!(fd, "{}", string).unwrap();
+    }
+
+    #[test]
+    fn generate_static_ppp_config() {
+        let cfg = Config::static_ppp_preset(Method::PPP);
+        let string = serde_json::to_string_pretty(&cfg).unwrap();
+        let mut fd = std::fs::File::create("static_ppp.json").unwrap();
+        write!(fd, "{}", string).unwrap();
     }
 }
