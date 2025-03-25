@@ -97,6 +97,16 @@ impl Candidate {
         }))
     }
 
+    /// Mutable Pseudo range iterator
+    pub(crate) fn pseudo_range_iter_mut(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
+        Box::new(self.observations.iter_mut().filter_map(|ob| {
+            let pseudo = ob.pseudo_range_m?;
+            Some((ob.carrier, pseudo))
+        }))
+    }
+
     /// Phase Range iterator
     pub(crate) fn phase_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
         Box::new(self.observations.iter().filter_map(|ob| {
