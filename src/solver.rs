@@ -11,6 +11,7 @@ use anise::{
 
 use crate::{
     ambiguity::{Input as AmbiguityInput, Solver as AmbiguitySolver},
+    averager::Averager,
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
@@ -18,8 +19,16 @@ use crate::{
     constants::Constants,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
-    prelude::{Duration, Epoch, Error, Orbit, SPEED_OF_LIGHT_M_S, SV},
+    prelude::{Carrier, Duration, Epoch, Error, Orbit, SPEED_OF_LIGHT_M_S, SV},
 };
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct SVkey {
+    /// [SV]
+    sv: SV,
+    /// [Carrier]
+    carrier: Carrier,
+}
 
 /// [Solver] to resolve [PVTSolution]s.
 /// ## Generics:
@@ -42,6 +51,8 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     initial_ecef_m: Option<Vector3>,
     /// Past elected
     past_elected: Vec<Candidate>,
+    /// Smoothers
+    code_smoother: HashMap<SVkey, Averager>,
     /// [AmbiguitySolver]
     ambiguities: HashMap<SV, AmbiguitySolver>,
 }
@@ -269,6 +280,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             past_state: None,
             past_elected: Vec::with_capacity(8),
             ambiguities: HashMap::with_capacity(8),
+            code_smoother: HashMap::with_capacity(8),
         }
     }
 
@@ -404,6 +416,46 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         }
 
         sv_attitude_filters(&self.cfg, &mut pool);
+
+        // smoothing
+        if self.cfg.code_smoothing {
+            for cd in pool.iter_mut() {
+                if self.cfg.method == Method::SPP {
+                    // for (c, c_k) in cd.pseudo_range_iter_mut() {
+                    //     if let Some((l, l_k)) = cd.lj_phase_range() {
+                    //         // TODO:
+                    //         // L1+C1
+                    //         // Lj + Cj!
+                    //         let k = SVkey { sv: cd.sv, carrier: c };
+                    //         if self.code_smoother.get(&k).is_none() {
+                    //             let avg = Averager::new();
+                    //             self.code_smoother.insert(k, avg);
+                    //         }
+
+                    //         let avg = self.code_smoother.get_mut(&k).unwrap();
+                    //         avg.add(c_k - l_k);
+                    //
+                    //         c_k = l_k - avg.mean;
+                    //     }
+                    // }
+                } else {
+                    // if let Some(c_k) = cd.code_if_combination() {
+                    //     if let Some(l_k) = cd.phase_if_combination() {
+                    //         let k = SVkey { sv: cd.sv, carrier: c_k.rhs };
+                    //         if self.code_smoother.get(&k).is_none() {
+                    //             let avg = Averager::new();
+                    //             self.code_smoother.insert(k, avg);
+                    //         }
+                    //         let avg = self.code_smoother.get_mut(&k).unwrap();
+                    //         avg.add(c_k.value - l_k.value);
+                    //
+                    //         // TODO: L1
+                    //         // c_k = l_k - avg.mean;
+                    //     }
+                    // }
+                }
+            }
+        }
 
         // ambiguity solving
         if self.cfg.method == Method::PPP {

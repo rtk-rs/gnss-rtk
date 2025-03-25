@@ -9,6 +9,7 @@ extern crate nyx_space as nyx;
 
 // private modules
 mod ambiguity;
+mod averager;
 mod bancroft;
 mod bias;
 mod candidate;
