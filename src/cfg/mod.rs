@@ -28,10 +28,6 @@ fn default_timescale() -> TimeScale {
     TimeScale::GPST
 }
 
-fn default_smoothing() -> bool {
-    false
-}
-
 fn max_tropo_bias() -> f64 {
     30.0
 }
@@ -84,10 +80,16 @@ pub struct Config {
     /// Fixed altitude: reduces the need of 4 to 3 SV to obtain 3D solutions.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fixed_altitude: Option<f64>,
-    /// Pseudo Range smoothing. Use this to improve solutions accuracy.
-    /// This applies to all positioning strategies.
-    #[cfg_attr(feature = "serde", serde(default = "default_smoothing"))]
-    pub code_smoothing: bool,
+    /// Pseudo Range smoothing window length.
+    /// Use this to improve solutions accuracy.
+    /// Unfortunately, this has no effect when using pure SPP strategy,
+    /// where it would make the most sense.
+    /// When using CPP and particularly PPP, you can use this to further improve
+    /// the accuracy of your solutions anyway.
+    /// Set to 0 to disable this feature.
+    /// When parametrizing, think in terms of accumulated periods against Ionospheric activity.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub code_smoothing: usize,
     /// Internal delays to compensate for (total summation, in [s]).
     /// Compensation is only effective if [Modeling.cable_delay]
     /// is also turned on.
@@ -150,7 +152,7 @@ impl Default for Config {
             method: Method::default(),
             profile: Profile::default(),
             solver: SolverOpts::default(),
-            code_smoothing: false,
+            code_smoothing: 0,
             int_delay: Default::default(),
             modeling: Modeling::default(),
             remote_site: None,
@@ -172,25 +174,27 @@ impl Default for Config {
 impl Config {
     /// Returns [Config] for static PPP positioning, with desired [Method].
     /// You can then customize [Self] as you will.
-    pub fn static_ppp_preset(method: Method) -> Self {
+    pub fn static_preset(method: Method) -> Self {
         let mut s = Self::default();
         s.profile = Profile::Static;
         s.method = method;
+        s.code_smoothing = 15;
         s.min_sv_elev = Some(15.0);
-        s.max_tropo_bias = max_tropo_bias();
         s.max_iono_bias = max_iono_bias();
+        s.max_tropo_bias = max_tropo_bias();
         s
     }
 
     /// Returns [Config] for dynamic PPP positioning, with desired [Method]
     /// and rover [Profile]. You can then customize [Self] as you will.
-    pub fn dynamic_ppp_preset(profile: Profile, method: Method) -> Self {
+    pub fn dynamic_preset(profile: Profile, method: Method) -> Self {
         let mut s = Self::default();
-        s.profile = profile;
         s.method = method;
+        s.profile = profile;
+        s.code_smoothing = 15;
         s.min_sv_elev = Some(15.0);
-        s.max_tropo_bias = max_tropo_bias();
         s.max_iono_bias = max_iono_bias();
+        s.max_tropo_bias = max_tropo_bias();
         s
     }
 

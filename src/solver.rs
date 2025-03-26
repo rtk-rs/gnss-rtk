@@ -20,15 +20,8 @@ use crate::{
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     prelude::{Carrier, Duration, Epoch, Error, Orbit, SPEED_OF_LIGHT_M_S, SV},
+    smoothing::Smoother,
 };
-
-#[derive(Clone, PartialEq, Eq, Hash)]
-struct SVkey {
-    /// [SV]
-    sv: SV,
-    /// [Carrier]
-    carrier: Carrier,
-}
 
 /// [Solver] to resolve [PVTSolution]s.
 /// ## Generics:
@@ -51,8 +44,8 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     initial_ecef_m: Option<Vector3>,
     /// Past elected
     past_elected: Vec<Candidate>,
-    /// Smoothers
-    code_smoother: HashMap<SVkey, Averager>,
+    /// Smoother
+    smoother: Smoother,
     /// [AmbiguitySolver]
     ambiguities: HashMap<SV, AmbiguitySolver>,
 }
@@ -278,9 +271,9 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             cfg: cfg.clone(),
             initial_ecef_m,
             past_state: None,
+            smoother: Smoother::new(),
             past_elected: Vec::with_capacity(8),
             ambiguities: HashMap::with_capacity(8),
-            code_smoother: HashMap::with_capacity(8),
         }
     }
 
@@ -417,48 +410,8 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
 
         sv_attitude_filters(&self.cfg, &mut pool);
 
-        // smoothing
-        if self.cfg.code_smoothing {
-            for cd in pool.iter_mut() {
-                if self.cfg.method == Method::SPP {
-                    // for (c, c_k) in cd.pseudo_range_iter_mut() {
-                    //     if let Some((l, l_k)) = cd.lj_phase_range() {
-                    //         // TODO:
-                    //         // L1+C1
-                    //         // Lj + Cj!
-                    //         let k = SVkey { sv: cd.sv, carrier: c };
-                    //         if self.code_smoother.get(&k).is_none() {
-                    //             let avg = Averager::new();
-                    //             self.code_smoother.insert(k, avg);
-                    //         }
-
-                    //         let avg = self.code_smoother.get_mut(&k).unwrap();
-                    //         avg.add(c_k - l_k);
-                    //
-                    //         c_k = l_k - avg.mean;
-                    //     }
-                    // }
-                } else {
-                    // if let Some(c_k) = cd.code_if_combination() {
-                    //     if let Some(l_k) = cd.phase_if_combination() {
-                    //         let k = SVkey { sv: cd.sv, carrier: c_k.rhs };
-                    //         if self.code_smoother.get(&k).is_none() {
-                    //             let avg = Averager::new();
-                    //             self.code_smoother.insert(k, avg);
-                    //         }
-                    //         let avg = self.code_smoother.get_mut(&k).unwrap();
-                    //         avg.add(c_k.value - l_k.value);
-                    //
-                    //         // TODO: L1
-                    //         // c_k = l_k - avg.mean;
-                    //     }
-                    // }
-                }
-            }
-        }
-
         // ambiguity solving
-        if self.cfg.method == Method::PPP {
+        if self.cfg.code_smoothing || self.cfg.method == Method::PPP {
             pool.retain_mut(|cd| {
                 if let Some(l1) = cd.l1_phase_range() {
                     if let Some(c1) = cd.l1_pseudo_range() {
@@ -510,6 +463,49 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                     false
                 }
             });
+        }
+
+        // smoothing
+        if self.cfg.code_smoothing {
+            for cd in pool.iter_mut() {
+                for sv_observ in cd.observations.iter_mut() {
+                    if sv_observ.carrier.is_l1_pivot() {
+                        let lambda_1 = sv_observ.carrier.wavelength();
+                        let n_1 = sv_observ.ambiguity.unwrap_or_default();
+                        if n_1 != 0.0 {
+                            if let Some(c_n) = &mut sv_observ.pseudo_range_m {
+                                if let Some(l_n) = sv_observ.phase_range_m {
+                                    *c_n = self.smoother.smoothing(
+                                        sv_observ.carrier,
+                                        cd.sv,
+                                        *c_n,
+                                        n_1,
+                                        lambda_1,
+                                        l_n,
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        let lambda_j = sv_observ.carrier.wavelength();
+                        let n_j = sv_observ.ambiguity.unwrap_or_default();
+                        if n_j != 0.0 {
+                            if let Some(c_n) = &mut sv_observ.pseudo_range_m {
+                                if let Some(l_n) = sv_observ.phase_range_m {
+                                    *c_n = self.smoother.smoothing(
+                                        sv_observ.carrier,
+                                        cd.sv,
+                                        *c_n,
+                                        n_j,
+                                        lambda_j,
+                                        l_n,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Prepare for NAV

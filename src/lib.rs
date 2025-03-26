@@ -17,6 +17,7 @@ mod carrier;
 mod cfg;
 mod navigation;
 mod orbit;
+mod smoothing;
 mod solver;
 
 pub(crate) mod constants;
