@@ -17,6 +17,10 @@ exclude = [
 [features]
 default = []
 
+# Download precise Orbit files @ build time instead of deploy time.
+# Removes required internet on first deployment ever.
+embed_ephem = ["anise/embed_ephem"]
+
 serde = [
     "dep:serde",
     "gnss-rs/serde",
@@ -36,6 +40,6 @@ nalgebra = "0.33"
 itertools = "0.14"
 gnss-rs = "2.3.5"
 nyx-space = "2.0.0"
+anise = "0.5.3"
 hifitime = { version = "4.0", features = ["std"] }
-anise = { version = "0.5.3", features = ["embed_ephem"] }
 serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
