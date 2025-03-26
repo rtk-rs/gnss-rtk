@@ -268,10 +268,10 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             earth_cef,
             bias,
             orbit_source,
-            cfg: cfg.clone(),
             initial_ecef_m,
             past_state: None,
-            smoother: Smoother::new(),
+            smoother: Smoother::new(cfg.code_smoothing),
+            cfg: cfg.clone(),
             past_elected: Vec::with_capacity(8),
             ambiguities: HashMap::with_capacity(8),
         }
@@ -411,7 +411,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         sv_attitude_filters(&self.cfg, &mut pool);
 
         // ambiguity solving
-        if self.cfg.code_smoothing || self.cfg.method == Method::PPP {
+        if self.cfg.code_smoothing > 0 || self.cfg.method == Method::PPP {
             pool.retain_mut(|cd| {
                 if let Some(l1) = cd.l1_phase_range() {
                     if let Some(c1) = cd.l1_pseudo_range() {
@@ -466,7 +466,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         }
 
         // smoothing
-        if self.cfg.code_smoothing {
+        if self.cfg.code_smoothing > 0 {
             for cd in pool.iter_mut() {
                 for sv_observ in cd.observations.iter_mut() {
                     if sv_observ.carrier.is_l1_pivot() {
