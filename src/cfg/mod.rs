@@ -36,6 +36,14 @@ fn max_iono_bias() -> f64 {
     10.0
 }
 
+fn min_sv_elev() -> Option<f64> {
+    Some(10.0)
+}
+
+fn default_code_smoothing() -> usize {
+    15
+}
+
 #[derive(Default, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// System Internal Delay as defined by BIPM in
@@ -88,7 +96,7 @@ pub struct Config {
     /// the accuracy of your solutions anyway.
     /// Set to 0 to disable this feature.
     /// When parametrizing, think in terms of accumulated periods against Ionospheric activity.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default = "default_code_smoothing"))]
     pub code_smoothing: usize,
     /// Internal delays to compensate for (total summation, in [s]).
     /// Compensation is only effective if [Modeling.cable_delay]
@@ -117,7 +125,7 @@ pub struct Config {
     pub max_sv_occultation_percent: Option<f64>,
     /// Minimal SV elevation angle for an SV to contribute to the solution.
     /// Use this as a simple quality criteria.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default = "min_sv_elev"))]
     pub min_sv_elev: Option<f64>,
     /// Minimal SV Azimuth angle for an SV to contribute to the solution.
     /// SV below that angle will not be considered.
@@ -152,7 +160,6 @@ impl Default for Config {
             method: Method::default(),
             profile: Profile::default(),
             solver: SolverOpts::default(),
-            code_smoothing: 0,
             int_delay: Default::default(),
             modeling: Modeling::default(),
             remote_site: None,
@@ -161,12 +168,13 @@ impl Default for Config {
             arp_enu: None,
             externalref_delay: None,
             max_sv_occultation_percent: None,
-            min_sv_elev: Some(10.0),
+            min_snr: None, // TODO
             min_sv_azim: None,
             max_sv_azim: None,
-            min_snr: None, // TODO
-            max_tropo_bias: 50.0,
-            max_iono_bias: 50.0,
+            min_sv_elev: min_sv_elev(),
+            max_iono_bias: max_iono_bias(),
+            max_tropo_bias: max_tropo_bias(),
+            code_smoothing: default_code_smoothing(),
         }
     }
 }
@@ -178,10 +186,6 @@ impl Config {
         let mut s = Self::default();
         s.profile = Profile::Static;
         s.method = method;
-        s.code_smoothing = 15;
-        s.min_sv_elev = Some(15.0);
-        s.max_iono_bias = max_iono_bias();
-        s.max_tropo_bias = max_tropo_bias();
         s
     }
 
@@ -191,10 +195,6 @@ impl Config {
         let mut s = Self::default();
         s.method = method;
         s.profile = profile;
-        s.code_smoothing = 15;
-        s.min_sv_elev = Some(15.0);
-        s.max_iono_bias = max_iono_bias();
-        s.max_tropo_bias = max_tropo_bias();
         s
     }
 
