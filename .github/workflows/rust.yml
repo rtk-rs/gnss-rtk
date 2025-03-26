@@ -27,11 +27,13 @@ jobs:
 
     - name: Config documentation
       run: |
-        cargo test generate_static_cpp_config --all-features
+        cargo test generate_static_cpp_preset --all-features
         cat static_cpp.json >> $GITHUB_STEP_SUMMARY
+        rm static_cpp.json
         
-        cargo test generate_static_ppp_config --all-features
+        cargo test generate_static_ppp_preset --all-features
         cat static_ppp.json >> $GITHUB_STEP_SUMMARY
+        rm static_ppp.json
 
   publish:
     name: Publish Library

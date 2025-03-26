@@ -254,16 +254,16 @@ mod test {
     use std::io::Write;
 
     #[test]
-    fn generate_static_cpp_config() {
-        let cfg = Config::static_ppp_preset(Method::CPP);
+    fn generate_static_cpp_preset() {
+        let cfg = Config::static_preset(Method::CPP);
         let string = serde_json::to_string_pretty(&cfg).unwrap();
         let mut fd = std::fs::File::create("static_cpp.json").unwrap();
         write!(fd, "{}", string).unwrap();
     }
 
     #[test]
-    fn generate_static_ppp_config() {
-        let cfg = Config::static_ppp_preset(Method::PPP);
+    fn generate_static_ppp_preset() {
+        let cfg = Config::static_preset(Method::PPP);
         let string = serde_json::to_string_pretty(&cfg).unwrap();
         let mut fd = std::fs::File::create("static_ppp.json").unwrap();
         write!(fd, "{}", string).unwrap();
