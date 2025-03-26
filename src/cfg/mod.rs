@@ -22,6 +22,8 @@ pub(crate) use crate::cfg::solver::LoopExitCriteria;
 pub enum Error {
     #[error("invalid troposphere model")]
     InvalidTroposphereModel,
+    #[error("invalid user profile")]
+    InvalidUserProfile,
 }
 
 fn default_timescale() -> TimeScale {
@@ -41,7 +43,7 @@ fn min_sv_elev() -> Option<f64> {
 }
 
 fn default_code_smoothing() -> usize {
-    15
+    0
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -186,6 +188,12 @@ impl Config {
         let mut s = Self::default();
         s.profile = Profile::Static;
         s.method = method;
+        match method {
+            Method::PPP => {
+                s.code_smoothing = 15;
+            },
+            _ => {},
+        }
         s
     }
 
@@ -263,7 +271,7 @@ mod test {
 
     #[test]
     fn generate_static_ppp_preset() {
-        let cfg = Config::static_preset(Method::PPP);
+        let mut cfg = Config::static_preset(Method::PPP);
         let string = serde_json::to_string_pretty(&cfg).unwrap();
         let mut fd = std::fs::File::create("static_ppp.json").unwrap();
         write!(fd, "{}", string).unwrap();
