@@ -39,7 +39,7 @@ pub mod prelude {
         bias::{Bias, BiasRuntime, IonosphereBias, IonosphereModel, KbModel, TroposphereModel},
         candidate::{Candidate, ClockCorrection, Observation},
         carrier::{Carrier, Signal},
-        cfg::{Config, Method},
+        cfg::{Config, Method, Profile},
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,

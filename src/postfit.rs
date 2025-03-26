@@ -91,19 +91,18 @@ impl NyxState for PostfitState {
     }
 
     fn to_vector(&self) -> OVector<f64, Self::VecLength> {
-        Default::default()
-    }
-
-    fn orbit(&self) -> Orbit {
-        let pos_vel = Vector6::new(
+        Vector6::new(
             self.pos_m.0,
             self.pos_m.1,
             self.pos_m.2,
             self.vel_m_s.0,
             self.vel_m_s.1,
             self.vel_m_s.2,
-        );
-        Orbit::from_cartesian_pos_vel(pos_vel, self.t, EARTH_J2000)
+        )
+    }
+
+    fn orbit(&self) -> Orbit {
+        Orbit::from_cartesian_pos_vel(self.to_vector(), self.t, EARTH_J2000)
     }
 
     fn set(&mut self, epoch: Epoch, vector: &OVector<f64, Self::VecLength>) {
@@ -141,9 +140,15 @@ impl PostfitKf {
         }
     }
 
-    pub fn time_update(&mut self, state: &State) -> Result<State, ODError> {
+    /// Run [PostfitKf] filter
+    pub fn run(&mut self, state: &State) -> Result<State, ODError> {
+        // time update / predict
         let nominal_state = PostfitState::from_state(state);
         let kfe = self.kf.time_update(nominal_state)?;
-        Ok(kfe.nominal_state.to_state(self.frame))
+
+        let state = kfe.nominal_state;
+
+        // self.kf.measurement_update(nominal_state, real_obs, computed_obs, measurement_covar, resid_rejection);
+        Ok(state.to_state(self.frame))
     }
 }

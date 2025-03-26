@@ -569,8 +569,15 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             }
 
             let kf = self.postfit_kf.as_mut().unwrap();
-            kf.time_update(&nav.state)
+
+            let new_state = kf
+                .run(&nav.state)
                 .unwrap_or_else(|e| panic!("kf error: {}", e));
+
+            let residual = new_state.residual(&nav.state);
+            debug!("{} - postfit(kf) residual: {}", t, residual);
+
+            nav.state = new_state;
         }
 
         if let Some(past_state) = self.past_state {
