@@ -19,11 +19,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Dependencies
-      run: |
-        sudo apt-get update 
-        sudo apt-get install -y jq
-
     - name: Build
       run: cargo build
 
@@ -33,10 +28,10 @@ jobs:
     - name: Config documentation
       run: |
         cargo test generate_static_cpp_config --all-features
-        jq -r '...' static_cpp.json >> $GITHUB_STEP_SUMMARY
+        cat static_cpp.json >> $GITHUB_STEP_SUMMARY
         
         cargo test generate_static_ppp_config --all-features
-        jq -r '...' static_ppp.json >> $GITHUB_STEP_SUMMARY
+        cat static_ppp.json >> $GITHUB_STEP_SUMMARY
 
   publish:
     name: Publish Library
