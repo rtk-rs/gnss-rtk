@@ -11,7 +11,6 @@ use anise::{
 
 use crate::{
     ambiguity::{Input as AmbiguityInput, Solver as AmbiguitySolver},
-    averager::Averager,
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
@@ -19,7 +18,8 @@ use crate::{
     constants::Constants,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
-    prelude::{Carrier, Duration, Epoch, Error, Orbit, SPEED_OF_LIGHT_M_S, SV},
+    postfit::PostfitKf,
+    prelude::{Duration, Epoch, Error, Orbit, SPEED_OF_LIGHT_M_S, SV},
     smoothing::Smoother,
 };
 
@@ -48,6 +48,8 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     smoother: Smoother,
     /// [AmbiguitySolver]
     ambiguities: HashMap<SV, AmbiguitySolver>,
+    /// Possible [PostfitKf]
+    postfit_kf: Option<PostfitKf>,
 }
 
 pub(crate) fn sv_orbital_attitude_fixup(
@@ -270,6 +272,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             orbit_source,
             initial_ecef_m,
             past_state: None,
+            postfit_kf: None,
             smoother: Smoother::new(cfg.code_smoothing),
             cfg: cfg.clone(),
             past_elected: Vec::with_capacity(8),
@@ -561,19 +564,13 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         }
 
         if self.cfg.solver.postfit_kf {
-            //if let Some(kf) = &mut self.postfit_kf {
-            //} else {
-            //    let kf_estim = KfEstimate::from_diag(
-            //        State3D {
-            //            t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT_KM_S),
-            //            inner: Vector3::new(x[0], x[1], x[2]),
-            //        },
-            //        OVector::<f64, U3>::new(1.0, 1.0, 1.0),
-            //    );
-            //    let noise =
-            //        OMatrix::<f64, U3, U3>::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-            //    self.postfit_kf = Some(KF::no_snc(kf_estim, noise));
-            //}
+            if self.postfit_kf.is_none() {
+                self.postfit_kf = Some(PostfitKf::new(self.earth_cef, &nav.state));
+            }
+
+            let kf = self.postfit_kf.as_mut().unwrap();
+            kf.time_update(&nav.state)
+                .unwrap_or_else(|e| panic!("kf error: {}", e));
         }
 
         if let Some(past_state) = self.past_state {
