@@ -13,6 +13,21 @@ use crate::{
     prelude::{Duration, Orbit},
 };
 
+pub struct Residual {
+    pub err_dt: Duration,
+    pub err_m: (f64, f64, f64),
+}
+
+impl std::fmt::Display for Residual {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "err x={}m, y={}m z={}m dt={}",
+            self.err_m.0, self.err_m.1, self.err_m.2, self.err_dt
+        )
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct State {
     /// [Epoch] of resolution
@@ -131,5 +146,18 @@ impl State {
         self.clock_dt = new_clock_dt;
 
         Ok(())
+    }
+
+    /// Compute residual between this [State] and rhs
+    pub fn residual(&self, rhs: &State) -> Residual {
+        let err_dt = self.clock_dt - rhs.clock_dt;
+
+        let err_m = (
+            self.pos_m.0 - rhs.pos_m.0,
+            self.pos_m.1 - rhs.pos_m.1,
+            self.pos_m.2 - rhs.pos_m.2,
+        );
+
+        Residual { err_m, err_dt }
     }
 }

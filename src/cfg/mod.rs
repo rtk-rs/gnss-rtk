@@ -22,14 +22,12 @@ pub(crate) use crate::cfg::solver::LoopExitCriteria;
 pub enum Error {
     #[error("invalid troposphere model")]
     InvalidTroposphereModel,
+    #[error("invalid user profile")]
+    InvalidUserProfile,
 }
 
 fn default_timescale() -> TimeScale {
     TimeScale::GPST
-}
-
-fn default_smoothing() -> bool {
-    false
 }
 
 fn max_tropo_bias() -> f64 {
@@ -40,8 +38,16 @@ fn max_iono_bias() -> f64 {
     10.0
 }
 
+fn min_sv_elev() -> Option<f64> {
+    Some(10.0)
+}
+
+fn default_code_smoothing() -> usize {
+    0
+}
+
 #[derive(Default, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// System Internal Delay as defined by BIPM in
 /// "GPS Receivers Accurate Time Comparison" : the (frequency dependent)
 /// time delay introduced by the combination of:
@@ -56,8 +62,8 @@ pub struct InternalDelay {
     pub frequency: f64,
 }
 
-#[derive(Default, Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
     /// Time scale in which we express the PVT solutions,
     /// [TimeScale::GPST] is the default value.
@@ -84,10 +90,16 @@ pub struct Config {
     /// Fixed altitude: reduces the need of 4 to 3 SV to obtain 3D solutions.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fixed_altitude: Option<f64>,
-    /// Pseudo Range smoothing. Use this to improve solutions accuracy.
-    /// This applies to all positioning strategies.
-    #[cfg_attr(feature = "serde", serde(default = "default_smoothing"))]
-    pub code_smoothing: bool,
+    /// Pseudo Range smoothing window length.
+    /// Use this to improve solutions accuracy.
+    /// Unfortunately, this has no effect when using pure SPP strategy,
+    /// where it would make the most sense.
+    /// When using CPP and particularly PPP, you can use this to further improve
+    /// the accuracy of your solutions anyway.
+    /// Set to 0 to disable this feature.
+    /// When parametrizing, think in terms of accumulated periods against Ionospheric activity.
+    #[cfg_attr(feature = "serde", serde(default = "default_code_smoothing"))]
+    pub code_smoothing: usize,
     /// Internal delays to compensate for (total summation, in [s]).
     /// Compensation is only effective if [Modeling.cable_delay]
     /// is also turned on.
@@ -115,7 +127,7 @@ pub struct Config {
     pub max_sv_occultation_percent: Option<f64>,
     /// Minimal SV elevation angle for an SV to contribute to the solution.
     /// Use this as a simple quality criteria.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default = "min_sv_elev"))]
     pub min_sv_elev: Option<f64>,
     /// Minimal SV Azimuth angle for an SV to contribute to the solution.
     /// SV below that angle will not be considered.
@@ -143,28 +155,54 @@ pub struct Config {
     pub modeling: Modeling,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            timescale: default_timescale(),
+            method: Method::default(),
+            profile: Profile::default(),
+            solver: SolverOpts::default(),
+            int_delay: Default::default(),
+            modeling: Modeling::default(),
+            remote_site: None,
+            fixed_altitude: None,
+            prefered_signal: None,
+            arp_enu: None,
+            externalref_delay: None,
+            max_sv_occultation_percent: None,
+            min_snr: None, // TODO
+            min_sv_azim: None,
+            max_sv_azim: None,
+            min_sv_elev: min_sv_elev(),
+            max_iono_bias: max_iono_bias(),
+            max_tropo_bias: max_tropo_bias(),
+            code_smoothing: default_code_smoothing(),
+        }
+    }
+}
+
 impl Config {
     /// Returns [Config] for static PPP positioning, with desired [Method].
     /// You can then customize [Self] as you will.
-    pub fn static_ppp_preset(method: Method) -> Self {
+    pub fn static_preset(method: Method) -> Self {
         let mut s = Self::default();
         s.profile = Profile::Static;
         s.method = method;
-        s.min_sv_elev = Some(15.0);
-        s.max_tropo_bias = max_tropo_bias();
-        s.max_iono_bias = max_iono_bias();
+        match method {
+            Method::PPP => {
+                s.code_smoothing = 15;
+            },
+            _ => {},
+        }
         s
     }
 
     /// Returns [Config] for dynamic PPP positioning, with desired [Method]
     /// and rover [Profile]. You can then customize [Self] as you will.
-    pub fn dynamic_ppp_preset(profile: Profile, method: Method) -> Self {
+    pub fn dynamic_preset(profile: Profile, method: Method) -> Self {
         let mut s = Self::default();
-        s.profile = profile;
         s.method = method;
-        s.min_sv_elev = Some(15.0);
-        s.max_tropo_bias = max_tropo_bias();
-        s.max_iono_bias = max_iono_bias();
+        s.profile = profile;
         s
     }
 
@@ -213,5 +251,29 @@ impl Config {
         let mut s = self.clone();
         s.modeling = modeling;
         s
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "serde")]
+mod test {
+    use super::*;
+    use serde::Serialize;
+    use std::io::Write;
+
+    #[test]
+    fn generate_static_cpp_preset() {
+        let cfg = Config::static_preset(Method::CPP);
+        let string = serde_json::to_string_pretty(&cfg).unwrap();
+        let mut fd = std::fs::File::create("static_cpp.json").unwrap();
+        write!(fd, "{}", string).unwrap();
+    }
+
+    #[test]
+    fn generate_static_ppp_preset() {
+        let mut cfg = Config::static_preset(Method::PPP);
+        let string = serde_json::to_string_pretty(&cfg).unwrap();
+        let mut fd = std::fs::File::create("static_ppp.json").unwrap();
+        write!(fd, "{}", string).unwrap();
     }
 }

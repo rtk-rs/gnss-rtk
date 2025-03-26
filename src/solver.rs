@@ -18,7 +18,9 @@ use crate::{
     constants::Constants,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
+    postfit::PostfitKf,
     prelude::{Duration, Epoch, Error, Orbit, SPEED_OF_LIGHT_M_S, SV},
+    smoothing::Smoother,
 };
 
 /// [Solver] to resolve [PVTSolution]s.
@@ -42,8 +44,12 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     initial_ecef_m: Option<Vector3>,
     /// Past elected
     past_elected: Vec<Candidate>,
+    /// Smoother
+    smoother: Smoother,
     /// [AmbiguitySolver]
     ambiguities: HashMap<SV, AmbiguitySolver>,
+    /// Possible [PostfitKf]
+    postfit_kf: Option<PostfitKf>,
 }
 
 pub(crate) fn sv_orbital_attitude_fixup(
@@ -264,9 +270,11 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             earth_cef,
             bias,
             orbit_source,
-            cfg: cfg.clone(),
             initial_ecef_m,
             past_state: None,
+            postfit_kf: None,
+            smoother: Smoother::new(cfg.code_smoothing),
+            cfg: cfg.clone(),
             past_elected: Vec::with_capacity(8),
             ambiguities: HashMap::with_capacity(8),
         }
@@ -406,7 +414,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         sv_attitude_filters(&self.cfg, &mut pool);
 
         // ambiguity solving
-        if self.cfg.method == Method::PPP {
+        if self.cfg.code_smoothing > 0 || self.cfg.method == Method::PPP {
             pool.retain_mut(|cd| {
                 if let Some(l1) = cd.l1_phase_range() {
                     if let Some(c1) = cd.l1_pseudo_range() {
@@ -430,13 +438,13 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                                 };
 
                                 debug!(
-                                    "{} ({}) - n_1={}(\u{03a3}={}) n_2={}(\u{03a3}w)={})",
+                                    "{} ({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w)={})",
                                     cd.t,
                                     cd.sv,
                                     output.n1,
-                                    output.sigma_n1,
+                                    0.0, // output.sigma_n1,
                                     output.n2,
-                                    output.sigma_nw
+                                    0.0, // output.sigma_nw,
                                 );
 
                                 cd.update_ambiguities(output);
@@ -458,6 +466,49 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                     false
                 }
             });
+        }
+
+        // smoothing
+        if self.cfg.code_smoothing > 0 {
+            for cd in pool.iter_mut() {
+                for sv_observ in cd.observations.iter_mut() {
+                    if sv_observ.carrier.is_l1_pivot() {
+                        let lambda_1 = sv_observ.carrier.wavelength();
+                        let n_1 = sv_observ.ambiguity.unwrap_or_default();
+                        if n_1 != 0.0 {
+                            if let Some(c_n) = &mut sv_observ.pseudo_range_m {
+                                if let Some(l_n) = sv_observ.phase_range_m {
+                                    *c_n = self.smoother.smoothing(
+                                        sv_observ.carrier,
+                                        cd.sv,
+                                        *c_n,
+                                        n_1,
+                                        lambda_1,
+                                        l_n,
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        let lambda_j = sv_observ.carrier.wavelength();
+                        let n_j = sv_observ.ambiguity.unwrap_or_default();
+                        if n_j != 0.0 {
+                            if let Some(c_n) = &mut sv_observ.pseudo_range_m {
+                                if let Some(l_n) = sv_observ.phase_range_m {
+                                    *c_n = self.smoother.smoothing(
+                                        sv_observ.carrier,
+                                        cd.sv,
+                                        *c_n,
+                                        n_j,
+                                        lambda_j,
+                                        l_n,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Prepare for NAV
@@ -513,19 +564,20 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         }
 
         if self.cfg.solver.postfit_kf {
-            //if let Some(kf) = &mut self.postfit_kf {
-            //} else {
-            //    let kf_estim = KfEstimate::from_diag(
-            //        State3D {
-            //            t: Epoch::from_gpst_seconds(x[3] / SPEED_OF_LIGHT_KM_S),
-            //            inner: Vector3::new(x[0], x[1], x[2]),
-            //        },
-            //        OVector::<f64, U3>::new(1.0, 1.0, 1.0),
-            //    );
-            //    let noise =
-            //        OMatrix::<f64, U3, U3>::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-            //    self.postfit_kf = Some(KF::no_snc(kf_estim, noise));
-            //}
+            if self.postfit_kf.is_none() {
+                self.postfit_kf = Some(PostfitKf::new(self.earth_cef, &nav.state));
+            }
+
+            let kf = self.postfit_kf.as_mut().unwrap();
+
+            let new_state = kf
+                .run(&nav.state)
+                .unwrap_or_else(|e| panic!("kf error: {}", e));
+
+            let residual = new_state.residual(&nav.state);
+            debug!("{} - postfit(kf) residual: {}", t, residual);
+
+            nav.state = new_state;
         }
 
         if let Some(past_state) = self.past_state {

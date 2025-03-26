@@ -9,6 +9,7 @@ extern crate nyx_space as nyx;
 
 // private modules
 mod ambiguity;
+mod averager;
 mod bancroft;
 mod bias;
 mod candidate;
@@ -16,6 +17,8 @@ mod carrier;
 mod cfg;
 mod navigation;
 mod orbit;
+mod postfit;
+mod smoothing;
 mod solver;
 
 pub(crate) mod constants;
@@ -36,7 +39,7 @@ pub mod prelude {
         bias::{Bias, BiasRuntime, IonosphereBias, IonosphereModel, KbModel, TroposphereModel},
         candidate::{Candidate, ClockCorrection, Observation},
         carrier::{Carrier, Signal},
-        cfg::{Config, Method},
+        cfg::{Config, Method, Profile},
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,

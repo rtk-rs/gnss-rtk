@@ -12,15 +12,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  
   build:
     name: Build & Test
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+        fetch-depth: 0
+
     - name: Build
       run: cargo build
+
     - name: Run tests
-      run: cargo test
+      run: cargo test --all-features
+
+    - name: Config documentation
+      run: |
+        cargo test generate_static_cpp_preset --all-features
+        echo "Static CPP" >> $GITHUB_STEP_SUMMARY
+        echo "==========" >> $GITHUB_STEP_SUMMARY
+        python3 tools/jsonmd.py static_cpp.json >> $GITHUB_STEP_SUMMARY 
+        rm static_cpp.json
+        
+        cargo test generate_static_ppp_preset --all-features
+        echo "Static PPP" >> $GITHUB_STEP_SUMMARY
+        echo "==========" >> $GITHUB_STEP_SUMMARY
+        python3 tools/jsonmd.py static_ppp.json >> $GITHUB_STEP_SUMMARY 
+        rm static_ppp.json
 
   publish:
     name: Publish Library
