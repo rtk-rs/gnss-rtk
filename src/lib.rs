@@ -20,6 +20,7 @@ mod orbit;
 mod postfit;
 mod smoothing;
 mod solver;
+mod pool;
 
 pub(crate) mod constants;
 // pub(crate) mod tides;

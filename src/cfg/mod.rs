@@ -15,8 +15,6 @@ pub use crate::{
     prelude::TimeScale,
 };
 
-pub(crate) use crate::cfg::solver::LoopExitCriteria;
-
 /// Configuration Error
 #[derive(Debug, Error)]
 pub enum Error {
