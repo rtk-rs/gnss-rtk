@@ -88,14 +88,11 @@ pub struct Config {
     /// Fixed altitude: reduces the need of 4 to 3 SV to obtain 3D solutions.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fixed_altitude: Option<f64>,
-    /// Pseudo Range smoothing window length.
-    /// Use this to improve solutions accuracy.
-    /// Unfortunately, this has no effect when using pure SPP strategy,
-    /// where it would make the most sense.
-    /// When using CPP and particularly PPP, you can use this to further improve
-    /// the accuracy of your solutions anyway.
-    /// Set to 0 to disable this feature.
-    /// When parametrizing, think in terms of accumulated periods against Ionospheric activity.
+    /// Pseudo Range code smoothing (window length).
+    /// Use phase observatoins to smooth and reduce error in the pseudo range code.
+    /// This has no effect if phase observations are missing.
+    /// Set to 0 to disable this feature completely.
+    /// When parametrizing, think in terms of window duration versus Ionospheric activity.
     #[cfg_attr(feature = "serde", serde(default = "default_code_smoothing"))]
     pub code_smoothing: usize,
     /// Internal delays to compensate for (total summation, in [s]).

@@ -17,10 +17,10 @@ mod carrier;
 mod cfg;
 mod navigation;
 mod orbit;
+mod pool;
 mod postfit;
 mod smoothing;
 mod solver;
-mod pool;
 
 pub(crate) mod constants;
 // pub(crate) mod tides;

@@ -1,20 +1,27 @@
 use crate::{
-    prelude::{Candidate, Almanac, Unit, SPEED_OF_LIGHT_M_S, SUN_J2000},
-    ambiguity::{
-        Input as AmbiguityIn
+    ambiguity::{Input as AmbiguityInput, Solver as AmbiguitySolver},
+    cfg::{Config, Method},
+    constants::Constants,
+    navigation::apriori::Apriori,
+    pool::Pool,
+    prelude::{Almanac, Vector3, SPEED_OF_LIGHT_M_S, SUN_J2000},
+};
+
+use log::{debug, error, info};
+
+use hifitime::Unit;
 
 impl Pool {
-
     /// Apply Post fit criterias
     pub fn post_fit(&mut self, almanac: &Almanac, cfg: &Config, apriori: &Apriori) {
-        self.post_fit_attitudes(almanac, apriori);
+        self.post_fit_attitudes(almanac, cfg, apriori);
         self.post_fit_velocities(cfg.modeling.relativistic_clock_bias);
-        
-        if let Some(max_occultation) = cfg.modeling.max_sv_occultation_percent {
-            self.post_fit_eclipse(max_occultation);
+
+        if let Some(max_occultation) = cfg.max_sv_occultation_percent {
+            self.post_fit_eclipse(almanac, max_occultation);
         }
 
-        if cfg.ambiguity_solving {
+        if cfg.code_smoothing > 0 || cfg.method == Method::PPP {
             self.post_fit_ambiguity_solving();
         }
 
@@ -22,34 +29,35 @@ impl Pool {
             self.post_fit_code_smoothing();
         }
 
-        self.post_fit_navi_compible();
+        self.post_fit_navi_compatible();
     }
 
     /// Apply Attitudes Post fit
     fn post_fit_attitudes(&mut self, almanac: &Almanac, cfg: &Config, apriori: &Apriori) {
         let rx_orbit = apriori.to_orbit();
-        self.inner.retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, rx_orbit) {
-            Ok(_) => true,
-            Err(e) => {
-                debug!("{}({}) - orbital fixup: {}", apriori.t, cd.sv, e);
-                false
-            },
-        });
+        self.inner
+            .retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, rx_orbit) {
+                Ok(_) => true,
+                Err(e) => {
+                    error!("{}({}) - orbital fixup: {}", apriori.t, cd.sv, e);
+                    false
+                },
+            });
 
         let min_elev_deg = cfg.min_sv_elev.unwrap_or(0.0);
         let min_azim_deg = cfg.min_sv_azim.unwrap_or(0.0);
         let max_azim_deg = cfg.max_sv_azim.unwrap_or(360.0);
 
-        pool.retain(|cd| {
+        self.inner.retain(|cd| {
             if let Some((elev, azim)) = cd.attitude() {
                 if elev < min_elev_deg {
-                    debug!("{}({}) - rejected (below elevation mask)", cd.t, cd.sv);
+                    info!("{}({}) - rejected (below elevation mask)", cd.t, cd.sv);
                     false
                 } else if azim < min_azim_deg {
-                    debug!("{}({}) - rejected (below azimuth mask)", cd.t, cd.sv);
+                    info!("{}({}) - rejected (below azimuth mask)", cd.t, cd.sv);
                     false
                 } else if azim > max_azim_deg {
-                    debug!("{}({}) - rejected (above azimuth mask)", cd.t, cd.sv);
+                    info!("{}({}) - rejected (above azimuth mask)", cd.t, cd.sv);
                     false
                 } else {
                     debug!("{}({}) - elev={:.3}° azim={:.3}°", cd.t, cd.sv, elev, azim);
@@ -62,13 +70,13 @@ impl Pool {
     }
 
     /// Velocities fit
-    fn post_velocities_fit(&mut self, relativistic_clock_bias: bool) {
+    fn post_fit_velocities(&mut self, relativistic_clock_bias: bool) {
         let mu = Constants::EARTH_GRAVITATION;
         let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
 
-        for cd in pool.iter_mut() {
+        for cd in self.inner.iter_mut() {
             if let Some(sv_orbit) = &mut cd.orbit {
-                if let Some(past_elected) = past_elected.iter().find(|elected| elected.sv == cd.sv) {
+                if let Some(past_elected) = self.past.iter().find(|elected| elected.sv == cd.sv) {
                     let pos_vel_km_s = sv_orbit.to_cartesian_pos_vel();
 
                     let dt_s = (cd.t_tx - past_elected.t_tx).to_seconds();
@@ -83,8 +91,8 @@ impl Pool {
 
                     debug!("{} ({}) : vel {:?} km/s", cd.t, cd.sv, vel_km_s);
 
-                    *sv_orbit =
-                        sv_orbit.with_velocity_km_s(Vector3::new(vel_km_s.0, vel_km_s.1, vel_km_s.2));
+                    *sv_orbit = sv_orbit
+                        .with_velocity_km_s(Vector3::new(vel_km_s.0, vel_km_s.1, vel_km_s.2));
 
                     if let Some(clock_corr) = &mut cd.clock_corr {
                         if relativistic_clock_bias && clock_corr.needs_relativistic_correction {
@@ -94,13 +102,14 @@ impl Pool {
                                 pos_vel_km_s[2] * 1.0E3,
                             );
 
-                            let vel_m_s = (vel_km_s.0 * 1.0E3, vel_km_s.1 * 1.0E3, vel_km_s.2 * 1.0E3);
+                            let vel_m_s =
+                                (vel_km_s.0 * 1.0E3, vel_km_s.1 * 1.0E3, vel_km_s.2 * 1.0E3);
 
                             let r_v_sat =
                                 pos_m.0 * vel_m_s.0 + pos_m.1 * vel_m_s.1 + pos_m.2 * vel_m_s.2;
 
-                            let bias =
-                                -2.0 * r_v_sat / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S * Unit::Second;
+                            let bias = -2.0 * r_v_sat / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+                                * Unit::Second;
 
                             // let ea_deg = sv_orbit.ea_deg().map_err(Error::Physics)?;
 
@@ -122,13 +131,11 @@ impl Pool {
         }
     }
 
-    fn post_eclipse_fit(&mut self, almanac: &Almanac, max_occultation: f64) {
+    fn post_fit_eclipse(&mut self, almanac: &Almanac, max_occultation: f64) {
         self.inner.retain(|cd| {
             let orbit = cd.orbit.unwrap();
             match almanac.occultation(SUN_J2000, self.earth_cef, orbit, None) {
-                Ok(occultation) => {
-                    occultation.percentage < max_occultation
-                },
+                Ok(occultation) => occultation.percentage < max_occultation,
                 Err(e) => {
                     error!("(anise) eclipse error: {}", e);
                     false
@@ -152,8 +159,7 @@ impl Pool {
                                 l2: l2.1,
                             };
 
-                            let output = if let Some(solver) = self.ambiguities.get_mut(&cd.sv)
-                            {
+                            let output = if let Some(solver) = self.solver.get_mut(&cd.sv) {
                                 solver.solve(input)
                             } else {
                                 let mut solver = AmbiguitySolver::new();
@@ -232,9 +238,9 @@ impl Pool {
             }
         }
     }
-    
+
     fn post_fit_navi_compatible(&mut self) {
-        self.pool.retain(|cd| {
+        self.inner.retain(|cd| {
             // TODO: improve this
             let retained = cd.is_navi_compatible();
             if !retained {

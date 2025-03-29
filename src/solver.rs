@@ -1,27 +1,22 @@
 use itertools::Itertools;
-use std::collections::HashMap;
 
 use log::{debug, error, warn};
 
 use anise::{
-    constants::frames::SUN_J2000,
-    math::{Vector3},
-    prelude::{Almanac, Frame, Unit},
+    math::Vector3,
+    prelude::{Almanac, Frame},
 };
 
 use crate::{
-    ambiguity::{Input as AmbiguityInput, Solver as AmbiguitySolver},
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
     cfg::{Config, Method},
-    constants::Constants,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
-    postfit::PostfitKf,
-    prelude::{Epoch, Error, SPEED_OF_LIGHT_M_S, SV},
-    smoothing::Smoother,
     pool::Pool,
+    postfit::PostfitKf,
+    prelude::{Epoch, Error},
 };
 
 /// [Solver] to resolve [PVTSolution]s.
@@ -170,7 +165,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
     /// - t: desired [Epoch]
     /// - pool: list of [Candidate]
     pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
-        let modeling = self.cfg.modeling;
         let min_required = self.min_sv_required();
 
         if pool.len() < min_required {
@@ -179,14 +173,15 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         }
 
         self.pool.new_epoch(pool);
-        self.pool.pre_fit(); 
-        
+        self.pool.pre_fit(&self.cfg);
+
         if self.pool.len() < min_required {
             // TODO: catch and reset self
             return Err(Error::NotEnoughPreFitCandidates);
         }
-        
-        self.pool.orbital_states();
+
+        let orbit_source = &mut self.orbit_source;
+        self.pool.orbital_states(&self.cfg, orbit_source);
 
         // Obtain apriori
         let apriori = match self.past_state {
@@ -221,18 +216,24 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             },
         };
 
-        self.pool.post_fit(&self.almanac, &self.cfg, &apriori)?; // TODO: catch & reset self
+        self.pool.post_fit(&self.almanac, &self.cfg, &apriori);
 
-        let pool_size = pool.len();
+        let pool_size = self.pool.len();
 
         if pool_size < min_required {
+            // TODO: catch & reset self
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
-        update_sky_view(t, &pool, &mut self.past_elected);
-
         // Build nav filter
-        let mut nav = match Navigation::new(t, &self.cfg, apriori, &pool, pool_size, &self.bias) {
+        let mut nav = match Navigation::new(
+            t,
+            &self.cfg,
+            apriori,
+            &self.pool.candidates(),
+            pool_size,
+            &self.bias,
+        ) {
             Ok(nav) => nav,
             Err(e) => {
                 error!("matrix formation error: {}", e);
@@ -242,13 +243,13 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
 
         // discard non contributing data
         let contributing = nav.sv.iter().map(|contrib| contrib.sv).collect::<Vec<_>>();
-        pool.retain(|cd| contributing.contains(&cd.sv));
+        self.pool.retain(|cd| contributing.contains(&cd.sv));
 
-        let pool_size = pool.len();
+        let pool_size = self.pool.len();
 
         // iterate nav filter
         loop {
-            match nav.iterate(t, &self.cfg, &pool, pool_size, &self.bias) {
+            match nav.iterate(t, &self.cfg, &self.pool.candidates(), pool_size, &self.bias) {
                 Ok(converged) => {
                     if converged {
                         break;
@@ -352,27 +353,10 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             }
         }
     }
-
 }
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
-    use std::str::FromStr;
-
-    use crate::{
-        prelude::{Almanac, Candidate, Config, Epoch, OrbitSource, Solver, EARTH_J2000},
-        solver::sv_orbital_attitude_fixup,
-        tests::{
-            bias::NullBias,
-            gps::{G02, G05, G07, G08, G09, G13, G15},
-            orbits::{GpsOrbits, NullOrbits},
-            reference_orbit,
-        },
-    };
-
-    use super::sv_attitude_filters;
-
     // #[test]
     // fn test_min_sv_required() {
     //     for (preset, expected) in [
