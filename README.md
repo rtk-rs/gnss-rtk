@@ -79,6 +79,8 @@ degraded or low-cost environments
 * Military frequencies: our library treats the L1 (main signal) as either the L1 or L6
 frequencies. That means you can replace L1 with L6 naturally, if you are able to decode and
 sample that frequency. It also means you can operate the solver in single frequency L6 mode.
+:warning: L6 cannot serve as L1+L6 or L1+Lx+L6 combination contributor, it can only serve
+as main frequency replacement.
 
 * Signals _almost_ do not matter. The current version of the library prioritizes signals this way:
   - The L1 is the main frequency and is always required. L6 might replace L1 in case it is missing
