@@ -5,7 +5,7 @@ use crate::{
 };
 
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// PVT Solution, always expressed as the correction to apply
 /// to an Apriori / static position.
