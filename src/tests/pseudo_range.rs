@@ -62,8 +62,8 @@ fn l1_l2_narrowlane() {
     assert_eq!(cn.rhs, Carrier::L1);
     assert_eq!(
         cn.value,
-        (Carrier::L1.frequency() * 64.0 + Carrier::L2.frequency() * 128.0)
-            / (Carrier::L1.frequency() + Carrier::L2.frequency())
+        (Carrier::L1.frequency_hz() * 64.0 + Carrier::L2.frequency_hz() * 128.0)
+            / (Carrier::L1.frequency_hz() + Carrier::L2.frequency_hz())
     );
 
     let codes = vec![Observation {
@@ -83,7 +83,7 @@ fn l1_l2_narrowlane() {
 }
 
 #[test]
-fn e1_e5_narrowlane() {
+fn l1_l5_narrowlane() {
     let obs = vec![
         Observation {
             snr_dbhz: None,
@@ -91,7 +91,7 @@ fn e1_e5_narrowlane() {
             doppler: None,
             pseudo_range_m: Some(64.0),
             ambiguity: None,
-            carrier: Carrier::E1,
+            carrier: Carrier::L1,
         },
         Observation {
             snr_dbhz: None,
@@ -99,7 +99,7 @@ fn e1_e5_narrowlane() {
             doppler: None,
             pseudo_range_m: Some(128.0),
             ambiguity: None,
-            carrier: Carrier::E5,
+            carrier: Carrier::L5,
         },
     ];
     let cd = Candidate::new(SV::default(), Epoch::default(), obs);
@@ -107,11 +107,11 @@ fn e1_e5_narrowlane() {
     assert!(cn.is_some(), "failed to form Cn_narrow combination");
     let cn = cn.unwrap();
 
-    assert_eq!(cn.rhs, Carrier::E1);
+    assert_eq!(cn.rhs, Carrier::L1);
 
     assert_eq!(
         cn.value,
-        (Carrier::E1.frequency() * 64.0 + Carrier::E5.frequency() * 128.0)
-            / (Carrier::E1.frequency() + Carrier::E5.frequency())
+        (Carrier::L1.frequency_hz() * 64.0 + Carrier::L5.frequency_hz() * 128.0)
+            / (Carrier::L1.frequency_hz() + Carrier::L5.frequency_hz())
     );
 }

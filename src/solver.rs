@@ -222,6 +222,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
 
         if pool_size < min_required {
             // TODO: catch & reset self
+            // self.pool.end_of_epoch();
             return Err(Error::NotEnoughPostFitCandidates);
         }
 

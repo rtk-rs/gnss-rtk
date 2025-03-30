@@ -71,12 +71,15 @@ impl Buffer {
 
 #[derive(Debug, Clone)]
 pub struct Input {
-    pub f1: f64,
+    pub f1_hz: f64,
     pub c1: f64,
     pub l1: f64,
-    pub f2: f64,
+    pub f2_hz: f64,
     pub c2: f64,
     pub l2: f64,
+    // pub f5_hz: Option<f64>,
+    // pub c5: Option<f64>,
+    // pub l5: Option<f64>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -89,7 +92,6 @@ pub struct Output {
 
 #[derive(Debug, Clone)]
 pub struct Solver {
-    nw: i32,
     nw_avg: Averager,
     n1_avg: Averager,
     cn_avg: Averager,
@@ -99,7 +101,6 @@ pub struct Solver {
 impl Solver {
     pub fn new() -> Self {
         Self {
-            nw: 0,
             nw_avg: Averager::new(),
             cn_avg: Averager::new(),
             l1_avg: Averager::new(),
@@ -108,41 +109,35 @@ impl Solver {
     }
 
     pub fn reset(&mut self) {
-        self.nw = 0;
         self.nw_avg.reset();
         self.cn_avg.reset();
         self.l1_avg.reset();
     }
 
-    pub fn solve(&mut self, input: Input) -> Output {
-        let lambda_1 = SPEED_OF_LIGHT_M_S / input.f1;
-        let lambda_2 = SPEED_OF_LIGHT_M_S / input.f2;
-        let lambda_w = SPEED_OF_LIGHT_M_S / (input.f1 - input.f2);
+    pub fn solve(&mut self, input: Input) -> Option<Output> {
+        let lambda_1 = SPEED_OF_LIGHT_M_S / input.f1_hz;
+        let lambda_2 = SPEED_OF_LIGHT_M_S / input.f2_hz;
+        let lambda_wl = SPEED_OF_LIGHT_M_S / (input.f1_hz - input.f2_hz);
 
-        let lw = (input.f1 * input.l1 - input.f2 * input.l2) / (input.f1 - input.f2);
-        let cn = (input.f1 * input.c1 + input.f2 * input.c2) / (input.f1 + input.f2);
+        let lw = (input.f1_hz * input.l1 - input.f2_hz * input.l2) / (input.f1_hz - input.f2_hz);
+        let cn = (input.f1_hz * input.c1 + input.f2_hz * input.c2) / (input.f1_hz + input.f2_hz);
+        self.nw_avg.add((lw - cn) / lambda_wl);
 
-        self.cn_avg.add(cn);
-        self.l1_avg.add(input.l1);
-        self.nw_avg.add((lw - cn) / lambda_w);
+        if self.nw_avg.count < 20 {
+            return None;
+        }
 
-        self.nw = self.nw_avg.mean.round() as i32;
-
-        let n1 = (input.l1 - input.l2 - lambda_2 * self.nw as f64) / (lambda_1 - lambda_2);
-
+        let nw = self.nw_avg.mean.round();
+        let n1 = (input.l1 - input.l2 - lambda_2 * nw) / (lambda_1 - lambda_2);
         self.n1_avg.add(n1);
 
-        // let sigma_nw = self.cn_avg.sigma() / lambda_w;
-        // let sigma_n1 = 2.0_f64.sqrt() * self.l1_avg.sigma() / (lambda_1 - lambda_2);
+        if self.n1_avg.count < 20 {
+            return None;
+        }
 
         let n1 = self.n1_avg.mean.round() as i32;
-        let n2 = n1 - self.nw;
+        let n2 = n1 - nw as i32;
 
-        Output {
-            n1,
-            n2,
-            // sigma_n1,
-            // sigma_nw,
-        }
+        Some(Output { n1, n2 })
     }
 }

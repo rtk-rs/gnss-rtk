@@ -24,6 +24,19 @@ impl Pool {
     }
 
     fn pre_fit_navi_compatible(&mut self, method: &Method) {
+        for cd in self.candidates().iter() {
+            for observation in cd.observations.iter() {
+                debug!(
+                    "{}({}) - {} observation: c_n={:?} l_n={:?}",
+                    cd.t,
+                    cd.sv,
+                    observation.carrier,
+                    observation.pseudo_range_m,
+                    observation.phase_range_m
+                );
+            }
+        }
+
         self.inner.retain(|cd| match method {
             Method::SPP => {
                 if cd.l1_pseudo_range().is_some() {

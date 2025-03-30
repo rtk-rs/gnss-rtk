@@ -11,7 +11,7 @@ impl Candidate {
         let pos_vel_m = rx_orbit.to_cartesian_pos_vel() * 1.0E3;
 
         let obs = self.best_snr_observation()?;
-        let frequency_hz = obs.carrier.frequency();
+        let frequency_hz = obs.carrier.frequency_hz();
 
         Some(BiasRuntime {
             t,

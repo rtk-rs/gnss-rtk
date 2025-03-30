@@ -44,7 +44,7 @@ fn test() {
     .iter()
     .enumerate()
     {
-        let pr = Observation::pseudo_range(Carrier::E1, *pr, None);
+        let pr = Observation::pseudo_range(Carrier::L1, *pr, None);
         let mut cd = Candidate::new(
             SV::new(Constellation::default(), (i + 1) as u8),
             t0,

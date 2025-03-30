@@ -29,8 +29,8 @@ fn l1_widelane() {
 
     assert_eq!(
         wl.value,
-        (Carrier::L1.frequency() * 64.0 - Carrier::L2.frequency() * 128.0)
-            / (Carrier::L1.frequency() - Carrier::L2.frequency())
+        (Carrier::L1.frequency_hz() * 64.0 - Carrier::L2.frequency_hz() * 128.0)
+            / (Carrier::L1.frequency_hz() - Carrier::L2.frequency_hz())
     );
 }
 
@@ -69,7 +69,7 @@ fn e1_widelane() {
             snr_dbhz: None,
             phase_range_m: Some(64.0),
             pseudo_range_m: None,
-            carrier: Carrier::E1,
+            carrier: Carrier::L1,
             doppler: None,
             ambiguity: None,
         },
@@ -77,7 +77,7 @@ fn e1_widelane() {
             snr_dbhz: None,
             phase_range_m: Some(128.0),
             pseudo_range_m: None,
-            carrier: Carrier::E5,
+            carrier: Carrier::L5,
             doppler: None,
             ambiguity: None,
         },
@@ -86,13 +86,13 @@ fn e1_widelane() {
     let cd = Candidate::new(Default::default(), Default::default(), observations);
     let wl = cd.phase_wl_combination().unwrap();
 
-    assert_eq!(wl.rhs, Carrier::E1);
-    assert_eq!(wl.lhs, Carrier::E5);
+    assert_eq!(wl.rhs, Carrier::L1);
+    assert_eq!(wl.lhs, Carrier::L5);
 
     assert_eq!(
         wl.value,
-        (Carrier::E1.frequency() * 64.0 - Carrier::E5.frequency() * 128.0)
-            / (Carrier::E1.frequency() - Carrier::E5.frequency())
+        (Carrier::L1.frequency_hz() * 64.0 - Carrier::L5.frequency_hz() * 128.0)
+            / (Carrier::L1.frequency_hz() - Carrier::L5.frequency_hz())
     );
 }
 
@@ -124,11 +124,11 @@ fn l1_l5_mw_combination() {
     assert_eq!(mw.rhs, Carrier::L1);
     assert_eq!(mw.lhs, Carrier::L5);
 
-    let pw = (Carrier::L1.frequency() * 16.0 - Carrier::L5.frequency() * 32.0)
-        / (Carrier::L1.frequency() - Carrier::L5.frequency());
+    let pw = (Carrier::L1.frequency_hz() * 16.0 - Carrier::L5.frequency_hz() * 32.0)
+        / (Carrier::L1.frequency_hz() - Carrier::L5.frequency_hz());
 
-    let cn = (Carrier::L1.frequency() * 64.0 + Carrier::L5.frequency() * 128.0)
-        / (Carrier::L1.frequency() + Carrier::L5.frequency());
+    let cn = (Carrier::L1.frequency_hz() * 64.0 + Carrier::L5.frequency_hz() * 128.0)
+        / (Carrier::L1.frequency_hz() + Carrier::L5.frequency_hz());
 
     assert_eq!(mw.value, pw - cn);
 }

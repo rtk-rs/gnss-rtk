@@ -121,8 +121,10 @@ pub enum Error {
     /// If that is not the case, we abort with this error.
     #[error("missing observations on remote site")]
     MissingRemoteRTKObservations,
-    #[error("unknown or non supported frequency")]
+    #[error("invalid frequency")]
     InvalidFrequency,
+    #[error("unknown carrier frequency")]
+    UnknownCarrierFrequency,
     #[error("rejected troposhere delay: model divergence?")]
     RejectedTropoDelay,
     #[error("rejected ionosphere delay: model divergence?")]

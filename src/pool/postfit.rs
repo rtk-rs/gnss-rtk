@@ -1,5 +1,5 @@
 use crate::{
-    ambiguity::{Input as AmbiguityInput, Solver as AmbiguitySolver},
+    ambiguity::Solver as AmbiguitySolver,
     cfg::{Config, Method},
     constants::Constants,
     navigation::apriori::Apriori,
@@ -28,8 +28,6 @@ impl Pool {
         if cfg.code_smoothing > 0 {
             self.post_fit_code_smoothing();
         }
-
-        self.post_fit_navi_compatible();
     }
 
     /// Apply Attitudes Post fit
@@ -146,52 +144,39 @@ impl Pool {
 
     fn post_fit_ambiguity_solving(&mut self) {
         self.inner.retain_mut(|cd| {
-            if let Some(l1) = cd.l1_phase_range() {
-                if let Some(c1) = cd.l1_pseudo_range() {
-                    if let Some(l2) = cd.lj_phase_range() {
-                        if let Some(c2) = cd.lj_pseudo_range() {
-                            let input = AmbiguityInput {
-                                f1: l1.0.frequency(),
-                                c1: c1.1,
-                                l1: l1.1,
-                                f2: l2.0.frequency(),
-                                c2: c2.1,
-                                l2: l2.1,
-                            };
-
-                            let output = if let Some(solver) = self.solver.get_mut(&cd.sv) {
-                                solver.solve(input)
-                            } else {
-                                let mut solver = AmbiguitySolver::new();
-                                solver.solve(input)
-                            };
-
-                            debug!(
-                                "{} ({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w)={})",
-                                cd.t,
-                                cd.sv,
-                                output.n1,
-                                0.0, // output.sigma_n1,
-                                output.n2,
-                                0.0, // output.sigma_nw,
-                            );
-
-                            cd.update_ambiguities(output);
-                            true
-                        } else {
-                            debug!("{} ({}) - missing lj pseudo range", cd.t, cd.sv);
-                            false
-                        }
-                    } else {
-                        debug!("{} ({}) - missing lj phase range", cd.t, cd.sv);
-                        false
-                    }
+            if let Some(input) = cd.ambiguity_input() {
+                let output = if let Some(solver) = self.solver.get_mut(&cd.sv) {
+                    solver.solve(input)
                 } else {
-                    debug!("{} ({}) - missing l1 code", cd.t, cd.sv);
+                    let mut solver = AmbiguitySolver::new();
+                    let out = solver.solve(input);
+
+                    self.solver.insert(cd.sv, solver);
+                    out
+                };
+
+                if let Some(output) = output {
+                    debug!(
+                        "{} ({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w={})",
+                        cd.t,
+                        cd.sv,
+                        output.n1,
+                        0.0, // output.sigma_n1,
+                        output.n2,
+                        0.0, // output.sigma_nw,
+                    );
+
+                    cd.update_ambiguities(output);
+                    true
+                } else {
+                    debug!("{}({}) - phase tracking", cd.t, cd.sv);
                     false
                 }
             } else {
-                debug!("{} ({}) - missing l1 phase range", cd.t, cd.sv);
+                error!(
+                    "{}({}) - phase tracking is not unfeasible (missing observations)",
+                    cd.t, cd.sv
+                );
                 false
             }
         });
@@ -200,7 +185,7 @@ impl Pool {
     fn post_fit_code_smoothing(&mut self) {
         for cd in self.inner.iter_mut() {
             for sv_observ in cd.observations.iter_mut() {
-                if sv_observ.carrier.is_l1_pivot() {
+                if sv_observ.carrier.is_l1() {
                     let lambda_1 = sv_observ.carrier.wavelength();
                     let n_1 = sv_observ.ambiguity.unwrap_or_default();
                     if n_1 != 0.0 {
@@ -237,16 +222,5 @@ impl Pool {
                 }
             }
         }
-    }
-
-    fn post_fit_navi_compatible(&mut self) {
-        self.inner.retain(|cd| {
-            // TODO: improve this
-            let retained = cd.is_navi_compatible();
-            if !retained {
-                debug!("{}({}): not proposed - missing data", cd.t, cd.sv);
-            }
-            retained
-        });
     }
 }

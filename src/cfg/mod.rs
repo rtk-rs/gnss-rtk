@@ -183,12 +183,15 @@ impl Config {
         let mut s = Self::default();
         s.profile = Profile::Static;
         s.method = method;
+        s.max_tropo_bias = 15.0;
+
         match method {
             Method::PPP => {
-                s.code_smoothing = 15;
+                s.code_smoothing = 0; // TODO 15;
             },
             _ => {},
         }
+
         s
     }
 
@@ -210,7 +213,7 @@ impl Config {
         s.method = method;
         s.remote_site = Some(remote_site_ecef_m);
         s.min_sv_elev = Some(15.0);
-        s.max_tropo_bias = max_tropo_bias();
+        s.max_tropo_bias = 15.0;
         s.max_iono_bias = max_iono_bias();
         s
     }

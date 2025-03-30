@@ -3,7 +3,7 @@ use hifitime::Unit;
 use log::debug;
 
 use crate::{
-    ambiguity::Output as Ambiguities,
+    ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
     prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SPEED_OF_LIGHT_M_S, SV},
 };
 
@@ -117,11 +117,35 @@ impl Candidate {
 
 // private
 impl Candidate {
+    pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
+        let l1 = self.l1_phase_range()?;
+        let (f1_hz, l1) = (l1.0.frequency_hz(), l1.1);
+        let c1 = self.l1_pseudo_range()?.1;
+
+        let l2 = self.subsidary_phase_range()?;
+        let (f2_hz, l2) = (l2.0.frequency_hz(), l2.1);
+        let c2 = self.subsidary_pseudo_range()?.1;
+
+        Some(AmbiguityInput {
+            f1_hz,
+            c1,
+            l1,
+            f2_hz,
+            c2,
+            l2,
+            // f5_hz: None,
+            // c5: None,
+            // l5: None,
+        })
+    }
+
     pub(crate) fn update_ambiguities(&mut self, output: Ambiguities) {
         for obs in self.observations.iter_mut() {
-            if obs.carrier.is_l1_pivot() {
+            if obs.carrier.is_l1() {
                 obs.ambiguity = Some(output.n1 as f64);
             } else {
+                // TODO : improve
+                // this will not work for triple frequency scenarios
                 obs.ambiguity = Some(output.n2 as f64);
             }
         }
@@ -160,9 +184,7 @@ impl Candidate {
     pub(crate) fn tx_epoch(&mut self, cfg: &Config) -> Result<(), Error> {
         let mut t_tx = self.t;
 
-        let (_, pr) = self
-            .best_snr_pseudo_range_m()
-            .ok_or(Error::MissingPseudoRange)?;
+        let (_, pr) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
 
         t_tx -= pr / SPEED_OF_LIGHT_M_S * Unit::Second;
 
