@@ -71,6 +71,10 @@ impl Smoother {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.inner.clear();
+    }
+
     pub fn smoothing(
         &mut self,
         carrier: Carrier,

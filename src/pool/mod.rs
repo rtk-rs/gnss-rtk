@@ -15,6 +15,8 @@ use nalgebra::{Matrix3, Vector3};
 pub mod postfit;
 pub mod prefit;
 
+mod rtk;
+
 pub struct Pool {
     /// ECEF [Frame]
     earth_cef: Frame,
@@ -60,6 +62,14 @@ impl Pool {
             solver: HashMap::with_capacity(8),
             smoother: Smoother::new(smoothing_win_len),
         }
+    }
+
+    /// Reset this [Pool]
+    pub fn reset(&mut self) {
+        self.past.clear();
+        self.inner.clear();
+        self.solver.clear();
+        self.smoother.reset();
     }
 
     /// Prepare for new epoch

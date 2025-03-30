@@ -5,9 +5,7 @@ use std::cmp::Ordering;
 use crate::prelude::{Candidate, Carrier};
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Observation {
-    /// [Carrier] frequency.
-    pub carrier: Carrier,
+pub struct Measurements {
     /// Pseudo range observation in meters.
     pub pseudo_range_m: Option<f64>,
     /// Ambiguous phase range observation, in meters.
@@ -16,8 +14,18 @@ pub struct Observation {
     pub doppler: Option<f64>,
     /// Possible SNR indication (in dB/Hz).
     pub snr_dbhz: Option<f64>,
-    /// Phase range ambiguity (in cycles)
+    /// Phase range ambiguity (in propagation cycles)
     pub(crate) ambiguity: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Observation {
+    /// [Carrier] frequency.
+    pub carrier: Carrier,
+    /// [Measurements] for that [Carrier] frequency
+    pub measurements: Measurements,
+    /// Possible remote [Measurements] for that [Carrier] frequency
+    pub(crate) remote_measurements: Option<Measurements>,
 }
 
 impl Observation {
@@ -147,7 +155,7 @@ impl Candidate {
     /// True if dual pseudo range measurement is present
     pub(crate) fn has_dual_pseudo_range(&self) -> bool {
         self.pseudo_range_iter()
-            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+            .map(|(signal, _)| (signal.to_khz_unsigned()))
             .unique()
             .count()
             > 1
@@ -155,7 +163,7 @@ impl Candidate {
     /// True if dual pseudo range measurement is present
     pub(crate) fn has_triple_pseudo_range(&self) -> bool {
         self.pseudo_range_iter()
-            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+            .map(|(signal, _)| (signal.to_khz_unsigned()))
             .unique()
             .count()
             > 2
@@ -164,7 +172,7 @@ impl Candidate {
     /// True if dual phase range measurement exist.
     pub(crate) fn has_dual_phase_range(&self) -> bool {
         self.phase_range_iter()
-            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+            .map(|(signal, _)| (signal.to_khz_unsigned()))
             .unique()
             .count()
             > 1
@@ -173,7 +181,7 @@ impl Candidate {
     /// True if dual phase range measurement exist.
     pub(crate) fn has_triple_phase_range(&self) -> bool {
         self.phase_range_iter()
-            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+            .map(|(signal, _)| (signal.to_khz_unsigned()))
             .unique()
             .count()
             > 2

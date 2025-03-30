@@ -1,6 +1,4 @@
-use itertools::Itertools;
-
-use log::{debug, error, warn};
+use log::{debug, error};
 
 use anise::{
     math::Vector3,
@@ -11,165 +9,69 @@ use crate::{
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
-    cfg::{Config, Method},
+    cfg::Config,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
     postfit::PostfitKf,
     prelude::{Epoch, Error},
+    rtk::RTKBase,
 };
 
-/// [Solver] to resolve [PVTSolution]s.
+/// Generic [Solver] to resolve [PVTSolution]s with or without
+/// apriori knowledge and using possible remote [RTKBase]
+///
 /// ## Generics:
 /// - O: [OrbitSource], custom [Orbit] provider.
-/// - B: custom [Bias] model.
-pub struct Solver<O: OrbitSource, B: Bias> {
+/// - B: external [Bias] model(s).
+/// - RTK: remote [RTKBase]
+pub(crate) struct Solver<O: OrbitSource, RTK: RTKBase, B: Bias> {
     /// Solver [Config]uration preset
     pub cfg: Config,
     /// [Almanac]
-    almanac: Almanac,
+    pub almanac: Almanac,
     /// [Frame]
-    earth_cef: Frame,
+    pub earth_cef: Frame,
     /// [OrbitSource]
-    orbit_source: O,
+    pub orbit_source: O,
     /// [Bias] model implementation
-    bias: B,
+    pub bias: B,
+    /// [RTKBase] for differential (RTK) navigation
+    pub rtk_base: RTK,
     /// Previous resolved [State].
-    past_state: Option<State>,
+    pub past_state: Option<State>,
     /// Possible initial (very first) preset
-    initial_ecef_m: Option<Vector3>,
+    pub initial_ecef_m: Option<Vector3>,
     /// Pool
-    pool: Pool,
+    pub pool: Pool,
     /// Possible [PostfitKf]
-    postfit_kf: Option<PostfitKf>,
+    pub postfit_kf: Option<PostfitKf>,
 }
 
-fn update_sky_view(t: Epoch, pool: &[Candidate], elected: &mut Vec<Candidate>) {
-    for cd in pool.iter() {
-        if elected.iter().find(|elected| elected.sv == cd.sv).is_none() {
-            elected.push(cd.clone());
-        }
-    }
-
-    let current_sv = pool.iter().map(|cd| cd.sv).unique().collect::<Vec<_>>();
-
-    elected.retain(|elected| {
-        let retained = current_sv.contains(&elected.sv);
-        if !retained {
-            debug!("{} ({}) - loss of sight", t, elected.sv);
-        }
-        retained
-    });
-}
-
-impl<O: OrbitSource, B: Bias> Solver<O, B> {
-    /// Creates a new Position, Velocity, Time [Solver] without
-    /// apriori knowledge of the initial position.
-    /// ## Input
-    /// - almanac: provided valid [Almanac]
-    /// - earth_cef: [Frame] that must be an ECEF
-    /// - cfg: solver [Config]uration
-    /// - orbit_source: custom [OrbitSource] implementation.
-    /// - bias: [Bias] model implementation
-    /// - state_ecef_m: if you have accurate knowledge of the initial position,
-    /// you may define it here. Otherwise, we recommend you tie this to None.
-    pub fn new(
-        almanac: Almanac,
-        earth_cef: Frame,
-        cfg: Config,
-        orbit_source: O,
-        bias: B,
-        state_ecef_m: Option<(f64, f64, f64)>,
-    ) -> Result<Self, Error> {
-        Ok(Self::new_almanac_frame(
-            cfg,
-            almanac,
-            earth_cef,
-            orbit_source,
-            bias,
-            state_ecef_m,
-        ))
-    }
-
-    /// Creates a new Position [Solver] without apriori knowledge.
-    /// The solver will have to initiliaze iteself.
-    /// ## Input
-    /// - almanac: provided valid [Almanac]
-    /// - earth_cef: [Frame] that must be an ECEF
-    /// - cfg: solver [Config]uration
-    /// - orbit_source: custom [OrbitSource] implementation.
-    /// - bias: [Bias] model implementation
-    pub fn new_survey(
-        almanac: Almanac,
-        earth_cef: Frame,
-        cfg: Config,
-        orbit_source: O,
-        bias: B,
-    ) -> Result<Self, Error> {
-        Self::new(almanac, earth_cef, cfg, orbit_source, bias, None)
-    }
-
-    /// Creates a new Position, Velocity, Time [Solver] with your own [Almanac] and [Frame] definitions.
-    /// ## Input
-    /// - cfg: solver [Config]uration
-    /// - almanac: [Almanac] definition
-    /// - frame: [Frame] which must be an ECEF for valid results
-    /// - orbit_source: custom [OrbitSource] implementation.
-    /// - bias: [Bias] model implementation
-    /// - state_ecef_m: if you have accurate knowledge of the initial position,
-    /// you may define it here. Otherwise, we recommend you tie this to None.
-    pub fn new_almanac_frame(
-        cfg: Config,
-        almanac: Almanac,
-        earth_cef: Frame,
-        orbit_source: O,
-        bias: B,
-        state_ecef_m: Option<(f64, f64, f64)>,
-    ) -> Self {
-        // Analyze preset
-        if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
-            warn!("occultation filter is not meaningful in SPP navigation");
-        }
-
-        if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
-            warn!("RF cable delay compensation is either incomplete or not entirely enabled");
-        }
-
-        if !cfg.int_delay.is_empty() && !cfg.modeling.cable_delay {
-            warn!("RF cable delay compensation is not fully supported yet.");
-        }
-
-        let initial_ecef_m = match state_ecef_m {
-            Some((x0, y0, z0)) => Some(Vector3::new(x0, y0, z0)),
-            _ => None,
-        };
-
-        Self {
-            almanac,
-            earth_cef,
-            bias,
-            orbit_source,
-            initial_ecef_m,
-            past_state: None,
-            postfit_kf: None,
-            cfg: cfg.clone(),
-            pool: Pool::allocate(cfg.code_smoothing, earth_cef),
-        }
-    }
-
-    /// [PVTSolution] resolution attempt.
+impl<O: OrbitSource, RTK: RTKBase, B: Bias> Solver<O, RTK, B> {
+    /// [PVTSolution] solving attempt, using either absolute (1D) or differential (2D) navigation technique.
+    ///
     /// ## Inputs
     /// - t: desired [Epoch]
-    /// - pool: list of [Candidate]
-    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
+    /// - rover: local list of [Candidate]s
+    pub fn resolve(
+        &mut self,
+        t: Epoch,
+        rover: &[Candidate],
+    ) -> Result<(Epoch, PVTSolution), Error> {
         let min_required = self.min_sv_required();
 
-        if pool.len() < min_required {
+        if rover.len() < min_required {
             // no need to proceed further
             return Err(Error::NotEnoughCandidates);
         }
 
-        self.pool.new_epoch(pool);
+        self.pool.new_epoch(rover);
+
+        // Try to augment this [Pool] with remote observations
+        let rtk_base = &mut self.rtk_base;
+        self.pool.remote_observation_enhancing(rtk_base);
+
         self.pool.pre_fit(&self.cfg);
 
         if self.pool.len() < min_required {
@@ -200,14 +102,14 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                     })
                 },
                 None => {
-                    let solver = Bancroft::new(&pool)?;
+                    let solver = Bancroft::new(&rover)?;
                     let solution = solver.resolve()?;
                     let x0_y0_z0_m = Vector3::new(solution[0], solution[1], solution[2]);
 
                     debug!("{}: initial solution: {}", t, x0_y0_z0_m);
 
                     Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef).unwrap_or_else(|e| {
-                        panic!("Solver failed to initialize itself. Phyiscal error :{}", e)
+                        panic!("Solver failed to initialize itself. Physical error :{}", e)
                     })
                 },
             },
@@ -294,44 +196,19 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         Ok((t, solution))
     }
 
-    /// Apply signal quality criteria
-    fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
-        pool.retain_mut(|cd| {
-            cd.min_snr_mask(min_snr);
-            !cd.observations.is_empty()
-        })
+    /// Reset navigation filter and phase trackers. Call this on any external abnormal event.
+    pub fn reset(&mut self) {
+        self.pool.reset();
+        self.past_state = None;
     }
 
-    /// Apply signal condition criteria
-    fn signal_condition_filter(t: Epoch, method: Method, pool: &mut Vec<Candidate>) {
-        pool.retain(|cd| match method {
-            Method::SPP => {
-                if cd.l1_pseudo_range().is_some() {
-                    true
-                } else {
-                    error!("{} ({}) missing pseudo range observation", t, cd.sv);
-                    false
-                }
-            },
-            Method::CPP => {
-                if cd.cpp_compatible() {
-                    true
-                } else {
-                    debug!("{} ({}) missing secondary frequency", t, cd.sv);
-                    false
-                }
-            },
-            Method::PPP => {
-                if cd.ppp_compatible() {
-                    true
-                } else {
-                    debug!("{} ({}) missing phase or phase combination", t, cd.sv);
-                    false
-                }
-            },
-        })
+    /// Reset internal phase tracker. Call this on any external abnormal perturbation
+    /// of the phase lock loop. Does not reset the navigation filter.
+    pub fn phase_tracking_reset(&mut self) {
+        self.pool.reset();
     }
 
+    /// Returns minimal SV requirement.
     fn min_sv_required(&self) -> usize {
         if self.past_state.is_none() {
             if self.initial_ecef_m.is_none() {

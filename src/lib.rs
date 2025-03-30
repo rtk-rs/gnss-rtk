@@ -19,6 +19,8 @@ mod navigation;
 mod orbit;
 mod pool;
 mod postfit;
+mod ppp;
+mod rtk;
 mod smoothing;
 mod solver;
 
@@ -44,7 +46,8 @@ pub mod prelude {
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,
-        solver::Solver,
+        ppp::PPPSolver,
+        rtk::{RTKBase, RTKSolver},
     };
 
     // gnss types
