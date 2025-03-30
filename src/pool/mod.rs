@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
+    averager::Averager,
     constants::Constants,
     prelude::{Candidate, Config, Duration, Epoch, Frame, Orbit, OrbitSource, SV},
     smoothing::Smoother,
@@ -17,14 +18,14 @@ pub mod prefit;
 pub struct Pool {
     /// ECEF [Frame]
     earth_cef: Frame,
-    /// [Candidate]s pool
+    /// Current [Candidate]s pool
     inner: Vec<Candidate>,
+    /// Previous [Candidate]s pool
+    past: Vec<Candidate>,
     /// [Smoother]
     smoother: Smoother,
     /// [AmbiguitySolver]
     solver: HashMap<SV, AmbiguitySolver>,
-    /// Past elected
-    past: Vec<Candidate>,
 }
 
 fn orbit_rotation(t: Epoch, dt: Duration, orbit: Orbit, modeling: bool, frame: Frame) -> Orbit {

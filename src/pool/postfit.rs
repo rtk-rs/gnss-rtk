@@ -146,7 +146,8 @@ impl Pool {
         self.inner.retain_mut(|cd| {
             if let Some(input) = cd.ambiguity_input() {
                 let output = if let Some(solver) = self.solver.get_mut(&cd.sv) {
-                    solver.solve(input)
+                    let out = solver.solve(input);
+                    out
                 } else {
                     let mut solver = AmbiguitySolver::new();
                     let out = solver.solve(input);
@@ -158,12 +159,7 @@ impl Pool {
                 if let Some(output) = output {
                     debug!(
                         "{} ({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w={})",
-                        cd.t,
-                        cd.sv,
-                        output.n1,
-                        0.0, // output.sigma_n1,
-                        output.n2,
-                        0.0, // output.sigma_nw,
+                        cd.t, cd.sv, output.n1, 0.0, output.n2, 0.0,
                     );
 
                     cd.update_ambiguities(output);

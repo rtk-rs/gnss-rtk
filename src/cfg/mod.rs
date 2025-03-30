@@ -114,10 +114,8 @@ pub struct Config {
     /// is also turned on.
     #[cfg_attr(feature = "serde", serde(default))]
     pub externalref_delay: Option<f64>,
-    /// Maximal Earth / Sun occultation tolerated for each satellite in orbit.
-    /// This is percentage, > 99.9 means total darkness.
-    /// 20.0% for example, would mean partially eclipsed satellites are to be discarded
-    /// by the solver.
+    /// Maximal Earth / Sun occultation tolerated for each satellite.
+    /// For example, 20.0% means that we consider satellites illuminated by 80%.
     #[cfg_attr(feature = "serde", serde(default))]
     pub max_sv_occultation_percent: Option<f64>,
     /// Minimal SV elevation angle for an SV to contribute to the solution.
@@ -187,7 +185,11 @@ impl Config {
 
         match method {
             Method::PPP => {
-                s.code_smoothing = 0; // TODO 15;
+                s.code_smoothing = 15;
+                s.max_sv_occultation_percent = Some(10.0);
+            },
+            Method::CPP => {
+                s.max_sv_occultation_percent = Some(10.0);
             },
             _ => {},
         }
@@ -201,6 +203,18 @@ impl Config {
         let mut s = Self::default();
         s.method = method;
         s.profile = profile;
+
+        match method {
+            Method::PPP => {
+                s.code_smoothing = 15;
+                s.max_sv_occultation_percent = Some(10.0);
+            },
+            Method::CPP => {
+                s.max_sv_occultation_percent = Some(10.0);
+            },
+            _ => {},
+        }
+
         s
     }
 

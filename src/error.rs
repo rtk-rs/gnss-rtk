@@ -125,10 +125,10 @@ pub enum Error {
     InvalidFrequency,
     #[error("unknown carrier frequency")]
     UnknownCarrierFrequency,
-    #[error("rejected troposhere delay: model divergence?")]
+    #[error("rejected troposhere delay: model is diverging.")]
     RejectedTropoDelay,
-    #[error("rejected ionosphere delay: model divergence?")]
+    #[error("rejected ionosphere delay: model diverging.")]
     RejectedIonoDelay,
-    #[error("nav filter converged to physicaly invalid state")]
+    #[error("converged to physically invalid state")]
     StateUpdate,
 }

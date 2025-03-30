@@ -139,9 +139,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             warn!("RF cable delay compensation is not fully supported yet.");
         }
 
-        // let eclipse = EclipseLocator::cislunar(Arc::new(almanac.clone()));
-        // let almanac = Arc::new(almanac);
-
         let initial_ecef_m = match state_ecef_m {
             Some((x0, y0, z0)) => Some(Vector3::new(x0, y0, z0)),
             _ => None,

@@ -77,41 +77,31 @@ pub struct Input {
     pub f2_hz: f64,
     pub c2: f64,
     pub l2: f64,
-    // pub f5_hz: Option<f64>,
-    // pub c5: Option<f64>,
-    // pub l5: Option<f64>,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct Output {
-    pub n1: i32,
-    pub n2: i32,
-    // pub sigma_nw: f64,
-    // pub sigma_n1: f64,
+    pub n1: u32,
+    pub n2: u32,
 }
 
 #[derive(Debug, Clone)]
 pub struct Solver {
     nw_avg: Averager,
     n1_avg: Averager,
-    cn_avg: Averager,
-    l1_avg: Averager,
 }
 
 impl Solver {
     pub fn new() -> Self {
         Self {
-            nw_avg: Averager::new(),
-            cn_avg: Averager::new(),
-            l1_avg: Averager::new(),
-            n1_avg: Averager::new(),
+            nw_avg: Averager::new(0.05),
+            n1_avg: Averager::new(0.05),
         }
     }
 
     pub fn reset(&mut self) {
         self.nw_avg.reset();
-        self.cn_avg.reset();
-        self.l1_avg.reset();
+        self.n1_avg.reset();
     }
 
     pub fn solve(&mut self, input: Input) -> Option<Output> {
@@ -121,22 +111,16 @@ impl Solver {
 
         let lw = (input.f1_hz * input.l1 - input.f2_hz * input.l2) / (input.f1_hz - input.f2_hz);
         let cn = (input.f1_hz * input.c1 + input.f2_hz * input.c2) / (input.f1_hz + input.f2_hz);
+
         self.nw_avg.add((lw - cn) / lambda_wl);
 
-        if self.nw_avg.count < 20 {
-            return None;
-        }
-
         let nw = self.nw_avg.mean.round();
+
         let n1 = (input.l1 - input.l2 - lambda_2 * nw) / (lambda_1 - lambda_2);
         self.n1_avg.add(n1);
 
-        if self.n1_avg.count < 20 {
-            return None;
-        }
-
-        let n1 = self.n1_avg.mean.round() as i32;
-        let n2 = n1 - nw as i32;
+        let n1 = self.n1_avg.mean.round() as u32;
+        let n2 = n1 - nw as u32;
 
         Some(Output { n1, n2 })
     }
