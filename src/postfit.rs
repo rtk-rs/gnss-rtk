@@ -1,7 +1,7 @@
 use nyx::{
     cosmic::State as NyxState,
     dynamics::DynamicsError,
-    linalg::{Matrix3, Matrix6, OMatrix, OVector, Vector3, Vector6, U3, U6},
+    linalg::{Matrix6, OMatrix, OVector, Vector6, U3, U6},
     od::{
         filter::kalman::{KfEstimate, KF},
         Filter, ODError,

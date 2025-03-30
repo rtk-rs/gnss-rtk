@@ -7,7 +7,7 @@ use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 use crate::{
     cfg::Modeling,
     constants::Constants,
-    navigation::{apriori::Apriori, state::State, Navigation},
+    navigation::{apriori::Apriori, Navigation},
     prelude::{
         Almanac, Candidate, Carrier, ClockCorrection, Config, Epoch, Error, Method, Observation,
         Orbit, Vector3,

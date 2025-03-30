@@ -18,17 +18,16 @@ impl Combination {
 }
 
 impl Candidate {
-    /// Returns IF code range [Combination]
+    /// Returns an IF code range [Combination] using prefered available frequencies
     pub(crate) fn code_if_combination(&self) -> Option<Combination> {
         let (c1, l1_pr) = self.l1_pseudo_range()?;
-        let f1 = c1.frequency();
+        let f1_hz = c1.frequency_hz();
 
-        let (cj, lj_pr) = self.lj_pseudo_range()?;
-        let fj = cj.frequency();
+        let (cj, lj_pr) = self.subsidary_pseudo_range()?;
+        let fj_hz = cj.frequency_hz();
 
-        let alpha = 1.0 / (f1.powi(2) - fj.powi(2));
-        let beta = f1.powi(2);
-        let gamma = fj.powi(2);
+        let alpha = 1.0 / (f1_hz.powi(2) - fj_hz.powi(2));
+        let (beta, gamma) = (f1_hz.powi(2), fj_hz.powi(2));
 
         Some(Combination::new(
             cj,
@@ -37,17 +36,16 @@ impl Candidate {
         ))
     }
 
-    /// Returns IF phase range [Combination]
+    /// Returns an IF phase range [Combination] using prefered available frequencies
     pub(crate) fn phase_if_combination(&self) -> Option<Combination> {
         let (c1, l1_pr) = self.l1_phase_range()?;
-        let f1 = c1.frequency();
+        let f1_hz = c1.frequency_hz();
 
-        let (cj, lj_pr) = self.lj_phase_range()?;
-        let fj = cj.frequency();
+        let (cj, lj_pr) = self.subsidary_phase_range()?;
+        let fj_hz = cj.frequency_hz();
 
-        let alpha = 1.0 / (f1.powi(2) - fj.powi(2));
-        let beta = f1.powi(2);
-        let gamma = fj.powi(2);
+        let alpha = 1.0 / (f1_hz.powi(2) - fj_hz.powi(2));
+        let (beta, gamma) = (f1_hz.powi(2), fj_hz.powi(2));
 
         Some(Combination::new(
             cj,
@@ -59,10 +57,10 @@ impl Candidate {
     /// Returns phase wide lane [Combination]
     pub(crate) fn phase_wl_combination(&self) -> Option<Combination> {
         let (c1, l1_cp) = self.l1_phase_range()?;
-        let f1 = c1.frequency();
+        let f1 = c1.frequency_hz();
 
-        let (cj, lj_cp) = self.lj_phase_range()?;
-        let fj = cj.frequency();
+        let (cj, lj_cp) = self.subsidary_phase_range()?;
+        let fj = cj.frequency_hz();
 
         Some(Combination::new(
             cj,
@@ -74,10 +72,10 @@ impl Candidate {
     /// Returns code narrow lane [Combination]
     pub(crate) fn code_nl_combination(&self) -> Option<Combination> {
         let (c1, l1_pr) = self.l1_pseudo_range()?;
-        let f1 = c1.frequency();
+        let f1 = c1.frequency_hz();
 
-        let (cj, lj_pr) = self.lj_pseudo_range()?;
-        let fj = cj.frequency();
+        let (cj, lj_pr) = self.subsidary_pseudo_range()?;
+        let fj = cj.frequency_hz();
 
         Some(Combination::new(
             cj,
@@ -97,17 +95,17 @@ impl Candidate {
         ))
     }
 
+    /// Form GF [Combination]
+    pub(crate) fn code_gf_combination(&self) -> Option<Combination> {
+        let (c1, l1_pr) = self.l1_pseudo_range()?;
+        let (c2, l2_pr) = self.subsidary_pseudo_range()?;
+        Some(Combination::new(c2, c1, l2_pr - l1_pr))
+    }
+
     /// Returns GF [Combination]
     pub(crate) fn phase_gf_combination(&self) -> Option<Combination> {
         let (c1, l1_pr) = self.l1_phase_range()?;
-        let (cj, lj_pr) = self.lj_phase_range()?;
-        Some(Combination::new(cj, c1, l1_pr - lj_pr))
-    }
-
-    /// Form GF combination
-    pub(crate) fn code_gf_combination(&self) -> Option<Combination> {
-        let (c1, l1_pr) = self.l1_pseudo_range()?;
-        let (cj, lj_pr) = self.lj_pseudo_range()?;
-        Some(Combination::new(cj, c1, lj_pr - l1_pr))
+        let (c2, l2_pr) = self.subsidary_phase_range()?;
+        Some(Combination::new(c2, c1, l1_pr - l2_pr))
     }
 }

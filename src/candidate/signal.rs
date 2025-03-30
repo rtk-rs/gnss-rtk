@@ -8,19 +8,16 @@ use crate::prelude::{Candidate, Carrier};
 pub struct Observation {
     /// [Carrier] frequency.
     pub carrier: Carrier,
-    /// Pseudo range observation, expressed in meters.
+    /// Pseudo range observation in meters.
     pub pseudo_range_m: Option<f64>,
-    /// Phase range observatio, expressed in meters.
+    /// Ambiguous phase range observation, in meters.
     pub phase_range_m: Option<f64>,
     /// Possible doppler observation (in Hz/Hz).
     pub doppler: Option<f64>,
     /// Possible SNR indication (in dB/Hz).
     pub snr_dbhz: Option<f64>,
-    /// Ambiguity over that phase range.
-    /// If ambiguity is already solved (externally), define it here.
-    /// Otherwise, ambiguities will be fixed during the navigation process,
-    /// if the technique is set to [Method::PPP].
-    pub ambiguity: Option<f64>,
+    /// Phase range ambiguity (in cycles)
+    pub(crate) ambiguity: Option<f64>,
 }
 
 impl Observation {
@@ -97,16 +94,6 @@ impl Candidate {
         }))
     }
 
-    /// Mutable Pseudo range iterator
-    pub(crate) fn pseudo_range_iter_mut(
-        &mut self,
-    ) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
-        Box::new(self.observations.iter_mut().filter_map(|ob| {
-            let pseudo = ob.pseudo_range_m?;
-            Some((ob.carrier, pseudo))
-        }))
-    }
-
     /// Phase Range iterator
     pub(crate) fn phase_range_iter(&self) -> Box<dyn Iterator<Item = (Carrier, f64)> + '_> {
         Box::new(self.observations.iter().filter_map(|ob| {
@@ -133,46 +120,63 @@ impl Candidate {
             .cloned()
     }
 
-    /// Returns pseudo range (in meters) with best SNR value, among all observed frequencies.
-    pub(crate) fn best_snr_pseudo_range_m(&self) -> Option<(Carrier, f64)> {
+    /// Returns range (in meters) using most suitable signal, accross all frequencies.
+    pub(crate) fn best_snr_range_m(&self) -> Option<(Carrier, f64)> {
         let obs = self.best_snr_observation()?;
-        let pr = obs.pseudo_range_m?;
-        Some((obs.carrier, pr))
-    }
 
-    /// Returns pseudo range (in meters) with best SNR value, among all observed frequencies.
-    pub(crate) fn best_snr_phase_range_m(&self) -> Option<(Carrier, f64)> {
-        let obs = self.best_snr_observation()?;
-        let pr = obs.phase_range_m?;
-        Some((obs.carrier, pr))
+        let range_m = if let Some(ambiguity) = obs.ambiguity {
+            obs.pseudo_range_m
+        } else {
+            obs.pseudo_range_m
+        };
+
+        let range_m = range_m?;
+        Some((obs.carrier, range_m))
     }
 
     /// True if Self is [Method::CPP] compatible
     pub(crate) fn cpp_compatible(&self) -> bool {
-        self.has_dual_pseudorange()
+        self.has_dual_pseudo_range()
     }
 
     /// True if Self is [Method::PPP] compatible
     pub(crate) fn ppp_compatible(&self) -> bool {
-        self.has_dual_pseudorange() && self.has_dual_phase()
+        self.has_dual_pseudo_range() && self.has_dual_phase_range()
     }
 
     /// True if dual pseudo range measurement is present
-    pub(crate) fn has_dual_pseudorange(&self) -> bool {
+    pub(crate) fn has_dual_pseudo_range(&self) -> bool {
         self.pseudo_range_iter()
-            .map(|(signal, _)| signal)
+            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+            .unique()
+            .count()
+            > 1
+    }
+    /// True if dual pseudo range measurement is present
+    pub(crate) fn has_triple_pseudo_range(&self) -> bool {
+        self.pseudo_range_iter()
+            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+            .unique()
+            .count()
+            > 2
+    }
+
+    /// True if dual phase range measurement exist.
+    pub(crate) fn has_dual_phase_range(&self) -> bool {
+        self.phase_range_iter()
+            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
             .unique()
             .count()
             > 1
     }
 
     /// True if dual phase range measurement exist.
-    pub(crate) fn has_dual_phase(&self) -> bool {
+    pub(crate) fn has_triple_phase_range(&self) -> bool {
         self.phase_range_iter()
-            .map(|(signal, _)| signal)
+            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
             .unique()
             .count()
-            > 1
+            > 2
     }
 
     /// Returns the L1 Pseudo Range observation [m] if it exists
@@ -180,7 +184,7 @@ impl Candidate {
         let l1 = self
             .observations
             .iter()
-            .filter(|ob| ob.carrier.is_l1_pivot() && ob.pseudo_range_m.is_some())
+            .filter(|ob| ob.carrier.is_l1() && ob.pseudo_range_m.is_some())
             .reduce(|k, _| k)?;
 
         Some((l1.carrier, l1.pseudo_range_m.unwrap()))
@@ -191,40 +195,38 @@ impl Candidate {
         let l1 = self
             .observations
             .iter()
-            .filter(|ob| ob.carrier.is_l1_pivot() && ob.phase_range_m.is_some())
+            .filter(|ob| ob.carrier.is_l1() && ob.phase_range_m.is_some())
             .reduce(|k, _| k)?;
 
         let mut l_1 = l1.phase_range_m.unwrap();
         let lambda_1 = l1.carrier.wavelength();
-        let n_1 = l1.ambiguity.unwrap_or_default();
-        l_1 -= n_1 * lambda_1;
+        l_1 += l1.ambiguity.unwrap_or_default() * lambda_1;
 
         Some((l1.carrier, l_1))
     }
 
-    /// Returns the Lj Pseudo Range observation [m] if it exists
-    pub(crate) fn lj_pseudo_range(&self) -> Option<(Carrier, f64)> {
+    /// Returns the a Pseudo Range observation [m] if it exists
+    pub(crate) fn subsidary_pseudo_range(&self) -> Option<(Carrier, f64)> {
         let lj = self
             .observations
             .iter()
-            .filter(|ob| !ob.carrier.is_l1_pivot() && ob.pseudo_range_m.is_some())
+            .filter(|ob| !ob.carrier.is_l1() && ob.pseudo_range_m.is_some())
             .reduce(|k, _| k)?;
 
         Some((lj.carrier, lj.pseudo_range_m.unwrap()))
     }
 
-    /// Returns the Lj Phase Range observation [m] if it exists
-    pub(crate) fn lj_phase_range(&self) -> Option<(Carrier, f64)> {
+    /// Returns the L2 Phase Range observation [m] if it exists
+    pub(crate) fn subsidary_phase_range(&self) -> Option<(Carrier, f64)> {
         let lj = self
             .observations
             .iter()
-            .filter(|ob| !ob.carrier.is_l1_pivot() && ob.phase_range_m.is_some())
+            .filter(|ob| !ob.carrier.is_l1() && ob.phase_range_m.is_some())
             .reduce(|k, _| k)?;
 
         let mut l_j = lj.phase_range_m.unwrap();
         let lambda_j = lj.carrier.wavelength();
-        let n_j = lj.ambiguity.unwrap_or_default();
-        l_j -= n_j * lambda_j;
+        l_j += lj.ambiguity.unwrap_or_default() * lambda_j;
 
         Some((lj.carrier, l_j))
     }
@@ -264,8 +266,9 @@ mod test {
         );
 
         assert_eq!(cd.l1_pseudo_range(), Some((l1, 0.1)));
+
         assert!(cd.l1_phase_range().is_none());
-        assert!(cd.lj_phase_range().is_none());
+        assert!(cd.subsidary_phase_range().is_none());
 
         let cd = Candidate::new(
             g01,
@@ -277,11 +280,11 @@ mod test {
         );
 
         assert_eq!(cd.l1_pseudo_range(), Some((l1, 0.1)));
-        assert_eq!(cd.lj_pseudo_range(), Some((l2, 0.2)));
+        assert_eq!(cd.subsidary_pseudo_range(), Some((l2, 0.2)));
         assert!(cd.code_if_combination().is_some());
 
         assert!(cd.l1_phase_range().is_none());
-        assert!(cd.lj_phase_range().is_none());
+        assert!(cd.subsidary_phase_range().is_none());
 
         let cd = Candidate::new(
             g01,
@@ -295,8 +298,8 @@ mod test {
         assert_eq!(cd.l1_pseudo_range(), Some((l1, 0.1)));
         assert_eq!(cd.l1_phase_range(), Some((l1, 0.2)));
 
-        assert!(cd.lj_pseudo_range().is_none());
-        assert!(cd.lj_phase_range().is_none());
+        assert!(cd.subsidary_pseudo_range().is_none());
+        assert!(cd.subsidary_phase_range().is_none());
 
         let cd = Candidate::new(
             g01,
@@ -308,12 +311,11 @@ mod test {
         );
 
         assert_eq!(cd.l1_phase_range(), Some((l1, 0.1)));
-        assert_eq!(cd.lj_phase_range(), Some((l5, 0.5)));
 
         assert!(cd.l1_pseudo_range().is_none());
-        assert!(cd.lj_pseudo_range().is_none());
+        assert!(cd.subsidary_pseudo_range().is_none());
 
-        assert!(cd.phase_if_combination().is_some());
         assert!(cd.code_if_combination().is_none());
+        assert!(cd.phase_if_combination().is_some());
     }
 }

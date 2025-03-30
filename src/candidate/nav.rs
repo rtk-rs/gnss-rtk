@@ -68,19 +68,29 @@ impl Candidate {
 
         let (frequency_hz, range_m) = match cfg.method {
             Method::SPP => {
-                let (carrier, pr) = self
-                    .best_snr_pseudo_range_m()
-                    .ok_or(Error::MissingPseudoRange)?;
+                let (carrier, pr) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
 
                 contribution.signal = Signal::Single(carrier);
-                (carrier.frequency(), pr)
+
+                (carrier.frequency_hz(), pr)
             },
-            _ => {
+            Method::CPP => {
                 let comb = self
                     .code_if_combination()
-                    .ok_or(Error::MissingPseudoRange)?;
+                    .ok_or(Error::PseudoRangeCombination)?;
+
                 contribution.signal = Signal::Dual((comb.lhs, comb.rhs));
-                (comb.rhs.frequency(), comb.value)
+
+                (comb.rhs.frequency_hz(), comb.value)
+            },
+            Method::PPP => {
+                let comb = self
+                    .code_if_combination()
+                    .ok_or(Error::PhaseRangeCombination)?;
+
+                contribution.signal = Signal::Dual((comb.lhs, comb.rhs));
+
+                (comb.rhs.frequency_hz(), comb.value)
             },
         };
 
@@ -125,25 +135,19 @@ impl Candidate {
 
             bias_m += iono_bias_m;
             contribution.iono_bias = Some(IonosphereBias::modeled(iono_bias_m));
-            // } else {
-            //     debug!("{}({}) - rejected (extreme iono delay)", t, self.sv);
-            //     return Err(Error::RejectedIonoDelay);
-            // }
         }
 
         if cfg.modeling.tropo_delay {
             let tropo_bias_m = bias.troposphere_bias_m(&rtm);
 
-            // TODO: model verification (tropo)
-            //if tropo_bias_m < cfg.max_tropo_bias {
-            debug!("{}({}) - tropo delay {:.3E}[m]", t, self.sv, tropo_bias_m);
+            if tropo_bias_m < cfg.max_tropo_bias {
+                debug!("{}({}) - tropo delay {:.3E}[m]", t, self.sv, tropo_bias_m);
 
-            bias_m += tropo_bias_m;
-            contribution.tropo_bias = Some(tropo_bias_m);
-            //} else {
-            //    debug!("{}({}) - rejected (extreme tropo delay)", t, self.sv);
-            //    return Err(Error::RejectedTropoDelay);
-            //}
+                bias_m += tropo_bias_m;
+                contribution.tropo_bias = Some(tropo_bias_m);
+            } else {
+                return Err(Error::RejectedTropoDelay);
+            }
         }
 
         Ok((range_m - rho - bias_m, dr))
