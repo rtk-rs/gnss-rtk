@@ -76,19 +76,14 @@ should match your navigation technique at all times. Yet, we have several naviga
 some are compatible with single frequency observation. This makes our solver compatible with
 degraded or low-cost environments
 
-* Military frequencies: our library treats the L1 (main signal) as either the L1 or L6
-frequencies. That means you can replace L1 with L6 naturally, if you are able to decode and
-sample that frequency. It also means you can operate the solver in single frequency L6 mode.
-:warning: L6 cannot serve as L1+L6 or L1+Lx+L6 combination contributor, it can only serve
-as main frequency replacement.
+* Military frequencies: our library only cares about frequencies.
+Whether you arrive from a decoded military or civilian signal does not matter.
+L1 is treated as main reference as always.
 
-* Signals _almost_ do not matter. The current version of the library prioritizes signals this way:
-  - The L1 is the main frequency and is always required. L6 might replace L1 in case it is missing
-  - CPP and PPP navigation techniques require a subsidary signal, which needs to be either L2 or L5,
-  they are not prioritized and both may work. That means if L2 is missing from time to time, we can use L5
-  for that purpose
-  - If you're in position to provide the main signal, and two subsidary frequencies (L1+L2+L5) we take
-  advantage of that. In other words, we are compatible with modern precise GNSS receivers and what they have to offer
+* High precision channels: E6 (Galileo) and LEX (QZSS) are both known
+
+* :warning: This library requires L1 frequency to be present for advanced CPP or PPP techniques
+(as reference signal). We allow L2 or L5 as subsidary signal, without priority.
 
 PPP / RTK
 =========
