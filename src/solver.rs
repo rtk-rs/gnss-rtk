@@ -265,23 +265,25 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             }
         }
 
+        let sampling_interval = Duration::from_seconds(30.0); // TODO
+
         if self.cfg.solver.postfit_kf {
             if self.postfit_kf.is_none() {
                 self.postfit_kf = Some(PostfitKf::new(
                     self.earth_cef,
                     &nav.state,
-                    Duration::from_seconds(30.0),
-                    1.0,         // (measured) position sigma
-                    0.1,         // (measured) velocity sigma
-                    1.0 / 100.0, // (real) position sigma
-                    0.1 / 100.0, // (real) velocity sigma
+                    1.0,               // (measured) position sigma
+                    0.1,               // (measured) velocity sigma
+                    1.0 / 100.0,       // (real) position sigma
+                    0.1 / 100.0,       // (real) velocity sigma
+                    sampling_interval, // TODO
                 ));
             }
 
             let kf = self.postfit_kf.as_mut().unwrap();
 
             let new_state = kf
-                .run(&nav.state, 1.0, 0.1)
+                .run(&nav.state, 1.0, 0.1, sampling_interval)
                 .unwrap_or_else(|e| panic!("kf error: {}", e));
 
             let residual = new_state.residual(&nav.state);

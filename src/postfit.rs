@@ -16,18 +16,20 @@ use crate::{
 #[derive(Clone, Copy, Default, PartialEq)]
 pub struct PostfitState {
     t: Epoch,
-    dt: Duration,
+    clock_dt: Duration,
     pos_m: (f64, f64, f64),
     vel_m_s: (f64, f64, f64),
+    sampling_interval: Duration,
 }
 
 impl PostfitState {
-    fn from_state(state: &State) -> Self {
+    fn from_state(state: &State, sampling_interval: Duration) -> Self {
         Self {
             t: state.t,
-            dt: state.clock_dt,
+            sampling_interval,
             pos_m: state.pos_m,
             vel_m_s: state.vel_m_s,
+            clock_dt: state.clock_dt,
         }
     }
 
@@ -35,10 +37,10 @@ impl PostfitState {
         State {
             t: self.t,
             frame,
-            clock_dt: self.dt,
-            clock_drift_s_s: 0.0, //TODO
             pos_m: self.pos_m,
-            lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0), //TODO
+            clock_dt: self.clock_dt,
+            clock_drift_s_s: 0.0,
+            lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0), // update, using Orbital calcs
             vel_m_s: self.vel_m_s,
         }
     }
@@ -50,7 +52,7 @@ impl std::fmt::Display for PostfitState {
             f,
             "({}) - dt={} | x={}(m) y={}(m) z={}(m) | vel_x={}(m/s) vel_y={}[m/s] vel_z={}[m/s]",
             self.t,
-            self.dt,
+            self.clock_dt,
             self.pos_m.0,
             self.pos_m.1,
             self.pos_m.2,
@@ -67,7 +69,7 @@ impl std::fmt::LowerExp for PostfitState {
             f,
             "({}) - dt={} | x={}(m) y={}(m) z={}(m) | vel_x={}(m/s) vel_y={}[m/s] vel_z={}[m/s]",
             self.t,
-            self.dt,
+            self.clock_dt,
             self.pos_m.0,
             self.pos_m.1,
             self.pos_m.2,
@@ -112,8 +114,12 @@ impl NyxState for PostfitState {
     }
 
     fn stm(&self) -> Result<OMatrix<f64, Self::Size, Self::Size>, DynamicsError> {
-        let diag = Vector6::<f64>::identity();
-        Ok(Matrix6::<f64>::from_diagonal(&diag))
+        let dt_s = self.sampling_interval.to_seconds();
+        let mut stm = Matrix6::<f64>::identity();
+        stm[(0, 4)] = dt_s;
+        stm[(1, 5)] = dt_s;
+        stm[(2, 6)] = dt_s;
+        Ok(stm)
     }
 
     fn unset_stm(&mut self) {}
@@ -131,21 +137,19 @@ impl PostfitKf {
     pub fn new(
         frame: Frame,
         state: &State,
-        dt: Duration,
         sigma_sol_pos: f64,
         sigma_sol_vel: f64,
         sigma_meas_pos: f64,
         sigma_meas_vel: f64,
+        sampling_interval: Duration,
     ) -> Self {
-        let state = PostfitState::from_state(state);
+        let state = PostfitState::from_state(state, sampling_interval);
 
         let mut stm = Vector6::identity();
 
-        let dt_s = dt.to_seconds();
-
-        stm[(0, 4)] = dt_s;
-        stm[(1, 5)] = dt_s;
-        stm[(2, 6)] = dt_s;
+        stm[(0, 4)] = sampling_interval.to_seconds();
+        stm[(1, 5)] = sampling_interval.to_seconds();
+        stm[(2, 6)] = sampling_interval.to_seconds();
 
         let q_sol = Vector6::new(
             sigma_sol_pos,
@@ -189,9 +193,10 @@ impl PostfitKf {
         state: &State,
         sigma_m_pos_m: f64,
         sigma_m_vel_m_s: f64,
+        sampling_interval: Duration,
     ) -> Result<State, ODError> {
         // real observation is the new state we have possibly just improved
-        let real_observations = PostfitState::from_state(state);
+        let real_observations = PostfitState::from_state(state, sampling_interval);
 
         let r = Vector6::new(
             sigma_m_pos_m,
@@ -203,7 +208,7 @@ impl PostfitKf {
         );
 
         let kfe = self.kf.measurement_update(
-            self.nominal_state,
+            self.kf.prev_estimate.nominal_state, // unclear what is expected here
             real_observations,
             &self.null_computed_obs,
             self.measurement_covar,
