@@ -16,7 +16,7 @@ use crate::{
     orbit::OrbitSource,
     pool::Pool,
     postfit::PostfitKf,
-    prelude::{Epoch, Error},
+    prelude::{Duration, Epoch, Error},
 };
 
 /// [Solver] to resolve [PVTSolution]s.
@@ -267,13 +267,21 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
 
         if self.cfg.solver.postfit_kf {
             if self.postfit_kf.is_none() {
-                self.postfit_kf = Some(PostfitKf::new(self.earth_cef, &nav.state));
+                self.postfit_kf = Some(PostfitKf::new(
+                    self.earth_cef,
+                    &nav.state,
+                    Duration::from_seconds(30.0),
+                    1.0,         // (measured) position sigma
+                    0.1,         // (measured) velocity sigma
+                    1.0 / 100.0, // (real) position sigma
+                    0.1 / 100.0, // (real) velocity sigma
+                ));
             }
 
             let kf = self.postfit_kf.as_mut().unwrap();
 
             let new_state = kf
-                .run(&nav.state)
+                .run(&nav.state, 1.0, 0.1)
                 .unwrap_or_else(|e| panic!("kf error: {}", e));
 
             let residual = new_state.residual(&nav.state);

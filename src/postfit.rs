@@ -121,34 +121,95 @@ impl NyxState for PostfitState {
 
 pub struct PostfitKf {
     frame: Frame,
+    null_computed_obs: Vector6<f64>,
+    measurement_covar: Matrix6<f64>,
     kf: KF<PostfitState, U3, U6>,
 }
 
 impl PostfitKf {
     /// Builds new [PostfitKf] from initial [State]
-    pub fn new(frame: Frame, state: &State) -> Self {
+    pub fn new(
+        frame: Frame,
+        state: &State,
+        dt: Duration,
+        sigma_sol_pos: f64,
+        sigma_sol_vel: f64,
+        sigma_meas_pos: f64,
+        sigma_meas_vel: f64,
+    ) -> Self {
         let state = PostfitState::from_state(state);
 
-        let q_diag = Vector6::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
-        let q = Matrix6::from_diagonal(&q_diag);
+        let mut stm = Vector6::identity();
 
-        let kfe = KfEstimate::from_covar(state, q);
+        let dt_s = dt.to_seconds();
+
+        stm[(0, 4)] = dt_s;
+        stm[(1, 5)] = dt_s;
+        stm[(2, 6)] = dt_s;
+
+        let q_sol = Vector6::new(
+            sigma_sol_pos,
+            sigma_sol_pos,
+            sigma_sol_pos,
+            sigma_sol_vel,
+            sigma_sol_vel,
+            sigma_sol_vel,
+        );
+
+        let q_sol = Matrix6::from_diagonal(&q_sol);
+        let kfe = KfEstimate::from_covar(state, q_sol);
+        let ckf = KF::no_snc(kfe);
+
+        // Denoiser without system model
+        let null_computed_obs = Vector6::zeros();
+
+        // Measurement variances
+        let q_meas = Vector6::new(
+            sigma_meas_pos,
+            sigma_meas_pos,
+            sigma_meas_pos,
+            sigma_meas_vel,
+            sigma_meas_vel,
+            sigma_meas_vel,
+        );
+
+        let measurement_covar = Matrix6::from_diagonal(&q_meas);
 
         Self {
             frame,
-            kf: KF::no_snc(kfe),
+            kf: ckf,
+            null_computed_obs,
+            measurement_covar,
         }
     }
 
     /// Run [PostfitKf] filter
-    pub fn run(&mut self, state: &State) -> Result<State, ODError> {
-        // time update / predict
-        let nominal_state = PostfitState::from_state(state);
-        let kfe = self.kf.time_update(nominal_state)?;
+    pub fn run(
+        &mut self,
+        state: &State,
+        sigma_m_pos_m: f64,
+        sigma_m_vel_m_s: f64,
+    ) -> Result<State, ODError> {
+        // real observation is the new state we have possibly just improved
+        let real_observations = PostfitState::from_state(state);
 
-        let state = kfe.nominal_state;
+        let r = Vector6::new(
+            sigma_m_pos_m,
+            sigma_m_pos_m,
+            sigma_m_pos_m,
+            sigma_m_vel_m_s,
+            sigma_m_vel_m_s,
+            sigma_m_vel_m_s,
+        );
 
-        // self.kf.measurement_update(nominal_state, real_obs, computed_obs, measurement_covar, resid_rejection);
-        Ok(state.to_state(self.frame))
+        let kfe = self.kf.measurement_update(
+            self.nominal_state,
+            real_observations,
+            &self.null_computed_obs,
+            self.measurement_covar,
+            None,
+        )?;
+
+        panic!("oops");
     }
 }
