@@ -14,19 +14,25 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Default, PartialEq)]
-pub struct PostfitState {
+pub struct NominalState {
     t: Epoch,
-    clock_dt: Duration,
+    stm: Matrix6<f64>,
     pos_m: (f64, f64, f64),
     vel_m_s: (f64, f64, f64),
-    sampling_interval: Duration,
+    clock_dt: Duration,
 }
 
-impl PostfitState {
+impl NominalState {
     fn from_state(state: &State, sampling_interval: Duration) -> Self {
+        let dt_s = sampling_interval.to_seconds();
+        let mut stm = Matrix6::<f64>::identity();
+        stm[(0, 3)] = dt_s;
+        stm[(1, 4)] = dt_s;
+        stm[(2, 5)] = dt_s;
+
         Self {
+            stm,
             t: state.t,
-            sampling_interval,
             pos_m: state.pos_m,
             vel_m_s: state.vel_m_s,
             clock_dt: state.clock_dt,
@@ -40,13 +46,13 @@ impl PostfitState {
             pos_m: self.pos_m,
             clock_dt: self.clock_dt,
             clock_drift_s_s: 0.0,
-            lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0), // update, using Orbital calcs
             vel_m_s: self.vel_m_s,
+            lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0), // update, using Orbital calcs
         }
     }
 }
 
-impl std::fmt::Display for PostfitState {
+impl std::fmt::Display for NominalState {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
@@ -63,7 +69,7 @@ impl std::fmt::Display for PostfitState {
     }
 }
 
-impl std::fmt::LowerExp for PostfitState {
+impl std::fmt::LowerExp for NominalState {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
@@ -80,7 +86,7 @@ impl std::fmt::LowerExp for PostfitState {
     }
 }
 
-impl NyxState for PostfitState {
+impl NyxState for NominalState {
     type Size = U6;
     type VecLength = U6;
 
@@ -114,12 +120,7 @@ impl NyxState for PostfitState {
     }
 
     fn stm(&self) -> Result<OMatrix<f64, Self::Size, Self::Size>, DynamicsError> {
-        let dt_s = self.sampling_interval.to_seconds();
-        let mut stm = Matrix6::<f64>::identity();
-        stm[(0, 4)] = dt_s;
-        stm[(1, 5)] = dt_s;
-        stm[(2, 6)] = dt_s;
-        Ok(stm)
+        Ok(self.stm)
     }
 
     fn unset_stm(&mut self) {}
@@ -127,9 +128,10 @@ impl NyxState for PostfitState {
 
 pub struct PostfitKf {
     frame: Frame,
+    nominal_state: NominalState,
     null_computed_obs: Vector6<f64>,
     measurement_covar: Matrix6<f64>,
-    kf: KF<PostfitState, U3, U6>,
+    kf: KF<NominalState, U3, U6>,
 }
 
 impl PostfitKf {
@@ -143,25 +145,19 @@ impl PostfitKf {
         sigma_meas_vel: f64,
         sampling_interval: Duration,
     ) -> Self {
-        let state = PostfitState::from_state(state, sampling_interval);
-
-        let mut stm = Vector6::identity();
-
-        stm[(0, 4)] = sampling_interval.to_seconds();
-        stm[(1, 5)] = sampling_interval.to_seconds();
-        stm[(2, 6)] = sampling_interval.to_seconds();
+        let nominal_state = NominalState::from_state(state, sampling_interval);
 
         let q_sol = Vector6::new(
-            sigma_sol_pos,
-            sigma_sol_pos,
-            sigma_sol_pos,
-            sigma_sol_vel,
-            sigma_sol_vel,
-            sigma_sol_vel,
+            sigma_sol_pos.powi(2),
+            sigma_sol_pos.powi(2),
+            sigma_sol_pos.powi(2),
+            sigma_sol_vel.powi(2),
+            sigma_sol_vel.powi(2),
+            sigma_sol_vel.powi(2),
         );
 
         let q_sol = Matrix6::from_diagonal(&q_sol);
-        let kfe = KfEstimate::from_covar(state, q_sol);
+        let kfe = KfEstimate::from_covar(nominal_state, q_sol);
         let ckf = KF::no_snc(kfe);
 
         // Denoiser without system model
@@ -169,12 +165,12 @@ impl PostfitKf {
 
         // Measurement variances
         let q_meas = Vector6::new(
-            sigma_meas_pos,
-            sigma_meas_pos,
-            sigma_meas_pos,
-            sigma_meas_vel,
-            sigma_meas_vel,
-            sigma_meas_vel,
+            sigma_meas_pos.powi(2),
+            sigma_meas_pos.powi(2),
+            sigma_meas_pos.powi(2),
+            sigma_meas_vel.powi(2),
+            sigma_meas_vel.powi(2),
+            sigma_meas_vel.powi(2),
         );
 
         let measurement_covar = Matrix6::from_diagonal(&q_meas);
@@ -182,39 +178,38 @@ impl PostfitKf {
         Self {
             frame,
             kf: ckf,
+            nominal_state,
             null_computed_obs,
             measurement_covar,
         }
     }
 
-    /// Run [PostfitKf] filter
-    pub fn run(
-        &mut self,
-        state: &State,
-        sigma_m_pos_m: f64,
-        sigma_m_vel_m_s: f64,
-        sampling_interval: Duration,
-    ) -> Result<State, ODError> {
-        // real observation is the new state we have possibly just improved
-        let real_observations = PostfitState::from_state(state, sampling_interval);
+    /// Upgrade to EKF
+    pub fn ekf(&mut self) {
+        self.kf.ekf = true;
+    }
 
-        let r = Vector6::new(
-            sigma_m_pos_m,
-            sigma_m_pos_m,
-            sigma_m_pos_m,
-            sigma_m_vel_m_s,
-            sigma_m_vel_m_s,
-            sigma_m_vel_m_s,
+    /// Run [PostfitKf] filter
+    pub fn run(&mut self, state: &State) -> Result<State, ODError> {
+        let real_observations = Vector6::new(
+            state.pos_m.0,
+            state.pos_m.1,
+            state.pos_m.2,
+            state.vel_m_s.0,
+            state.vel_m_s.1,
+            state.vel_m_s.2,
         );
 
-        let kfe = self.kf.measurement_update(
-            self.kf.prev_estimate.nominal_state, // unclear what is expected here
-            real_observations,
+        // measurement
+        let (kfe, residual) = self.kf.measurement_update(
+            self.nominal_state,
+            &real_observations,
             &self.null_computed_obs,
             self.measurement_covar,
             None,
         )?;
 
-        panic!("oops");
+        let state = kfe.nominal_state.to_state(self.frame);
+        Ok(state)
     }
 }

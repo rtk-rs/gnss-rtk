@@ -283,7 +283,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             let kf = self.postfit_kf.as_mut().unwrap();
 
             let new_state = kf
-                .run(&nav.state, 1.0, 0.1, sampling_interval)
+                .run(&nav.state)
                 .unwrap_or_else(|e| panic!("kf error: {}", e));
 
             let residual = new_state.residual(&nav.state);
