@@ -128,6 +128,7 @@ impl NyxState for NominalState {
 
 pub struct PostfitKf {
     frame: Frame,
+    h_tilde: Matrix6<f64>,
     nominal_state: NominalState,
     null_computed_obs: Vector6<f64>,
     measurement_covar: Matrix6<f64>,
@@ -160,6 +161,9 @@ impl PostfitKf {
         let kfe = KfEstimate::from_covar(nominal_state, q_sol);
         let ckf = KF::no_snc(kfe);
 
+        // Unitary H tilde: no perturbations on measurement
+        let h_tilde = Matrix6::identity();
+
         // Denoiser without system model
         let null_computed_obs = Vector6::zeros();
 
@@ -178,6 +182,7 @@ impl PostfitKf {
         Self {
             frame,
             kf: ckf,
+            h_tilde,
             nominal_state,
             null_computed_obs,
             measurement_covar,
@@ -199,6 +204,8 @@ impl PostfitKf {
             state.vel_m_s.1,
             state.vel_m_s.2,
         );
+
+        self.kf.update_h_tilde(self.h_tilde);
 
         // measurement
         let (kfe, residual) = self.kf.measurement_update(
