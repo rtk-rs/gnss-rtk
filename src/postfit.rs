@@ -1,3 +1,5 @@
+use log::error;
+
 use nyx::{
     cosmic::State as NyxState,
     dynamics::DynamicsError,
@@ -7,6 +9,8 @@ use nyx::{
         Filter, ODError,
     },
 };
+
+use anise::astro::PhysicsResult;
 
 use crate::{
     navigation::state::State,
@@ -39,16 +43,21 @@ impl NominalState {
         }
     }
 
-    fn to_state(&self, frame: Frame) -> State {
-        State {
+    fn to_state(&self, frame: Frame) -> PhysicsResult<State> {
+        let mut state = State {
             t: self.t,
             frame,
             pos_m: self.pos_m,
             clock_dt: self.clock_dt,
             clock_drift_s_s: 0.0,
             vel_m_s: self.vel_m_s,
-            lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0), // update, using Orbital calcs
-        }
+            lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0),
+        };
+
+        let orbit = state.to_orbit();
+        state.lat_long_alt_deg_deg_km = orbit.latlongalt()?;
+
+        Ok(state)
     }
 }
 
@@ -216,7 +225,11 @@ impl PostfitKf {
             None,
         )?;
 
-        let state = kfe.nominal_state.to_state(self.frame);
+        let state = kfe.nominal_state.to_state(self.frame).map_err(|e| {
+            error!("anise - kf converged to non physical state: {}", e);
+            ODError::Diverged { loops: 0 }
+        })?;
+
         Ok(state)
     }
 }
