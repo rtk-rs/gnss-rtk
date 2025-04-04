@@ -29,6 +29,7 @@ pub struct NominalState {
 impl NominalState {
     fn from_state(state: &State, sampling_interval: Duration) -> Self {
         let dt_s = sampling_interval.to_seconds();
+
         let mut stm = Matrix6::<f64>::identity();
         stm[(0, 3)] = dt_s;
         stm[(1, 4)] = dt_s;
@@ -132,7 +133,9 @@ impl NyxState for NominalState {
         Ok(self.stm)
     }
 
-    fn unset_stm(&mut self) {}
+    fn unset_stm(&mut self) {
+        self.stm = Matrix6::identity()
+    }
 }
 
 pub struct PostfitKf {
@@ -203,8 +206,14 @@ impl PostfitKf {
         self.kf.ekf = true;
     }
 
-    /// Run [PostfitKf] filter
-    pub fn run(&mut self, state: &State) -> Result<State, ODError> {
+    /// Run a time update
+    pub fn time_update(&mut self, state: &State, sampling_interval: Duration) {
+        let dt_s = sampling_interval.to_seconds();
+        self.nominal_state = NominalState::from_state(state, sampling_interval);
+    }
+
+    /// Run a measurement update
+    pub fn measurement_update(&mut self, state: &State) -> Result<State, ODError> {
         let real_observations = Vector6::new(
             state.pos_m.0,
             state.pos_m.1,

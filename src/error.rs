@@ -131,4 +131,6 @@ pub enum Error {
     RejectedIonoDelay,
     #[error("converged to physically invalid state")]
     StateUpdate,
+    #[error("postfit filter error")]
+    PostFitMeasurementUpdate,
 }
