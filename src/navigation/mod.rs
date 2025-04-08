@@ -17,6 +17,7 @@ use anise::prelude::Epoch;
 use crate::{
     navigation::{apriori::Apriori, dop::DilutionOfPrecision, state::State},
     prelude::{Bias, Candidate, Config, Duration, Error, IonosphereBias, Signal, SV},
+    time::{AbsoluteTime, Time},
 };
 
 /// SV Navigation information
@@ -71,13 +72,14 @@ impl Navigation {
     /// - bias: [Bias] model implementation
     /// ## Returns
     /// - [Navigation], [Error]
-    pub fn new<B: Bias>(
+    pub fn new<B: Bias, T: Time>(
         t: Epoch,
         cfg: &Config,
         apriori: Apriori,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
+        absolute_time: &AbsoluteTime<T>,
     ) -> Result<Self, Error> {
         let mut sv = Vec::with_capacity(size);
         let mut b = Vec::<f64>::with_capacity(size);

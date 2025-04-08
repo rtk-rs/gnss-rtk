@@ -137,11 +137,26 @@ You should switch to `PPP` technique any time L1 + L2 phase observations are fea
 
 - Enhancing the `PPP` technique with code smoothing will improve the accuracy of the solutions.
 
-Notes on Timescales
-====================
+Absolute time
+=============
 
-* Our Rust ecosystem offers great Timescale support. This library should be able to 
-operate in any supported timescale.
+Our Rust ecosystem offers great Timescale support. This solver takes advantage of it
+and is able to propose a prefered `TimeScale` in the configuration preset.
+
+Supported `TimeScales` are:
+
+* [UTC (Universal Time Coordinates)](./TODO), but you have to provide
+the offset to UTC for each constellations you have selected,
+through the `Time` source trait that your provider should implement.
+
+- [GPST (GPS)](./TODO) is the default preset and does not require any external information.
+
+- [GST (Galileo)](./TODO), but you have to provide the `GST-GPST` offset
+through the `Time` source trait implementation.
+
+- [BDT (BeiDou)](./TODO), but you have to provide the `BDT-GPST` offset
+through the `Time` source trait implementation.
+
 
 Surveying and Apriori Knowledge
 ===============================
@@ -150,11 +165,12 @@ This solver is a true surveying tool and can operate without apriori knowledge. 
 it is compatible with obtaining an absolute position without any knowledge at starting point.
 This tool is therefore suited for the challenging task of setting up an RTK reference point.
 
-Other options
-=============
+Custom Azimutal condition
+=========================
 
-- We provide the possibility to limit the SV contributors to a conic Azimutal + Elevation region.
-If you use azimutal criterias, only vehicles that are located within those angles will contribute to the solutions.
+It is possible to restrict the contributors to a conic Azimutal + Elevation area (angle ranges),
+using the configuration preset.
+
 
 Framework
 =========

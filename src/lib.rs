@@ -21,6 +21,7 @@ mod pool;
 mod postfit;
 mod smoothing;
 mod solver;
+mod time;
 
 pub(crate) mod constants;
 // pub(crate) mod tides;
