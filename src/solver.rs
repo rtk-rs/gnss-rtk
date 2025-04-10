@@ -179,6 +179,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
     /// - t: desired [Epoch]
     /// - pool: list of [Candidate]
     pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
+        let ts = self.cfg.timescale;
         let min_required = self.min_sv_required();
 
         if pool.len() < min_required {
@@ -196,6 +197,8 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
 
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);
+
+        let t = t.to_time_scale(ts);
 
         self.absolute_time.update(t);
 

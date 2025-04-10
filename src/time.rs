@@ -1,26 +1,65 @@
 use crate::prelude::{Constellation, Duration, Epoch, TimeScale};
+use hifitime::Unit;
+
+/// [TimeOffset]s as provided by the [Time] trait.
+#[derive(Copy, Clone, PartialEq)]
+pub struct TimeOffset {
+    /// Reference time in nanoseconds
+    pub t_ref: u64,
+    /// Polynomial terms, for interpolation
+    pub polynomials: (f64, f64, f64),
+    /// LHS [TimeScale]
+    pub(crate) lhs: TimeScale,
+    /// RHS [TimeScale]
+    pub(crate) rhs: TimeScale,
+}
+
+impl TimeOffset {
+    /// Returns time correction as [Duration]
+    pub(crate) fn time_correction(&self, t: Epoch) -> Duration {
+        let (_, t) = t.to_time_of_week();
+        let dt = (t - self.t_ref) as f64;
+        let (a0, a1, a2) = self.polynomials;
+        Duration::from_nanoseconds(a0 + a1 * dt + a2 * dt.powi(2))
+    }
+
+    /// Define a new [TimeOffset].
+    pub fn new(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+        let (_, t_ref) = t_ref.to_time_of_week();
+        Self {
+            t_ref,
+            polynomials,
+            lhs: Default::default(),
+            rhs: Default::default(),
+        }
+    }
+
+    /// Define [TimeOffset] with desired LHS (TimeScale]
+    pub(crate) fn with_lhs(&self, ts: TimeScale) -> Self {
+        let mut s = self.clone();
+        s.lhs = ts;
+        s
+    }
+
+    /// Define [TimeOffset] with desired LHS (TimeScale]
+    pub(crate) fn with_rhs(&self, ts: TimeScale) -> Self {
+        let mut s = self.clone();
+        s.rhs = ts;
+        s
+    }
+}
 
 /// The [Time] trait is required to obtain valid absolute temporal
 /// solutions, in complex (multi constellation) sccenarios.
 /// If you don't implement it, you can only obtain valid GPST solutions.
 pub trait Time {
-    /// Provide an update of the GPST-UTC time offset
-    fn gpst_utc_offset_update(&mut self, t: Epoch) -> Option<Duration>;
-
-    /// Provide an update of the GST-GPST time offset
-    fn gst_gpst_offset_update(&mut self, t: Epoch) -> Option<Duration>;
-
-    /// Provide an update of the GST-UTC time offset
-    fn gst_utc_offset_update(&mut self, t: Epoch) -> Option<Duration>;
-
-    /// Provide an update of the BDT-GPST time offset
-    fn bdt_gpst_offset_update(&mut self, t: Epoch) -> Option<Duration>;
-
-    /// Provide an update of the BDT-UTC time offset
-    fn bdt_utc_offset_update(&mut self, t: Epoch) -> Option<Duration>;
-
-    /// Provide an update of the BDT-GST time offset
-    fn bdt_gst_offset_update(&mut self, t: Epoch) -> Option<Duration>;
+    /// Provide an update of the  time offset between LHS and RHS (reference) [TimeScale)
+    fn time_offset_update(
+        &mut self,
+        t: Epoch,
+        lhs: TimeScale,
+        rhs: TimeScale,
+    ) -> Option<TimeOffset>;
 }
 
 pub(crate) struct AbsoluteTime<T: Time> {
@@ -41,107 +80,60 @@ impl<T: Time> AbsoluteTime<T> {
 
     /// Update [AbsoluteTime] reference
     pub fn update(&mut self, t: Epoch) {
-        if let Some(gst_gpst) = self.updater.gst_gpst_offset_update(t) {
-            self.time_offsets
-                .retain(|t| t.lhs != TimeScale::GST && t.rhs != TimeScale::GPST);
-            self.time_offsets.push(TimeOffset::new_gst_gpst(gst_gpst));
-        }
+        for (lhs, rhs) in [
+            (TimeScale::GST, TimeScale::GPST),
+            (TimeScale::BDT, TimeScale::GPST),
+            (TimeScale::GPST, TimeScale::UTC),
+            (TimeScale::GST, TimeScale::UTC),
+            (TimeScale::BDT, TimeScale::UTC),
+        ] {
+            if let Some(t_offset) = self.updater.time_offset_update(t, lhs, rhs) {
+                self.time_offsets.retain(|t| t.lhs != lhs && t.rhs != rhs);
 
-        if let Some(bdt_gpst) = self.updater.bdt_gpst_offset_update(t) {
-            self.time_offsets
-                .retain(|t| t.lhs != TimeScale::BDT && t.rhs != TimeScale::GPST);
-            self.time_offsets.push(TimeOffset::new_bdt_gpst(bdt_gpst));
-        }
-
-        if let Some(bdt_gst) = self.updater.bdt_gst_offset_update(t) {
-            self.time_offsets
-                .retain(|t| t.lhs != TimeScale::BDT && t.rhs != TimeScale::GST);
-            self.time_offsets.push(TimeOffset::new_bdt_gst(bdt_gst));
+                self.time_offsets.push(t_offset);
+            }
         }
     }
 
     /// Returns temporal correction for this [Constellation] to prefered [TimeScale]
     pub fn constellation_correction(
         &self,
+        t: Epoch,
         lhs: Constellation,
         prefered: TimeScale,
     ) -> Option<Duration> {
         let sv_ts = lhs.timescale()?;
-        self.timescale_correction(sv_ts, prefered)
+        self.correction(t, sv_ts, prefered)
     }
 
     /// Returns the absolute correction for this [TimeScale] to prefered [TimeScale]
-    pub fn timescale_correction(&self, lhs: TimeScale, prefered: TimeScale) -> Option<Duration> {
-        if let Some(offset) = self
+    pub fn correction(&self, t: Epoch, lhs: TimeScale, prefered: TimeScale) -> Option<Duration> {
+        if let Some(time_offset) = self
             .time_offsets
             .iter()
             .filter(|t| t.lhs == lhs && t.rhs == prefered)
             .reduce(|k, _| k)
         {
-            // direction offset is known
-            Some(offset.dt)
+            // verify correctness
+            assert_eq!(t.time_scale, lhs, "internal error: timescale mismatch!");
+
+            Some(time_offset.time_correction(t))
         } else {
-            // need cross correction
-            None
-        }
-    }
-}
+            let pivots = match prefered {
+                TimeScale::GPST => [TimeScale::UTC, TimeScale::GST, TimeScale::BDT],
+                TimeScale::UTC => [TimeScale::GPST, TimeScale::GST, TimeScale::BDT],
+                TimeScale::GST => [TimeScale::GPST, TimeScale::UTC, TimeScale::BDT],
+                TimeScale::BDT => [TimeScale::GPST, TimeScale::GST, TimeScale::UTC],
+                _ => {
+                    return None;
+                },
+            };
 
-/// [TimeOffset] represents the duration interval
-/// that currently applies between two [TimeScale]s
-pub(crate) struct TimeOffset {
-    /// Reference [TimeScale]
-    pub rhs: TimeScale,
-    /// Left-hand side [TimeScale]
-    pub lhs: TimeScale,
-    /// Offset as [Duration]
-    pub dt: Duration,
-}
+            let mut ret = None;
 
-impl TimeOffset {
-    /// Define a new [TimeOffset] defined as [Duration] dt=lhs-rhs,
-    /// where `rhs` is considered the destionation [TimeScale] in the conversion
-    pub fn new(lhs: TimeScale, rhs: TimeScale, dt: Duration) -> Self {
-        Self { lhs, rhs, dt }
-    }
+            for pivot in pivots.iter() {}
 
-    /// Define a new [TimeOffset] as [Duration] dt=lhs-rhs
-    /// where `lhs` is the left hand side GNSS [TimeScale] and
-    /// `rhs` is the reference (or destination) [TimeScale]
-    pub fn from_constellations(
-        lhs: Constellation,
-        rhs: Constellation,
-        dt: Duration,
-    ) -> Option<Self> {
-        let lhs = lhs.timescale()?;
-        let rhs = rhs.timescale()?;
-        Some(Self::new(lhs, rhs, dt))
-    }
-
-    /// Define a new [TimeScale::GST] - [TimeScale::GPST] [TimeOFfset]
-    pub fn new_gst_gpst(dt: Duration) -> Self {
-        Self {
-            lhs: TimeScale::GST,
-            rhs: TimeScale::GPST,
-            dt,
-        }
-    }
-
-    /// Define a new [TimeScale::BDT] - [TimeScale::GPST] [TimeOffset]
-    pub fn new_bdt_gpst(dt: Duration) -> Self {
-        Self {
-            lhs: TimeScale::BDT,
-            rhs: TimeScale::GPST,
-            dt,
-        }
-    }
-
-    /// Define a new [TimeScale::BDT] - [TimeScale::GST] [TimeOffset]
-    pub fn new_bdt_gst(dt: Duration) -> Self {
-        Self {
-            lhs: TimeScale::BDT,
-            rhs: TimeScale::GST,
-            dt,
+            ret
         }
     }
 }
