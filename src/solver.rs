@@ -197,7 +197,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);
 
-        self.absolute_time.update();
+        self.absolute_time.update(t);
 
         // Obtain apriori
         let apriori = match self.past_state {

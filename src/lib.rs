@@ -46,6 +46,7 @@ pub mod prelude {
         navigation::PVTSolution,
         orbit::OrbitSource,
         solver::Solver,
+        time::Time,
     };
 
     // gnss types

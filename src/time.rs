@@ -1,17 +1,26 @@
-use crate::prelude::{Constellation, Duration, TimeScale};
+use crate::prelude::{Constellation, Duration, Epoch, TimeScale};
 
 /// The [Time] trait is required to obtain valid absolute temporal
 /// solutions, in complex (multi constellation) sccenarios.
 /// If you don't implement it, you can only obtain valid GPST solutions.
 pub trait Time {
-    /// Provide an update of the GST - GPST time offset
-    fn gst_gpst_offset_update(&mut self) -> Option<Duration>;
+    /// Provide an update of the GPST-UTC time offset
+    fn gpst_utc_offset_update(&mut self, t: Epoch) -> Option<Duration>;
 
-    /// Provide an update of the BDT - GPST time offset
-    fn bdt_gpst_offset_update(&mut self) -> Option<Duration>;
+    /// Provide an update of the GST-GPST time offset
+    fn gst_gpst_offset_update(&mut self, t: Epoch) -> Option<Duration>;
 
-    /// Provide an update of the GST - BDT time offset
-    fn bdt_gst_offset_update(&mut self) -> Option<Duration>;
+    /// Provide an update of the GST-UTC time offset
+    fn gst_utc_offset_update(&mut self, t: Epoch) -> Option<Duration>;
+
+    /// Provide an update of the BDT-GPST time offset
+    fn bdt_gpst_offset_update(&mut self, t: Epoch) -> Option<Duration>;
+
+    /// Provide an update of the BDT-UTC time offset
+    fn bdt_utc_offset_update(&mut self, t: Epoch) -> Option<Duration>;
+
+    /// Provide an update of the BDT-GST time offset
+    fn bdt_gst_offset_update(&mut self, t: Epoch) -> Option<Duration>;
 }
 
 pub(crate) struct AbsoluteTime<T: Time> {
@@ -31,20 +40,20 @@ impl<T: Time> AbsoluteTime<T> {
     }
 
     /// Update [AbsoluteTime] reference
-    pub fn update(&mut self) {
-        if let Some(gst_gpst) = self.updater.gst_gpst_offset_update() {
+    pub fn update(&mut self, t: Epoch) {
+        if let Some(gst_gpst) = self.updater.gst_gpst_offset_update(t) {
             self.time_offsets
                 .retain(|t| t.lhs != TimeScale::GST && t.rhs != TimeScale::GPST);
             self.time_offsets.push(TimeOffset::new_gst_gpst(gst_gpst));
         }
 
-        if let Some(bdt_gpst) = self.updater.bdt_gpst_offset_update() {
+        if let Some(bdt_gpst) = self.updater.bdt_gpst_offset_update(t) {
             self.time_offsets
                 .retain(|t| t.lhs != TimeScale::BDT && t.rhs != TimeScale::GPST);
             self.time_offsets.push(TimeOffset::new_bdt_gpst(bdt_gpst));
         }
 
-        if let Some(bdt_gst) = self.updater.bdt_gst_offset_update() {
+        if let Some(bdt_gst) = self.updater.bdt_gst_offset_update(t) {
             self.time_offsets
                 .retain(|t| t.lhs != TimeScale::BDT && t.rhs != TimeScale::GST);
             self.time_offsets.push(TimeOffset::new_bdt_gst(bdt_gst));
