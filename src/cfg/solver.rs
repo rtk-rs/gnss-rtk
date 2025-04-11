@@ -9,10 +9,6 @@ const fn default_model_update() -> bool {
     true
 }
 
-const fn default_postfit_kf() -> bool {
-    false
-}
-
 const fn default_gdop_threshold() -> Option<f64> {
     None
 }
@@ -113,18 +109,18 @@ pub struct SolverOpts {
     /// Filter options
     #[cfg_attr(feature = "serde", serde(default))]
     pub filter: FilterOpts,
-    /// Deploy a post-processing denoising Kalman filter,
-    /// at the expense of more processing load. This may apply even
-    /// when your navigation is also a Kalman filter.
-    #[cfg_attr(feature = "serde", serde(default = "default_postfit_kf"))]
-    pub postfit_kf: bool,
+    /// Possible extra denoising filter, at the expense
+    /// of more processing time. The configuration is the denoising factor.
+    /// 1000 for x1000 improvement attempt.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub postfit_denoising: Option<f64>,
 }
 
 impl Default for SolverOpts {
     fn default() -> Self {
         Self {
             filter: Default::default(),
-            postfit_kf: default_postfit_kf(),
+            postfit_denoising: Default::default(),
             gdop_threshold: default_gdop_threshold(),
             tdop_threshold: default_tdop_threshold(),
         }
@@ -132,6 +128,16 @@ impl Default for SolverOpts {
 }
 
 impl SolverOpts {
+    /// Parameter settings recommended for static ultra precise applications
+    pub fn static_preset() -> Self {
+        Self {
+            filter: Default::default(),
+            gdop_threshold: default_gdop_threshold(),
+            tdop_threshold: default_tdop_threshold(),
+            postfit_denoising: Some(1E3),
+        }
+    }
+
     /*
      * form the weight matrix to be used in the solving process
      */
