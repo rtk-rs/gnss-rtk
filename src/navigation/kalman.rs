@@ -11,6 +11,7 @@ where
     p_k: OMatrix<f64, S, S>,
     x_k: OVector<f64, S>,
     q_mat: OMatrix<f64, S, S>,
+    pub initialized: bool,
 }
 
 impl<S> Kalman<S>
@@ -23,10 +24,15 @@ where
     pub fn new(q_mat: OMatrix<f64, S, S>) -> Self {
         let x_k = OVector::<f64, S>::zeros();
         let p_k = OMatrix::<f64, S, S>::zeros();
-        Self::new_initialized(x_k, p_k, q_mat)
+        Self {
+            p_k,
+            x_k,
+            q_mat,
+            initialized: false,
+        }
     }
 
-    /// Create a new [Kalman] filter with initial state x_k, z_k
+    /// Create a new [Kalman] filter with initial state x_0, p_0.
     pub fn new_initialized(
         x_0: OVector<f64, S>,
         p_0: OMatrix<f64, S, S>,
@@ -36,7 +42,15 @@ where
             p_k: p_0,
             x_k: x_0,
             q_mat,
+            initialized: true,
         }
+    }
+
+    /// Initialize this [Kalman] filter
+    pub fn initialize(&mut self, x_0: OVector<f64, S>, p_0: OMatrix<f64, S, S>) {
+        self.x_k = x_0;
+        self.p_k = p_0;
+        self.initialized = true;
     }
 
     pub fn run(

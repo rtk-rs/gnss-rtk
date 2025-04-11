@@ -43,24 +43,6 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     postfit_kf: Option<PostfitKf>,
 }
 
-fn update_sky_view(t: Epoch, pool: &[Candidate], elected: &mut Vec<Candidate>) {
-    for cd in pool.iter() {
-        if elected.iter().find(|elected| elected.sv == cd.sv).is_none() {
-            elected.push(cd.clone());
-        }
-    }
-
-    let current_sv = pool.iter().map(|cd| cd.sv).unique().collect::<Vec<_>>();
-
-    elected.retain(|elected| {
-        let retained = current_sv.contains(&elected.sv);
-        if !retained {
-            debug!("{} ({}) - loss of sight", t, elected.sv);
-        }
-        retained
-    });
-}
-
 impl<O: OrbitSource, B: Bias> Solver<O, B> {
     /// Creates a new Position, Velocity, Time [Solver] without
     /// apriori knowledge of the initial position.
@@ -245,23 +227,17 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         let pool_size = self.pool.len();
 
         // iterate nav filter
-        loop {
-            match nav.iterate(t, &self.cfg, &self.pool.candidates(), pool_size, &self.bias) {
-                Ok(converged) => {
-                    if converged {
-                        break;
-                    } else {
-                        debug!(
-                            "iter={} | {:?} dt={}",
-                            nav.iter, nav.state.pos_m, nav.state.clock_dt
-                        );
-                    }
-                },
-                Err(e) => {
-                    error!("{} - filter iter={}: {}", t, nav.iter, e);
-                    return Err(e);
-                },
-            }
+        match nav.resolve(t, &self.pool.candidates(), pool_size, &self.bias) {
+            Ok(()) => {
+                debug!(
+                    "{} - converged | {:?} dt={}",
+                    t, nav.state.pos_m, nav.state.clock_dt
+                );
+            },
+            Err(e) => {
+                error!("{} - navigation error: {}", t, e);
+                return Err(e);
+            },
         }
 
         if let Some(denoising) = &self.cfg.solver.postfit_denoising {

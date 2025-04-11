@@ -12,12 +12,12 @@ pub(crate) mod kalman;
 pub(crate) mod postfit;
 pub(crate) mod state;
 
-use nalgebra::{DVector, MatrixXx4};
+use nalgebra::{DVector, Matrix4, MatrixXx4, Vector4, U4};
 
 use anise::prelude::Epoch;
 
 use crate::{
-    navigation::{apriori::Apriori, dop::DilutionOfPrecision, state::State},
+    navigation::{apriori::Apriori, dop::DilutionOfPrecision, kalman::Kalman, state::State},
     prelude::{Bias, Candidate, Config, Duration, Error, IonosphereBias, Signal, SV},
 };
 
@@ -51,8 +51,8 @@ pub struct SVContribution {
 pub(crate) struct Navigation {
     /// [Config] preset
     cfg: Config,
-    /// Iteration counter
-    pub iter: usize,
+    /// [Kalman]
+    kalman: Kalman<U4>,
     /// Filter [State]
     pub state: State,
     /// Measurement vector
@@ -128,92 +128,99 @@ impl Navigation {
         let state = State::from_apriori(&apriori).or(Err(Error::NavigationFilterInitError))?;
         debug!("initial state: {:?}", state.pos_m);
 
+        let q_diag = Vector4::<f64>::new(0.0, 0.0, 0.0, 100E-6_f64.powi(2));
+        let q_mat = Matrix4::from_diagonal(&q_diag);
+
         Ok(Self {
             sv,
             state,
-            iter: 0,
             b: b_vec,
             cfg: cfg.clone(),
+            kalman: Kalman::new(q_mat),
             dop: DilutionOfPrecision::default(),
         })
     }
 
     /// Iterates mutable [Navigation] filter.
-    pub fn iterate<B: Bias>(
+    pub fn resolve<B: Bias>(
         &mut self,
         t: Epoch,
-        cfg: &Config,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-    ) -> Result<bool, Error> {
-        let len = self.b.len();
+    ) -> Result<(), Error> {
+        if !self.kalman.initialized {
+            for _ in 0..10 {
+                let len = self.b.len();
 
-        let mut converged = false;
-        let mut h = MatrixXx4::<f64>::zeros(len);
+                let mut h = MatrixXx4::<f64>::zeros(len);
 
-        // form matrix
-        for i in 0..size {
-            let dr_i = self.sv[i].relativistic_path_range_m;
-
-            let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, self.state.pos_m);
-
-            h[(i, 0)] = dx;
-            h[(i, 1)] = dy;
-            h[(i, 2)] = dz;
-            h[(i, 3)] = 1.0;
-        }
-
-        if h.nrows() != self.b.nrows() {
-            return Err(Error::MatrixDimension);
-        }
-
-        let ht = h.transpose();
-        let ht_h = ht.clone() * h.clone();
-        let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
-        let ht_b = ht * self.b.clone();
-
-        let dx = ht_h_inv * ht_b;
-
-        self.iter += 1;
-
-        self.state.temporal_update(t, dx).map_err(|e| {
-            error!("{} - physical error: {}", t, e);
-            Error::StateUpdate
-        })?;
-
-        self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
-
-        let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
-
-        // update models (if desired)
-        if !converged {
-            let mut j = 0;
-            // does not update the contribution
-            let mut dummy = SVContribution::default();
-            if self.cfg.solver.filter.model_update {
+                // form matrix
                 for i in 0..size {
-                    match candidates[i].vector_contribution(
-                        t,
-                        &self.cfg,
-                        self.state.pos_m,
-                        self.state.lat_long_alt_deg_deg_km,
-                        &mut dummy,
-                        bias,
-                    ) {
-                        Ok((b_i, _)) => {
-                            self.b[j] = b_i;
-                            j += 1;
-                        },
-                        Err(e) => {
-                            error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
-                        },
+                    let dr_i = self.sv[i].relativistic_path_range_m;
+
+                    let (dx, dy, dz) =
+                        candidates[i].matrix_contribution(&self.cfg, dr_i, self.state.pos_m);
+
+                    h[(i, 0)] = dx;
+                    h[(i, 1)] = dy;
+                    h[(i, 2)] = dz;
+                    h[(i, 3)] = 1.0;
+                }
+
+                if h.nrows() != self.b.nrows() {
+                    return Err(Error::MatrixDimension);
+                }
+
+                let ht = h.transpose();
+                let ht_h = ht.clone() * h.clone();
+                let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
+                let ht_b = ht * self.b.clone();
+
+                let dx = ht_h_inv * ht_b;
+
+                self.state.temporal_update(t, dx).map_err(|e| {
+                    error!("{} - physical error: {}", t, e);
+                    Error::StateUpdate
+                })?;
+
+                self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
+
+                // let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
+
+                if self.cfg.solver.filter.model_update {
+                    let mut j = 0;
+                    // does not update the contribution
+                    let mut dummy = SVContribution::default();
+                    for i in 0..size {
+                        match candidates[i].vector_contribution(
+                            t,
+                            &self.cfg,
+                            self.state.pos_m,
+                            self.state.lat_long_alt_deg_deg_km,
+                            &mut dummy,
+                            bias,
+                        ) {
+                            Ok((b_i, _)) => {
+                                self.b[j] = b_i;
+                                j += 1;
+                            },
+                            Err(e) => {
+                                error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                            },
+                        }
                     }
                 }
-            }
-        }
 
-        Ok(self.iter == 8)
+                self.kalman.initialize(dx, ht_h_inv);
+            }
+
+            Ok(())
+        } else {
+            self.kalman.run()?;
+
+            Ok(())
+        }
     }
 }
 
