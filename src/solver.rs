@@ -4,7 +4,7 @@ use log::{debug, error, warn};
 
 use anise::{
     math::Vector3,
-    prelude::{Almanac, Frame},
+    prelude::{Almanac, Duration, Frame},
 };
 
 use crate::{
@@ -12,10 +12,9 @@ use crate::{
     bias::Bias,
     candidate::Candidate,
     cfg::{Config, Method},
-    navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
+    navigation::{apriori::Apriori, postfit::PostfitKf, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
-    postfit::PostfitKf,
     prelude::{Epoch, Error},
 };
 
@@ -266,20 +265,18 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         }
 
         if self.cfg.solver.postfit_kf {
-            if self.postfit_kf.is_none() {
-                self.postfit_kf = Some(PostfitKf::new(self.earth_cef, &nav.state));
+            if let Some(postfit_kf) = &mut self.postfit_kf {
+                let dt_30s = Duration::from_seconds(30.0); // TODO
+                let dx = postfit_kf.run(dt_30s, &nav.state)?;
+
+                nav.state.temporal_postfit_update(dx);
+
+                // let residual = new_state.residual(&nav.state);
+                // debug!("{} - postfit(kf) residual: {}", t, residual);
+                //nav.state = new_state;
+            } else {
+                self.postfit_kf = Some(PostfitKf::new(&nav.state, 0.1, 0.01, 1.0, 0.1));
             }
-
-            let kf = self.postfit_kf.as_mut().unwrap();
-
-            let new_state = kf
-                .run(&nav.state)
-                .unwrap_or_else(|e| panic!("kf error: {}", e));
-
-            let residual = new_state.residual(&nav.state);
-            debug!("{} - postfit(kf) residual: {}", t, residual);
-
-            nav.state = new_state;
         }
 
         if let Some(past_state) = self.past_state {
