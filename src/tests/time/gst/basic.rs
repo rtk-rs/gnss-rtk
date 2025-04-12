@@ -3,6 +3,8 @@ use crate::{
     time::{AbsoluteTime, Time, TimeOffset},
 };
 
+use hifitime::Unit;
+
 const WEEK_N: u32 = 2111;
 
 struct TimeUpdater {}
@@ -45,8 +47,23 @@ fn test_gst_gpst_basic() {
         .unwrap();
 
     let expected_s = 2.3574102670E-09 + 3.996802889E-15 * 100.0;
-    let expected_nanos = expected_s * 1.0E9;
+    let expected_nanos = expected_s * 1.0E9_f64;
+    let expected_nanos_rounded = expected_nanos.round() as u64;
     assert!((time_correction - expected_nanos).abs() < 1.0E-3);
+
+    let corrected = absolute_time
+        .epoch_time_correction(t, TimeScale::GPST)
+        .unwrap();
+
+    assert_eq!(
+        corrected.time_scale,
+        TimeScale::GPST,
+        "timescale was not corrected!"
+    );
+    assert_eq!(
+        corrected,
+        t + expected_nanos_rounded as f64 * Unit::Nanosecond
+    );
 
     let time_correction = absolute_time
         .time_correction_nanos(t, TimeScale::GPST, TimeScale::GST)
@@ -74,8 +91,23 @@ fn test_gst_utc_basic() {
         .unwrap();
 
     let expected_s = -9.3132257462E-10;
-    let expected_nanos = expected_s * 1.0E9;
+    let expected_nanos = expected_s * 1.0E9_f64;
+    let expected_nanos_rounded = expected_nanos.round() as u64;
     assert!((time_correction - expected_nanos).abs() < 1.0E-3);
+
+    let corrected = absolute_time
+        .epoch_time_correction(t, TimeScale::UTC)
+        .unwrap();
+
+    assert_eq!(
+        corrected.time_scale,
+        TimeScale::UTC,
+        "timescale was not corrected!"
+    );
+    assert_eq!(
+        corrected,
+        t + expected_nanos_rounded as f64 * Unit::Nanosecond
+    );
 
     let time_correction = absolute_time
         .time_correction_nanos(t, TimeScale::UTC, TimeScale::GST)

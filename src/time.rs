@@ -3,6 +3,8 @@ use crate::{
     prelude::{Constellation, Epoch, TimeScale},
 };
 
+use hifitime::Unit;
+
 /// [TimeOffset]s as provided by the [Time] trait.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TimeOffset {
@@ -167,8 +169,17 @@ impl<T: Time> AbsoluteTime<T> {
             //         }
             //     }
             // }
-
             Err(Error::UnknownTimeCorection)
         }
+    }
+
+    /// Applies a time correction, using current data base, but limited to 1 nanosecond precision.
+    pub fn epoch_time_correction(&self, t: Epoch, target: TimeScale) -> Result<Epoch, Error> {
+        let lhs = t.time_scale;
+
+        let time_correction_nanos = self.time_correction_nanos(t, lhs, target)?;
+        let t = t.to_time_scale(target) + time_correction_nanos * Unit::Nanosecond;
+
+        Ok(t)
     }
 }

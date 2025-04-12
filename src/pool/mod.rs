@@ -79,6 +79,13 @@ impl Pool {
         self.inner.retain(f)
     }
 
+    pub fn retain_mut<F>(&mut self, f: F)
+    where
+        F: FnMut(&mut Candidate) -> bool,
+    {
+        self.inner.retain_mut(f)
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }

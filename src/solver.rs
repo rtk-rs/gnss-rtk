@@ -187,20 +187,43 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             return Err(Error::NotEnoughCandidates);
         }
 
+        self.absolute_time.update(t);
+
         self.pool.new_epoch(pool);
-        self.pool.pre_fit(&self.cfg);
+        self.pool.pre_fit(&self.cfg, &self.absolute_time);
 
         if self.pool.len() < min_required {
             // TODO: catch and reset self
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
+        let t = if t.time_scale == self.cfg.timescale {
+            t
+        } else {
+            match self
+                .absolute_time
+                .epoch_time_correction(t, self.cfg.timescale)
+            {
+                Ok(new_t) => {
+                    let correction = t - new_t;
+                    debug!(
+                        "{} - |{} - {}| {} sampling instant correction",
+                        t, t.time_scale, ts, correction
+                    );
+                    new_t
+                },
+                Err(e) => {
+                    error!(
+                        "{} - failed to apply |{} - {}| correction: {}",
+                        t, t.time_scale, ts, e
+                    );
+                    return Err(e);
+                },
+            }
+        };
+
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);
-
-        let t = t.to_time_scale(ts);
-
-        self.absolute_time.update(t);
 
         // Obtain apriori
         let apriori = match self.past_state {
