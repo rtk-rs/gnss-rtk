@@ -12,9 +12,9 @@ The `GNSS-RTK` library provides a Position Velocity Time (PVT) solutions solver,
 with an efficient abstract interface, suitable for almost any type of applications,
 whether it is real-time or post-processing oriented. 
 
-The objective of this library is to provide a powerful and accurate ecosystem
-to answer this demanding requirement. Current, the library requires the `std`
-library though. 
+The objective of this library is to provide a powerful API that is easy to operate
+and gives correct results at at all times. Due to the challenge in the task,
+the library requires `std` support and it is not scheduled to make a `no-std` version of this library.
 
 Licensing
 =========
@@ -26,14 +26,15 @@ Solver API
 ==========
 
 This API demands you provide the minimum required to obtain valid PVT solutions.
-One key element is that we are physics driven, not data format. You may deploy this solver
-with your own custom data source, we are not tied to a specific format (CSV, RINEX...).
+One key element is that we are physics driven and are not tied to a specific data format (CSV, RINEX..). 
+You may deploy this solver with your own data source.
 
 Because Navigation is a complex task, providing an abstract interface for the end user is not easy.
 Therefore, we rely on somewhat "advanced" interfacing, mainly:
 
-* One function pointer to provide the state of your SV
+* One function pointer to provide the state of the observed SV (also referred to as orbital source)
 * One function pointer to provide possible environmental perturbations
+* One function pointer to collect the latest time corrections
 
 GNSS-RTK Illustrations
 ======================
@@ -46,16 +47,17 @@ Context
 =======
 
 This library is oriented towards precise navigation on Earth ground (whether it is
-static or roaming navigation). It currently implements all the specificy that it internally means,
-and it is not designed to operate on other planets. Although this modification would not require
-a lot of effort, it is not on our scheduled todo list. If you are interested in seeing this happen,
+static or roaming navigation does not impact the process at first). We implement all the
+requirements to do so on planet Earth, not other planets.
+Although this modification would not require a lot of effort, it is not planed as of today
+to make `gnss_rtk` generic about the rover planet. If you are interested in seeing this happen,
 feel free to join the effort online.
 
 Configuration simplicity
 ========================
 
 Although the taks is challenging, one objective is to keep things simple.   
-The main task to do so is to provide [a consice and comprehensible Parametrization interface](./documentation/Config.md)
+To do so, we rely on the `serde` ecosystem and are able to provide [a consice and comprehensible Parametrization interface](./documentation/Config.md)
 
 Teaching & learning toolkit
 ===========================
