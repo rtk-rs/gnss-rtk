@@ -10,25 +10,32 @@ const WEEK_N: u32 = 2111;
 struct TimeUpdater {}
 
 impl Time for TimeUpdater {
-    fn time_offset_update(
-        &mut self,
-        _: Epoch,
-        lhs: TimeScale,
-        rhs: TimeScale,
-    ) -> Option<TimeOffset> {
-        match (lhs, rhs) {
-            (TimeScale::GST, TimeScale::GPST) => {
-                let t_ref = (2111, 345_600);
-                let polynomials = (2.3574102670E-09, 3.996802889E-15, 0.0);
-                Some(TimeOffset::from_time_of_week(t_ref, polynomials))
-            },
-            (TimeScale::GST, TimeScale::UTC) => {
-                let t_ref = (2111, 345_600);
-                let polynomials = (-9.3132257462E-10, 0.000000000E+00, 0.0);
-                Some(TimeOffset::from_time_of_week(t_ref, polynomials))
-            },
-            _ => None,
-        }
+    fn bdt_gpst_time_offset(&mut self, _: Epoch) -> Option<TimeOffset> {
+        None
+    }
+
+    fn bdt_gst_time_offset(&mut self, _: Epoch) -> Option<TimeOffset> {
+        None
+    }
+
+    fn bdt_utc_time_offset(&mut self, _: Epoch) -> Option<TimeOffset> {
+        None
+    }
+
+    fn gpst_utc_time_offset(&mut self, _: Epoch) -> Option<TimeOffset> {
+        None
+    }
+
+    fn gst_gpst_time_offset(&mut self, _: Epoch) -> Option<TimeOffset> {
+        let t_ref = (2111, 345_600);
+        let polynomials = (2.3574102670E-09, 3.996802889E-15, 0.0);
+        Some(TimeOffset::from_gst_gpst_time_of_week(t_ref, polynomials))
+    }
+
+    fn gst_utc_time_offset(&mut self, _: Epoch) -> Option<TimeOffset> {
+        let t_ref = (2111, 345_600);
+        let polynomials = (-9.3132257462E-10, 0.000000000E+00, 0.0);
+        Some(TimeOffset::from_gst_utc_time_of_week(t_ref, polynomials))
     }
 }
 

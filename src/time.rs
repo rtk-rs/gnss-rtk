@@ -34,8 +34,92 @@ impl TimeOffset {
         Ok(dt_s * 1.0E9)
     }
 
+    /// Define a new |GPST-UTC| [TimeOffset] from [Epoch]
+    pub fn from_gpst_utc_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+        Self::from_epoch(t_ref, polynomials)
+            .with_lhs(TimeScale::GPST)
+            .with_rhs(TimeScale::UTC)
+    }
+
+    /// Define a new |GPST-UTC| [TimeOffset] from week counter
+    pub fn from_gpst_utc_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
+        Self::from_time_of_week(t_ref, polynomials)
+            .with_lhs(TimeScale::GPST)
+            .with_rhs(TimeScale::UTC)
+    }
+
+    /// Define a new |GST-GPST| [TimeOffset] from [Epoch]
+    pub fn from_gst_gpst_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+        Self::from_epoch(t_ref, polynomials)
+            .with_lhs(TimeScale::GST)
+            .with_rhs(TimeScale::GPST)
+    }
+
+    /// Define a new |GST-GPST| [TimeOffset] from week counter
+    pub fn from_gst_gpst_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
+        Self::from_time_of_week(t_ref, polynomials)
+            .with_lhs(TimeScale::GST)
+            .with_rhs(TimeScale::GPST)
+    }
+
+    /// Define a new |GST-UTC| [TimeOffset] from [Epoch]
+    pub fn from_gst_utc_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+        Self::from_epoch(t_ref, polynomials)
+            .with_lhs(TimeScale::GST)
+            .with_rhs(TimeScale::UTC)
+    }
+
+    /// Define a new |GST-UTC| [TimeOffset] from week counter
+    pub fn from_gst_utc_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
+        Self::from_time_of_week(t_ref, polynomials)
+            .with_lhs(TimeScale::GST)
+            .with_rhs(TimeScale::UTC)
+    }
+
+    /// Define a new |BDT-GPST| [TimeOffset] from [Epoch]
+    pub fn from_bdt_gpst_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+        Self::from_epoch(t_ref, polynomials)
+            .with_lhs(TimeScale::BDT)
+            .with_rhs(TimeScale::GPST)
+    }
+
+    /// Define a new |BDT-GPST| [TimeOffset] from week counter
+    pub fn from_bdt_gpst_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
+        Self::from_time_of_week(t_ref, polynomials)
+            .with_lhs(TimeScale::BDT)
+            .with_rhs(TimeScale::GPST)
+    }
+
+    /// Define a new |BDT-GST| [TimeOffset] from [Epoch]
+    pub fn from_bdt_gst_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+        Self::from_epoch(t_ref, polynomials)
+            .with_lhs(TimeScale::BDT)
+            .with_rhs(TimeScale::GST)
+    }
+
+    /// Define a new |BDT-GST| [TimeOffset] from week counter
+    pub fn from_bdt_gst_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
+        Self::from_time_of_week(t_ref, polynomials)
+            .with_lhs(TimeScale::BDT)
+            .with_rhs(TimeScale::GST)
+    }
+
+    /// Define a new |BDT-UTC| [TimeOffset] from [Epoch]
+    pub fn from_bdt_utc_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+        Self::from_epoch(t_ref, polynomials)
+            .with_lhs(TimeScale::BDT)
+            .with_rhs(TimeScale::UTC)
+    }
+
+    /// Define a new |BDT-UTC| [TimeOffset] from week counter
+    pub fn from_bdt_utc_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
+        Self::from_time_of_week(t_ref, polynomials)
+            .with_lhs(TimeScale::BDT)
+            .with_rhs(TimeScale::UTC)
+    }
+
     /// Define a new [TimeOffset].
-    pub fn from_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+    fn from_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
         let t_ref = t_ref.to_time_of_week();
         Self {
             t_ref,
@@ -46,7 +130,7 @@ impl TimeOffset {
     }
 
     /// Define a new [TimeOffset].
-    pub fn from_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
+    fn from_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
         Self {
             t_ref,
             polynomials,
@@ -74,13 +158,23 @@ impl TimeOffset {
 /// solutions, in complex (multi constellation) sccenarios.
 /// If you don't implement it, you can only obtain valid GPST solutions.
 pub trait Time {
-    /// Provide an update of the  time offset between LHS and RHS (reference) [TimeScale)
-    fn time_offset_update(
-        &mut self,
-        t: Epoch,
-        lhs: TimeScale,
-        rhs: TimeScale,
-    ) -> Option<TimeOffset>;
+    /// Update the |GPST-UTC| [TimeOffset]
+    fn gpst_utc_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
+
+    /// Update the |GST-GPST| [TimeOffset]
+    fn gst_gpst_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
+
+    /// Update the |GST-UTC| [TimeOffset]
+    fn gst_utc_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
+
+    /// Update the |BDT-GPST| [TimeOffset]
+    fn bdt_gpst_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
+
+    /// Update the |BDT-GST| [TimeOffset]
+    fn bdt_gst_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
+
+    /// Update the |BDT-UTC| [TimeOffset]
+    fn bdt_utc_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
 }
 
 pub(crate) struct AbsoluteTime<T: Time> {
@@ -100,22 +194,41 @@ impl<T: Time> AbsoluteTime<T> {
     }
 
     /// Update [AbsoluteTime] reference
-    pub fn update(&mut self, t: Epoch) {
-        for (lhs, rhs) in [
-            (TimeScale::GST, TimeScale::GPST),
-            (TimeScale::GST, TimeScale::UTC),
-            (TimeScale::BDT, TimeScale::GPST),
-            (TimeScale::BDT, TimeScale::UTC),
-            (TimeScale::BDT, TimeScale::GST),
-            (TimeScale::GPST, TimeScale::UTC),
-            (TimeScale::GPST, TimeScale::GST),
-            (TimeScale::GPST, TimeScale::BDT),
-        ] {
-            if let Some(t_offset) = self.updater.time_offset_update(t, lhs, rhs) {
-                self.time_offsets
-                    .retain(|t| !(t.lhs == lhs && t.rhs == rhs));
-                self.time_offsets.push(t_offset.with_lhs(lhs).with_rhs(rhs));
-            }
+    pub fn update(&mut self, now: Epoch) {
+        if let Some(t_offset) = self.updater.gpst_utc_time_offset(now) {
+            self.time_offsets
+                .retain(|t| !(t.lhs == TimeScale::GPST && t.rhs == TimeScale::UTC));
+            self.time_offsets.push(t_offset);
+        }
+
+        if let Some(t_offset) = self.updater.gst_gpst_time_offset(now) {
+            self.time_offsets
+                .retain(|t| !(t.lhs == TimeScale::GST && t.rhs == TimeScale::GPST));
+            self.time_offsets.push(t_offset);
+        }
+
+        if let Some(t_offset) = self.updater.gst_utc_time_offset(now) {
+            self.time_offsets
+                .retain(|t| !(t.lhs == TimeScale::GST && t.rhs == TimeScale::UTC));
+            self.time_offsets.push(t_offset);
+        }
+
+        if let Some(t_offset) = self.updater.bdt_gpst_time_offset(now) {
+            self.time_offsets
+                .retain(|t| !(t.lhs == TimeScale::BDT && t.rhs == TimeScale::GPST));
+            self.time_offsets.push(t_offset);
+        }
+
+        if let Some(t_offset) = self.updater.bdt_gst_time_offset(now) {
+            self.time_offsets
+                .retain(|t| !(t.lhs == TimeScale::BDT && t.rhs == TimeScale::GST));
+            self.time_offsets.push(t_offset);
+        }
+
+        if let Some(t_offset) = self.updater.bdt_utc_time_offset(now) {
+            self.time_offsets
+                .retain(|t| !(t.lhs == TimeScale::BDT && t.rhs == TimeScale::UTC));
+            self.time_offsets.push(t_offset);
         }
     }
 
