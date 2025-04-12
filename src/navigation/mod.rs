@@ -97,6 +97,7 @@ impl Navigation {
                 apriori.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
+                absolute_time,
             ) {
                 Ok((b_i, dr_i)) => {
                     b.push(b_i);
@@ -141,17 +142,16 @@ impl Navigation {
     }
 
     /// Iterates mutable [Navigation] filter.
-    pub fn iterate<B: Bias>(
+    pub fn iterate<B: Bias, T: Time>(
         &mut self,
         t: Epoch,
-        cfg: &Config,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
+        absolute_time: &AbsoluteTime<T>,
     ) -> Result<bool, Error> {
         let len = self.b.len();
 
-        let mut converged = false;
         let mut h = MatrixXx4::<f64>::zeros(len);
 
         // form matrix
@@ -186,31 +186,30 @@ impl Navigation {
 
         self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
 
-        let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
+        // let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
 
         // update models (if desired)
-        if !converged {
-            let mut j = 0;
-            // does not update the contribution
-            let mut dummy = SVContribution::default();
-            if self.cfg.solver.filter.model_update {
-                for i in 0..size {
-                    match candidates[i].vector_contribution(
-                        t,
-                        &self.cfg,
-                        self.state.pos_m,
-                        self.state.lat_long_alt_deg_deg_km,
-                        &mut dummy,
-                        bias,
-                    ) {
-                        Ok((b_i, _)) => {
-                            self.b[j] = b_i;
-                            j += 1;
-                        },
-                        Err(e) => {
-                            error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
-                        },
-                    }
+        let mut j = 0;
+        // does not update the contribution
+        let mut dummy = SVContribution::default();
+        if self.cfg.solver.filter.model_update {
+            for i in 0..size {
+                match candidates[i].vector_contribution(
+                    t,
+                    &self.cfg,
+                    self.state.pos_m,
+                    self.state.lat_long_alt_deg_deg_km,
+                    &mut dummy,
+                    bias,
+                    absolute_time,
+                ) {
+                    Ok((b_i, _)) => {
+                        self.b[j] = b_i;
+                        j += 1;
+                    },
+                    Err(e) => {
+                        error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                    },
                 }
             }
         }

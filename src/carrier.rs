@@ -116,7 +116,7 @@ impl Carrier {
     }
 
     pub(crate) fn is_l1(&self) -> bool {
-        *self == Carrier::L1
+        matches!(*self, Self::L1 | Self::B1)
     }
 
     /// Returns unsigned frequency in kHz

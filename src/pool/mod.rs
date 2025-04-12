@@ -99,8 +99,6 @@ impl Pool {
         self.inner.retain_mut(|cd| match cd.tx_epoch(cfg) {
             Ok(_) => {
                 if let Some(orbit) = orbits.next_at(cd.t_tx, cd.sv, self.earth_cef) {
-                    debug!("{} - sv dt_tx={} sv t={}", cd.t, cd.t_tx, cd.t);
-
                     let orbit = orbit_rotation(
                         cd.t,
                         cd.dt_tx,

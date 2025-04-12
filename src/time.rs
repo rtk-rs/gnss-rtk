@@ -19,19 +19,20 @@ pub struct TimeOffset {
 }
 
 impl TimeOffset {
-    /// Returns time correction in nanoseconds
-    pub(crate) fn time_correction_nanos(&self, t: Epoch) -> Result<f64, Error> {
+    /// Returns time correction in seconds
+    pub(crate) fn time_correction_seconds(&self, t: Epoch) -> Result<f64, Error> {
         let (t_week, t_nanos) = t.to_time_of_week();
 
-        if t_week != self.t_ref.0 {
-            return Err(Error::OutdatedTimeCorrection);
-        }
+        // if t_week > self.t_ref.0 +1 || self.t_ref.0 > t_week +1 {
+        //     panic!("t_week : {} t_ref: {}", t_week, self.t_ref.0);
+        //     return Err(Error::OutdatedTimeCorrection);
+        // }
 
-        let dt = (t_nanos as f64 - self.t_ref.1 as f64) / 1.0E9;
+        let dt_s = (t_nanos as f64 - self.t_ref.1 as f64) / 1.0E9;
 
         let (a0, a1, a2) = self.polynomials;
-        let dt_s = a0 + a1 * dt + a2 * dt.powi(2);
-        Ok(dt_s * 1.0E9)
+        let dt_s = a0 + a1 * dt_s + a2 * dt_s.powi(2);
+        Ok(dt_s)
     }
 
     /// Define a new |GPST-UTC| [TimeOffset] from [Epoch]
@@ -233,7 +234,7 @@ impl<T: Time> AbsoluteTime<T> {
     }
 
     /// Returns temporal correction for this [Constellation] to prefered [TimeScale]
-    pub fn constellation_correction_nanos(
+    pub fn constellation_correction_seconds(
         &self,
         t: Epoch,
         lhs: Constellation,
@@ -241,11 +242,11 @@ impl<T: Time> AbsoluteTime<T> {
     ) -> Result<f64, Error> {
         let sv_ts = lhs.timescale().ok_or(Error::UnknownTimeCorection)?;
 
-        self.time_correction_nanos(t, sv_ts, prefered)
+        self.time_correction_seconds(t, sv_ts, prefered)
     }
 
     /// Returns the correction for this [TimeScale] to RHS [TimeScale]
-    pub fn time_correction_nanos(
+    pub fn time_correction_seconds(
         &self,
         t: Epoch,
         lhs: TimeScale,
@@ -258,7 +259,7 @@ impl<T: Time> AbsoluteTime<T> {
             .reduce(|k, _| k)
         {
             // Correction is directly available
-            time_offset.time_correction_nanos(t)
+            time_offset.time_correction_seconds(t)
         } else if let Some(time_offset) = self
             .time_offsets
             .iter()
@@ -266,7 +267,7 @@ impl<T: Time> AbsoluteTime<T> {
             .reduce(|k, _| k)
         {
             // Swapped correction is directly available
-            let nanos = time_offset.time_correction_nanos(t)?;
+            let nanos = time_offset.time_correction_seconds(t)?;
             Ok(-nanos)
         } else {
             // // Cross-mixed corrections
@@ -290,8 +291,8 @@ impl<T: Time> AbsoluteTime<T> {
     pub fn epoch_time_correction(&self, t: Epoch, target: TimeScale) -> Result<Epoch, Error> {
         let lhs = t.time_scale;
 
-        let time_correction_nanos = self.time_correction_nanos(t, lhs, target)?;
-        let t = t.to_time_scale(target) + time_correction_nanos * Unit::Nanosecond;
+        let time_correction_nanos = self.time_correction_seconds(t, lhs, target)?;
+        let t = t.to_time_scale(target) + time_correction_nanos * Unit::Second;
 
         Ok(t)
     }

@@ -50,13 +50,11 @@ fn test_gst_gpst_basic() {
     let t = Epoch::from_time_of_week(WEEK_N, 345_600 + 10, TimeScale::GST);
 
     let time_correction = absolute_time
-        .time_correction_nanos(t, TimeScale::GST, TimeScale::GPST)
+        .time_correction_seconds(t, TimeScale::GST, TimeScale::GPST)
         .unwrap();
 
     let expected_s = 2.3574102670E-09 + 3.996802889E-15 * 100.0;
-    let expected_nanos = expected_s * 1.0E9_f64;
-    let expected_nanos_rounded = expected_nanos.round() as u64;
-    assert!((time_correction - expected_nanos).abs() < 1.0E-3);
+    assert!((time_correction - expected_s).abs() < 1.0E-12);
 
     let corrected = absolute_time
         .epoch_time_correction(t, TimeScale::GPST)
@@ -67,20 +65,14 @@ fn test_gst_gpst_basic() {
         TimeScale::GPST,
         "timescale was not corrected!"
     );
-    assert_eq!(
-        corrected,
-        t + expected_nanos_rounded as f64 * Unit::Nanosecond
-    );
+
+    assert_eq!(corrected, t + 2.0 * Unit::Nanosecond,);
 
     let time_correction = absolute_time
-        .time_correction_nanos(t, TimeScale::GPST, TimeScale::GST)
+        .time_correction_seconds(t, TimeScale::GPST, TimeScale::GST)
         .unwrap();
 
-    assert!(
-        (time_correction - -expected_nanos).abs() < 1.0E-3,
-        "{}",
-        time_correction
-    );
+    assert!((time_correction - -expected_s).abs() < 1.0E-12);
 }
 
 #[test]
@@ -94,13 +86,11 @@ fn test_gst_utc_basic() {
     let t = Epoch::from_time_of_week(WEEK_N, 345_600 + 10, TimeScale::GST);
 
     let time_correction = absolute_time
-        .time_correction_nanos(t, TimeScale::GST, TimeScale::UTC)
+        .time_correction_seconds(t, TimeScale::GST, TimeScale::UTC)
         .unwrap();
 
-    let expected_s = -9.3132257462E-10;
-    let expected_nanos = expected_s * 1.0E9_f64;
-    let expected_nanos_rounded = expected_nanos.round() as u64;
-    assert!((time_correction - expected_nanos).abs() < 1.0E-3);
+    let expected_s = -9.3132257462E-10 as f64;
+    assert!((time_correction - expected_s).abs() < 1.0E-12);
 
     let corrected = absolute_time
         .epoch_time_correction(t, TimeScale::UTC)
@@ -111,30 +101,30 @@ fn test_gst_utc_basic() {
         TimeScale::UTC,
         "timescale was not corrected!"
     );
+
     assert_eq!(
         corrected,
-        t + expected_nanos_rounded as f64 * Unit::Nanosecond
+        t, // not enough resolution
     );
 
     let time_correction = absolute_time
-        .time_correction_nanos(t, TimeScale::UTC, TimeScale::GST)
+        .time_correction_seconds(t, TimeScale::UTC, TimeScale::GST)
         .unwrap();
 
-    assert!((time_correction - -expected_nanos).abs() < 1.0E-3);
+    assert!((time_correction - -expected_s).abs() < 1.0E-12);
 
     let t = Epoch::from_time_of_week(WEEK_N, 345_600 + 100_000, TimeScale::GST);
 
     let time_correction = absolute_time
-        .time_correction_nanos(t, TimeScale::GST, TimeScale::UTC)
+        .time_correction_seconds(t, TimeScale::GST, TimeScale::UTC)
         .unwrap();
 
     let expected_s = -9.3132257462E-10;
-    let expected_nanos = expected_s * 1.0E9;
-    assert!((time_correction - expected_nanos).abs() < 1.0E-3);
+    assert!((time_correction - expected_s).abs() < 1.0E-12);
 
     let time_correction = absolute_time
-        .time_correction_nanos(t, TimeScale::UTC, TimeScale::GST)
+        .time_correction_seconds(t, TimeScale::UTC, TimeScale::GST)
         .unwrap();
 
-    assert!((time_correction - -expected_nanos).abs() < 1.0E-3);
+    assert!((time_correction - -expected_s).abs() < 1.0E-12);
 }

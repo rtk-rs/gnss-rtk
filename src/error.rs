@@ -135,8 +135,10 @@ pub enum Error {
     TimeUnderflow,
     #[error("cannot resolve absolute time: unknown time correction")]
     UnknownTimeCorection,
-    #[error("time correct is outdated (at least weekly)")]
+    #[error("outdated time correction (need at least weekly update!)")]
     OutdatedTimeCorrection,
+    #[error("unknown SV timescale: cannot proceed")]
+    UnknownTimescale,
     #[error("postfit filter converged to physically invalid state")]
     PostFitUpdate,
 }
