@@ -218,6 +218,7 @@ impl Navigation {
 }
 
 #[cfg(test)]
+#[cfg(feature = "embed_ephem")]
 mod test {
     use super::{DilutionOfPrecision, State};
     use crate::prelude::{Almanac, EARTH_J2000};

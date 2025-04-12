@@ -15,11 +15,14 @@ use crate::{
     tests::{
         bias::NullBias,
         gps::{G01, G02, G03, G04},
+        time::NullTime,
         REFERENCE_COORDS_ECEF_M,
     },
+    time::AbsoluteTime,
 };
 
 #[test]
+#[cfg(feature = "embed_ephem")]
 fn pvt_failures() {
     let cfg = Config::default().with_modeling(Modeling::no_modeling());
 
@@ -44,7 +47,18 @@ fn pvt_failures() {
 
     let null_bias = NullBias {};
 
-    match Navigation::new(t, &cfg, apriori.clone(), &candidates, 1, &null_bias) {
+    let null_time = NullTime {};
+    let absolute_time = AbsoluteTime::new(null_time);
+
+    match Navigation::new(
+        t,
+        &cfg,
+        apriori.clone(),
+        &candidates,
+        1,
+        &null_bias,
+        &absolute_time,
+    ) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -65,7 +79,7 @@ fn pvt_failures() {
         ),
     ];
 
-    match Navigation::new(t, &cfg, apriori.clone(), &candidates, 2, &null_bias) {
+    match Navigation::new(t, &cfg, apriori.clone(), &candidates, 2, &null_bias, &absolute_time) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -91,7 +105,7 @@ fn pvt_failures() {
         ),
     ];
 
-    match Navigation::new(t, &cfg, apriori.clone(), &candidates, 3, &null_bias) {
+    match Navigation::new(t, &cfg, apriori.clone(), &candidates, 3, &null_bias, &absolute_time) {
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
             e => panic!("failed with invalid error: {}", e),
@@ -122,7 +136,7 @@ fn pvt_failures() {
         ),
     ];
 
-    match Navigation::new(t, &cfg, apriori.clone(), &candidates, 4, &null_bias) {
+    match Navigation::new(t, &cfg, apriori.clone(), &candidates, 4, &null_bias, &absolute_time) {
         Ok(_) => panic!("Matrix formation should not be feasible (unresolved states!)"),
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
@@ -132,6 +146,7 @@ fn pvt_failures() {
 }
 
 #[test]
+#[cfg(feature = "embed_ephem")]
 fn cpp_matrix() {
     let cfg = Config::default()
         .with_modeling(Modeling::no_modeling())
@@ -198,6 +213,9 @@ fn cpp_matrix() {
 
     let null_bias = NullBias {};
 
+    let null_time = NullTime {};
+    let absolute_time = AbsoluteTime::new(null_time);
+
     let apriori = Apriori::from_ecef_m(coords_ecef_m, t0_gpst, frame).unwrap();
 
     let sv_coords_m = vec![
@@ -219,7 +237,7 @@ fn cpp_matrix() {
     }
 
     let mut nav =
-        Navigation::new(t0_gpst, &cfg, apriori.clone(), &candidates, 4, &null_bias).unwrap();
+        Navigation::new(t0_gpst, &cfg, apriori.clone(), &candidates, 4, &null_bias, &absolute_time).unwrap();
 
     let r_i = vec![
         candidates[0].code_if_combination().unwrap().value,
@@ -278,7 +296,7 @@ fn cpp_matrix() {
 
     cfg.modeling.sv_clock_bias = true;
 
-    match Navigation::new(t0_gpst, &cfg, apriori.clone(), &candidates, 4, &null_bias) {
+    match Navigation::new(t0_gpst, &cfg, apriori.clone(), &candidates, 4, &null_bias, &absolute_time) {
         Ok(_) => panic!("Should have failed (noclock!)"),
         Err(e) => match e {
             Error::MatrixMinimalDimension => {},
@@ -307,7 +325,7 @@ fn cpp_matrix() {
     }
 
     let mut nav =
-        Navigation::new(t0_gpst, &cfg, apriori.clone(), &candidates, 4, &null_bias).unwrap();
+        Navigation::new(t0_gpst, &cfg, apriori.clone(), &candidates, 4, &null_bias, &absolute_time).unwrap();
 
     for i in 0..4 {
         // let (dx_m, dy_m, dz_m) = (
@@ -326,7 +344,7 @@ fn cpp_matrix() {
     cfg.modeling.relativistic_path_range = true;
 
     let mut nav =
-        Navigation::new(t0_gpst, &cfg, apriori.clone(), &candidates, 4, &null_bias).unwrap();
+        Navigation::new(t0_gpst, &cfg, apriori.clone(), &candidates, 4, &null_bias, &absolute_time).unwrap();
 
     for i in 0..4 {
         let r_sat =

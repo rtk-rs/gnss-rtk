@@ -96,6 +96,7 @@ impl OrbitSource for GpsOrbits {
 }
 
 #[test]
+#[cfg(feature = "embed_ephem")]
 fn validity() {
     init_logger();
 

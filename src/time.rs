@@ -1,31 +1,48 @@
-use crate::prelude::{Constellation, Duration, Epoch, TimeScale};
-use hifitime::Unit;
+use crate::{
+    error::Error,
+    prelude::{Constellation, Duration, Epoch, TimeScale},
+};
 
 /// [TimeOffset]s as provided by the [Time] trait.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TimeOffset {
-    /// Reference time in nanoseconds
-    pub t_ref: u64,
-    /// Polynomial terms, for interpolation
-    pub polynomials: (f64, f64, f64),
+    /// Reference time
+    pub t_ref: (u32, u64),
     /// LHS [TimeScale]
     pub(crate) lhs: TimeScale,
     /// RHS [TimeScale]
     pub(crate) rhs: TimeScale,
+    /// Polynomial terms, for interpolation
+    pub polynomials: (f64, f64, f64),
 }
 
 impl TimeOffset {
     /// Returns time correction as [Duration]
-    pub(crate) fn time_correction(&self, t: Epoch) -> Duration {
-        let (_, t) = t.to_time_of_week();
-        let dt = (t - self.t_ref) as f64;
+    pub(crate) fn time_correction(&self, t: Epoch) -> Result<Duration, Error> {
+        let (t_week, t_nanos) = t.to_time_of_week();
+
+        if t_week != self.t_ref.0 {
+            return Err(Error::OutdatedTimeCorrection);
+        }
+
+        let dt = (t_nanos as f64 - self.t_ref.1 as f64) / 1.0E9;
         let (a0, a1, a2) = self.polynomials;
-        Duration::from_nanoseconds(a0 + a1 * dt + a2 * dt.powi(2))
+        Ok(Duration::from_seconds(a0 + a1 * dt + a2 * dt.powi(2)))
     }
 
     /// Define a new [TimeOffset].
-    pub fn new(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
-        let (_, t_ref) = t_ref.to_time_of_week();
+    pub fn from_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
+        let t_ref = t_ref.to_time_of_week();
+        Self {
+            t_ref,
+            polynomials,
+            lhs: Default::default(),
+            rhs: Default::default(),
+        }
+    }
+
+    /// Define a new [TimeOffset].
+    pub fn from_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
         Self {
             t_ref,
             polynomials,
@@ -66,7 +83,7 @@ pub(crate) struct AbsoluteTime<T: Time> {
     /// Updater
     updater: T,
     /// Applicable [TimeOffset]s
-    pub time_offsets: Vec<TimeOffset>,
+    time_offsets: Vec<TimeOffset>,
 }
 
 impl<T: Time> AbsoluteTime<T> {
@@ -82,17 +99,21 @@ impl<T: Time> AbsoluteTime<T> {
     pub fn update(&mut self, t: Epoch) {
         for (lhs, rhs) in [
             (TimeScale::GST, TimeScale::GPST),
-            (TimeScale::BDT, TimeScale::GPST),
-            (TimeScale::GPST, TimeScale::UTC),
             (TimeScale::GST, TimeScale::UTC),
+            (TimeScale::BDT, TimeScale::GPST),
             (TimeScale::BDT, TimeScale::UTC),
+            (TimeScale::BDT, TimeScale::GST),
+            (TimeScale::GPST, TimeScale::UTC),
+            (TimeScale::GPST, TimeScale::GST),
+            (TimeScale::GPST, TimeScale::BDT),
         ] {
             if let Some(t_offset) = self.updater.time_offset_update(t, lhs, rhs) {
-                self.time_offsets.retain(|t| t.lhs != lhs && t.rhs != rhs);
-
-                self.time_offsets.push(t_offset);
+                self.time_offsets.retain(|t| !(t.lhs == lhs && t.rhs == rhs));
+                self.time_offsets.push(t_offset.with_lhs(lhs).with_rhs(rhs));
             }
         }
+
+        panic!("{:?}", self.time_offsets);
     }
 
     /// Returns temporal correction for this [Constellation] to prefered [TimeScale]
@@ -101,39 +122,57 @@ impl<T: Time> AbsoluteTime<T> {
         t: Epoch,
         lhs: Constellation,
         prefered: TimeScale,
-    ) -> Option<Duration> {
-        let sv_ts = lhs.timescale()?;
+    ) -> Result<Duration, Error> {
+
+        let sv_ts = lhs.timescale()
+            .ok_or(Error::UnknownTimeCorection)?;
+
         self.correction(t, sv_ts, prefered)
     }
 
-    /// Returns the absolute correction for this [TimeScale] to prefered [TimeScale]
-    pub fn correction(&self, t: Epoch, lhs: TimeScale, prefered: TimeScale) -> Option<Duration> {
+    /// Returns the correction for this [TimeScale] to RHS [TimeScale]
+    pub fn correction(&self, t: Epoch, lhs: TimeScale, rhs: TimeScale) -> Result<Duration, Error> {
         if let Some(time_offset) = self
             .time_offsets
             .iter()
-            .filter(|t| t.lhs == lhs && t.rhs == prefered)
+            .filter(|t| t.lhs == lhs && t.rhs == rhs)
             .reduce(|k, _| k)
         {
-            // verify correctness
-            assert_eq!(t.time_scale, lhs, "internal error: timescale mismatch!");
-
-            Some(time_offset.time_correction(t))
+            // Correction is directly available
+            time_offset.time_correction(t)
         } else {
-            let pivots = match prefered {
-                TimeScale::GPST => [TimeScale::UTC, TimeScale::GST, TimeScale::BDT],
-                TimeScale::UTC => [TimeScale::GPST, TimeScale::GST, TimeScale::BDT],
-                TimeScale::GST => [TimeScale::GPST, TimeScale::UTC, TimeScale::BDT],
-                TimeScale::BDT => [TimeScale::GPST, TimeScale::GST, TimeScale::UTC],
-                _ => {
-                    return None;
-                },
-            };
 
-            let mut ret = None;
+            // Cross-mixed corrections
+            for t1_offset in self.time_offsets.iter() {
+                if t1_offset.lhs == lhs {
+                    for t2_offset in self.time_offsets.iter() {
+                        if t1_offset.rhs == t2_offset.lhs && t2_offset.rhs == rhs {
+                            // |GST-UTC| = |GST - GPST| + |GPST - UTC|
+                            let mut correction = t1_offset.time_correction(t)?;
+                            correction += t2_offset.time_correction(t)?;
+                            return Ok(correction);
 
-            for pivot in pivots.iter() {}
+                        } else if t1_offset.lhs == t2_offset.rhs && t2_offset.lhs == rhs {
+                            // |GST-UTC|  = |GST-GPST| - |UTC - GPST|
+                            let mut correction = t1_offset.time_correction(t)?;
+                            correction -= t2_offset.time_correction(t)?;
+                            return Ok(correction);
+                        }
+                    }
 
-            ret
+                } else if t1_offset.rhs == rhs {
+                    for t2_offset in self.time_offsets.iter() {
+                        if t1_offset.rhs == t2_offset.lhs && t2_offset.rhs == rhs {
+                           //  |GPST - GST| & |GPST - UTC|
+                           // |GST-UTC| = |GPST - UTC| - |GPST -GST|
+                        } else if t2_offset.rhs == rhs {
+                            // |GST - UTC| = |GST - GPST| - |UTC - GPST|
+                        }
+                    }
+                }
+            }
+
+            Err(Error::UnknownTimeCorection)
         }
     }
 }
