@@ -20,6 +20,7 @@ mod orbit;
 mod pool;
 mod smoothing;
 mod solver;
+mod time;
 
 pub(crate) mod constants;
 // pub(crate) mod tides;
@@ -44,6 +45,7 @@ pub mod prelude {
         navigation::PVTSolution,
         orbit::OrbitSource,
         solver::Solver,
+        time::{Time, TimeOffset},
     };
 
     // gnss types

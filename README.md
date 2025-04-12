@@ -12,9 +12,9 @@ The `GNSS-RTK` library provides a Position Velocity Time (PVT) solutions solver,
 with an efficient abstract interface, suitable for almost any type of applications,
 whether it is real-time or post-processing oriented. 
 
-The objective of this library is to provide a powerful and accurate ecosystem
-to answer this demanding requirement. Current, the library requires the `std`
-library though. 
+The objective of this library is to provide a powerful API that is easy to operate
+and gives correct results at at all times. Due to the challenge in the task,
+the library requires `std` support and it is not scheduled to make a `no-std` version of this library.
 
 Licensing
 =========
@@ -26,14 +26,26 @@ Solver API
 ==========
 
 This API demands you provide the minimum required to obtain valid PVT solutions.
-One key element is that we are physics driven, not data format. You may deploy this solver
-with your own custom data source, we are not tied to a specific format (CSV, RINEX...).
+One key element is that we are physics driven and are not tied to a specific data format (CSV, RINEX..). 
+You may deploy this solver with your own data source.
 
 Because Navigation is a complex task, providing an abstract interface for the end user is not easy.
 Therefore, we rely on somewhat "advanced" interfacing, mainly:
 
-* One function pointer to provide the state of your SV
+* One function pointer to provide the state of the observed SV (also referred to as orbital source)
 * One function pointer to provide possible environmental perturbations
+* One function pointer to collect the latest time corrections
+
+Deployment
+==========
+
+:warning: ANISE requires internet access either
+
+1. at built time, when built with `embed_ephem` option 
+2. at first deployment ever, when using low precision models and built without `embed-ephem` option
+3. regularly, when using highest precision models, regardless of the compilation options.
+
+This library provides an `embed_ephem` compilation option to reduce the requirements on low precision systems.
 
 GNSS-RTK Illustrations
 ======================
@@ -46,44 +58,23 @@ Context
 =======
 
 This library is oriented towards precise navigation on Earth ground (whether it is
-static or roaming navigation). It currently implements all the specificy that it internally means,
-and it is not designed to operate on other planets. Although this modification would not require
-a lot of effort, it is not on our scheduled todo list. If you are interested in seeing this happen,
+static or roaming navigation does not impact the process at first). We implement all the
+requirements to do so on planet Earth, not other planets.
+Although this modification would not require a lot of effort, it is not planed as of today
+to make `gnss_rtk` generic about the rover planet. If you are interested in seeing this happen,
 feel free to join the effort online.
 
 Configuration simplicity
 ========================
 
 Although the taks is challenging, one objective is to keep things simple.   
-The main task to do so is to provide [a consice and comprehensible Parametrization interface](./documentation/Config.md)
+To do so, we rely on the `serde` ecosystem and are able to provide [a consice and comprehensible Parametrization interface](./documentation/Config.md)
 
-Illustrate, Teach & Learn
-=========================
+Teaching & learning toolkit
+===========================
 
-Because it is easy to operate and tweak this solver, it might appear as a good
-"teaching" tool. In other words, it is easy to use this toolkit to illustrate one specific
-aspect of GNSS navigation.
-
-Signal and Measurement Flexibility
-==================================
-
-One objective is to make this solver flexible and capable to adapt to most exploitation scenarios.  
-Answering 100% of usecases is impossible, for the simple reason that GNSS applications
-cover a very wide spectrum and vary a lot. Yet we provide central key elements that are very interesting:
-
-* Possibility to navigate using a single signal. Obviously, the samples you provide
-should match your navigation technique at all times. Yet, we have several navigation techniques,
-some are compatible with single frequency observation. This makes our solver compatible with
-degraded or low-cost environments
-
-* Military frequencies: our library only cares about frequencies.
-Whether you arrive from a decoded military or civilian signal does not matter.
-L1 is treated as main reference as always.
-
-* High precision channels: E6 (Galileo) and LEX (QZSS) are both known
-
-* :warning: This library requires L1 frequency to be present for advanced CPP or PPP techniques
-(as reference signal). We allow L2 or L5 as subsidary signal, without priority.
+Because it is easy to operate and tweak `gnss_rtk`, it should be a good candidate
+for teaching, learning or prototyping. 
 
 PPP / RTK
 =========
@@ -137,12 +128,6 @@ You should switch to `PPP` technique any time L1 + L2 phase observations are fea
 
 - Enhancing the `PPP` technique with code smoothing will improve the accuracy of the solutions.
 
-Notes on Timescales
-====================
-
-* Our Rust ecosystem offers great Timescale support. This library should be able to 
-operate in any supported timescale.
-
 Surveying and Apriori Knowledge
 ===============================
 
@@ -150,11 +135,80 @@ This solver is a true surveying tool and can operate without apriori knowledge. 
 it is compatible with obtaining an absolute position without any knowledge at starting point.
 This tool is therefore suited for the challenging task of setting up an RTK reference point.
 
-Other options
-=============
+Signal and Measurement Flexibility
+==================================
 
-- We provide the possibility to limit the SV contributors to a conic Azimutal + Elevation region.
-If you use azimutal criterias, only vehicles that are located within those angles will contribute to the solutions.
+One objective is to make this solver flexible and capable to adapt to most exploitation scenarios.  
+Answering 100% of usecases is impossible, for the simple reason that GNSS applications
+cover a very wide spectrum and vary a lot. Yet we provide central key elements that are very interesting:
+
+* Possibility to navigate using a single signal. Obviously, the samples you provide
+should match your navigation technique at all times. Yet, we have several navigation techniques,
+some are compatible with single frequency observation. This makes our solver compatible with
+degraded or low-cost environments
+
+* Military codes: our library only cares about frequencies.
+Whether you arrive from a decoded military or civilian signal does not matter.
+L1 is treated as main reference as always.
+
+* High precision frequencies: E6 (Galileo) and LEX (QZSS) are both known
+
+* :warning: This library requires L1 frequency to be present for advanced CPP or PPP techniques
+(as reference signal). We allow L2 or L5 as subsidary signal, without prioritizing them.
+
+Constellations, Timecales & Absolute time
+=========================================
+
+Like many other topics, `gnss_rtk` tries to be flexible and convenient to operate
+regarding the Constellations and Timescales it supports. Rust comes with
+a great Timescale support, thanks to the `Hifitime` library. Yet timescales are one thing,
+solving "absolute time" is another.
+
+Like signals exploitation, `gnss_rtk` offers a high level of flexibility for the timecales and constellations
+you can use:
+
+- you can navigate with a single constellation in sight
+- you can mix constellations, for a modern and advanced setup
+- you can navigate under changing conditions
+- you can observe and express your signals in a different timescale than the prefered timescale
+
+In order to resolve absolute time at all times (...), your time correction source needs to implement the `Time` trait.  
+For simplicity, you should always implement it and provide the latest corrections available.  
+Although, it is true that, if you navigate in GPS Only and Prefered GPST, the implementation is not needed and the absolute time will remain correct.
+
+`gnss_rtk` is smart enough to combine your time corrections to obtain the one needed. In other words, you don't have to provide
+the exactly needed time correction, if you provide many, we can recombine them to obtain the one we need. 
+
+*In any case*:
+
+1. Any SV for which the time correction is not available or outdated will not contribute to the solution.
+So we garantee correct absolute time, at all times
+
+2. We consider that any time correction may apply for a whole week. Which is physically correct and the maximal value.
+In most cases, you should provide regular updates (at least daily) to obtain better results
+
+3. You should provide (through the `Time` trait implementation) the latest time correction that may apply at that instant correctly.
+
+UTC Timescale support
+=====================
+
+Like other timescales, UTC (Universal Time Coordinates) is supported. It is possible to express your temporal solutions
+in UTC. 
+
+Timescale & signal sampling
+===========================
+
+`gnss_rtk` allows you to express your signal observations (data points) in a different timescale than the prefered timescale.
+This should offer yet another level of flexibility. 
+
+For example, you can observe in `UTC` timescale and resolve `GPST`, but for that, your `Time` source needs to provide directly or help us
+resolve `|UTC-GPST|`.
+
+Custom Azimutal condition
+=========================
+
+It is possible to restrict the contributors to a conic Azimutal + Elevation area (angle ranges),
+using the configuration preset.
 
 Framework
 =========

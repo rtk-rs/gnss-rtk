@@ -1,5 +1,5 @@
 //! Position solving candidate
-use log::debug;
+use log::{debug, warn};
 
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
@@ -8,6 +8,7 @@ use crate::{
     constants::Constants,
     navigation::SVContribution,
     prelude::{Bias, BiasRuntime, Candidate, Config, Epoch, Error, Method, Signal},
+    time::{AbsoluteTime, Time},
 };
 
 impl Candidate {
@@ -23,7 +24,7 @@ impl Candidate {
     /// - rx_lat_long_alt_ddeg_km: state as geodetic lat, long both
     /// in decimal degrees, and altitude above mean sea level (km)
     /// - bias: [Bias] model
-    pub(crate) fn vector_contribution<B: Bias>(
+    pub(crate) fn vector_contribution<B: Bias, T: Time>(
         &self,
         t: Epoch,
         cfg: &Config,
@@ -31,6 +32,7 @@ impl Candidate {
         rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
         contribution: &mut SVContribution,
         bias: &B,
+        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(f64, f64), Error> {
         let mu = Constants::EARTH_GRAVITATION;
 
@@ -98,6 +100,31 @@ impl Candidate {
             let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
             contribution.clock_correction = Some(dt.duration);
             bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
+
+            let sv_ts = self
+                .sv
+                .constellation
+                .timescale()
+                .ok_or(Error::UnknownTimescale)?;
+
+            if sv_ts != cfg.timescale {
+                if let Ok(correction_seconds) =
+                    absolute_time.time_correction_seconds(self.t, sv_ts, cfg.timescale)
+                {
+                    bias_m += correction_seconds * SPEED_OF_LIGHT_M_S;
+
+                    debug!(
+                        "{}({}) - |{} - {}| {} ns correction",
+                        self.t,
+                        self.sv,
+                        sv_ts,
+                        cfg.timescale,
+                        correction_seconds * 1.0E9,
+                    );
+                } else {
+                    warn!("{}({}) - |{} - {}| correct is not known. Expect error in temporal solutions", self.t, self.sv, sv_ts, cfg.timescale);
+                }
+            }
         }
 
         if cfg.modeling.sv_total_group_delay {

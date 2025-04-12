@@ -1,5 +1,3 @@
-use itertools::Itertools;
-
 use log::{debug, error, warn};
 
 use anise::{
@@ -16,13 +14,15 @@ use crate::{
     orbit::OrbitSource,
     pool::Pool,
     prelude::{Epoch, Error},
+    time::{AbsoluteTime, Time},
 };
 
 /// [Solver] to resolve [PVTSolution]s.
 /// ## Generics:
 /// - O: [OrbitSource], custom [Orbit] provider.
 /// - B: custom [Bias] model.
-pub struct Solver<O: OrbitSource, B: Bias> {
+/// - T: [Time] source for correct absolute time
+pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     /// Solver [Config]uration preset
     pub cfg: Config,
     /// [Almanac]
@@ -41,27 +41,11 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     pool: Pool,
     /// Possible [PostfitKf]
     postfit_kf: Option<PostfitKf>,
+    /// [AbsoluteTime] source
+    absolute_time: AbsoluteTime<T>,
 }
 
-fn update_sky_view(t: Epoch, pool: &[Candidate], elected: &mut Vec<Candidate>) {
-    for cd in pool.iter() {
-        if elected.iter().find(|elected| elected.sv == cd.sv).is_none() {
-            elected.push(cd.clone());
-        }
-    }
-
-    let current_sv = pool.iter().map(|cd| cd.sv).unique().collect::<Vec<_>>();
-
-    elected.retain(|elected| {
-        let retained = current_sv.contains(&elected.sv);
-        if !retained {
-            debug!("{} ({}) - loss of sight", t, elected.sv);
-        }
-        retained
-    });
-}
-
-impl<O: OrbitSource, B: Bias> Solver<O, B> {
+impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
     /// Creates a new Position, Velocity, Time [Solver] without
     /// apriori knowledge of the initial position.
     /// ## Input
@@ -77,6 +61,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         earth_cef: Frame,
         cfg: Config,
         orbit_source: O,
+        time_source: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Result<Self, Error> {
@@ -85,6 +70,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             almanac,
             earth_cef,
             orbit_source,
+            time_source,
             bias,
             state_ecef_m,
         ))
@@ -103,9 +89,18 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         earth_cef: Frame,
         cfg: Config,
         orbit_source: O,
+        time_source: T,
         bias: B,
     ) -> Result<Self, Error> {
-        Self::new(almanac, earth_cef, cfg, orbit_source, bias, None)
+        Self::new(
+            almanac,
+            earth_cef,
+            cfg,
+            orbit_source,
+            time_source,
+            bias,
+            None,
+        )
     }
 
     /// Creates a new Position, Velocity, Time [Solver] with your own [Almanac] and [Frame] definitions.
@@ -122,6 +117,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         almanac: Almanac,
         earth_cef: Frame,
         orbit_source: O,
+        time_source: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
@@ -144,14 +140,15 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         };
 
         Self {
+            bias,
             almanac,
             earth_cef,
-            bias,
             orbit_source,
             initial_ecef_m,
             past_state: None,
             postfit_kf: None,
             cfg: cfg.clone(),
+            absolute_time: AbsoluteTime::new(time_source),
             pool: Pool::allocate(cfg.code_smoothing, earth_cef),
         }
     }
@@ -161,6 +158,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
     /// - t: desired [Epoch]
     /// - pool: list of [Candidate]
     pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
+        let ts = self.cfg.timescale;
         let min_required = self.min_sv_required();
 
         if pool.len() < min_required {
@@ -168,13 +166,40 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             return Err(Error::NotEnoughCandidates);
         }
 
+        self.absolute_time.update(t);
+
         self.pool.new_epoch(pool);
-        self.pool.pre_fit(&self.cfg);
+        self.pool.pre_fit(&self.cfg, &self.absolute_time);
 
         if self.pool.len() < min_required {
             // TODO: catch and reset self
             return Err(Error::NotEnoughPreFitCandidates);
         }
+
+        let t = if t.time_scale == self.cfg.timescale {
+            t
+        } else {
+            match self
+                .absolute_time
+                .epoch_time_correction(t, self.cfg.timescale)
+            {
+                Ok(new_t) => {
+                    let correction = t - new_t;
+                    debug!(
+                        "{} - |{} - {}| {} sampling instant correction",
+                        t, t.time_scale, ts, correction
+                    );
+                    new_t
+                },
+                Err(e) => {
+                    error!(
+                        "{} - failed to apply |{} - {}| correction: {}",
+                        t, t.time_scale, ts, e
+                    );
+                    return Err(e);
+                },
+            }
+        };
 
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);
@@ -230,6 +255,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             &self.pool.candidates(),
             pool_size,
             &self.bias,
+            &self.absolute_time,
         ) {
             Ok(nav) => nav,
             Err(e) => {
@@ -246,7 +272,13 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
 
         // iterate nav filter
         loop {
-            match nav.iterate(t, &self.cfg, &self.pool.candidates(), pool_size, &self.bias) {
+            match nav.iterate(
+                t,
+                &self.pool.candidates(),
+                pool_size,
+                &self.bias,
+                &self.absolute_time,
+            ) {
                 Ok(converged) => {
                     if converged {
                         break;
@@ -293,44 +325,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         self.past_state = Some(nav.state.clone());
 
         Ok((t, solution))
-    }
-
-    /// Apply signal quality criteria
-    fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
-        pool.retain_mut(|cd| {
-            cd.min_snr_mask(min_snr);
-            !cd.observations.is_empty()
-        })
-    }
-
-    /// Apply signal condition criteria
-    fn signal_condition_filter(t: Epoch, method: Method, pool: &mut Vec<Candidate>) {
-        pool.retain(|cd| match method {
-            Method::SPP => {
-                if cd.l1_pseudo_range().is_some() {
-                    true
-                } else {
-                    error!("{} ({}) missing pseudo range observation", t, cd.sv);
-                    false
-                }
-            },
-            Method::CPP => {
-                if cd.cpp_compatible() {
-                    true
-                } else {
-                    debug!("{} ({}) missing secondary frequency", t, cd.sv);
-                    false
-                }
-            },
-            Method::PPP => {
-                if cd.ppp_compatible() {
-                    true
-                } else {
-                    debug!("{} ({}) missing phase or phase combination", t, cd.sv);
-                    false
-                }
-            },
-        })
     }
 
     fn min_sv_required(&self) -> usize {

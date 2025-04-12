@@ -19,6 +19,7 @@ use anise::prelude::Epoch;
 use crate::{
     navigation::{apriori::Apriori, dop::DilutionOfPrecision, state::State},
     prelude::{Bias, Candidate, Config, Duration, Error, IonosphereBias, Signal, SV},
+    time::{AbsoluteTime, Time},
 };
 
 /// SV Navigation information
@@ -73,13 +74,14 @@ impl Navigation {
     /// - bias: [Bias] model implementation
     /// ## Returns
     /// - [Navigation], [Error]
-    pub fn new<B: Bias>(
+    pub fn new<B: Bias, T: Time>(
         t: Epoch,
         cfg: &Config,
         apriori: Apriori,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
+        absolute_time: &AbsoluteTime<T>,
     ) -> Result<Self, Error> {
         let mut sv = Vec::with_capacity(size);
         let mut b = Vec::<f64>::with_capacity(size);
@@ -95,6 +97,7 @@ impl Navigation {
                 apriori.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
+                absolute_time,
             ) {
                 Ok((b_i, dr_i)) => {
                     b.push(b_i);
@@ -139,17 +142,16 @@ impl Navigation {
     }
 
     /// Iterates mutable [Navigation] filter.
-    pub fn iterate<B: Bias>(
+    pub fn iterate<B: Bias, T: Time>(
         &mut self,
         t: Epoch,
-        cfg: &Config,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
+        absolute_time: &AbsoluteTime<T>,
     ) -> Result<bool, Error> {
         let len = self.b.len();
 
-        let mut converged = false;
         let mut h = MatrixXx4::<f64>::zeros(len);
 
         // form matrix
@@ -184,31 +186,30 @@ impl Navigation {
 
         self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
 
-        let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
+        // let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
 
         // update models (if desired)
-        if !converged {
-            let mut j = 0;
-            // does not update the contribution
-            let mut dummy = SVContribution::default();
-            if self.cfg.solver.filter.model_update {
-                for i in 0..size {
-                    match candidates[i].vector_contribution(
-                        t,
-                        &self.cfg,
-                        self.state.pos_m,
-                        self.state.lat_long_alt_deg_deg_km,
-                        &mut dummy,
-                        bias,
-                    ) {
-                        Ok((b_i, _)) => {
-                            self.b[j] = b_i;
-                            j += 1;
-                        },
-                        Err(e) => {
-                            error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
-                        },
-                    }
+        let mut j = 0;
+        // does not update the contribution
+        let mut dummy = SVContribution::default();
+        if self.cfg.solver.filter.model_update {
+            for i in 0..size {
+                match candidates[i].vector_contribution(
+                    t,
+                    &self.cfg,
+                    self.state.pos_m,
+                    self.state.lat_long_alt_deg_deg_km,
+                    &mut dummy,
+                    bias,
+                    absolute_time,
+                ) {
+                    Ok((b_i, _)) => {
+                        self.b[j] = b_i;
+                        j += 1;
+                    },
+                    Err(e) => {
+                        error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                    },
                 }
             }
         }
@@ -218,6 +219,7 @@ impl Navigation {
 }
 
 #[cfg(test)]
+#[cfg(feature = "embed_ephem")]
 mod test {
     use super::{DilutionOfPrecision, State};
     use crate::prelude::{Almanac, EARTH_J2000};

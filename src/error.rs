@@ -131,6 +131,14 @@ pub enum Error {
     RejectedIonoDelay,
     #[error("converged to physically invalid state")]
     StateUpdate,
+    #[error("bad operation: negative time")]
+    TimeUnderflow,
+    #[error("cannot resolve absolute time: unknown time correction")]
+    UnknownTimeCorection,
+    #[error("outdated time correction (need at least weekly update!)")]
+    OutdatedTimeCorrection,
+    #[error("unknown SV timescale: cannot proceed")]
+    UnknownTimescale,
     #[error("postfit filter converged to physically invalid state")]
     PostFitUpdate,
 }
