@@ -36,6 +36,17 @@ Therefore, we rely on somewhat "advanced" interfacing, mainly:
 * One function pointer to provide possible environmental perturbations
 * One function pointer to collect the latest time corrections
 
+Deployment
+==========
+
+:warning: ANISE is limiting and requires internet access either
+
+1. at built time, when built with `embed_ephem` option 
+2. at first ever deployment when using low precision models, when built without `embed-ephem` option
+3. regularly, when using highest precision models, regardless of the compilation options.
+
+This library provides an `embed_ephem` compilation option to reduce the requirements on low precision systems.
+
 GNSS-RTK Illustrations
 ======================
 
@@ -168,7 +179,7 @@ Although, it is true that, if you navigate in GPS Only and Prefered GPST, the im
 `gnss_rtk` is smart enough to combine your time corrections to obtain the one needed. In other words, you don't have to provide
 the exactly needed time correction, if you provide many, we can recombine them to obtain the one we need. 
 
-In any case:
+*In any case*:
 
 1. Any SV for which the time correction is not available or outdated will not contribute to the solution.
 So we garantee correct absolute time, at all times
