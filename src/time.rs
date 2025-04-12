@@ -154,33 +154,19 @@ impl<T: Time> AbsoluteTime<T> {
             let nanos = time_offset.time_correction_nanos(t)?;
             Ok(-nanos)
         } else {
-            // Cross-mixed corrections
-            for t1_offset in self.time_offsets.iter() {
-                if t1_offset.lhs == lhs {
-                    for t2_offset in self.time_offsets.iter() {
-                        if t1_offset.rhs == t2_offset.lhs && t2_offset.rhs == rhs {
-                            // |GST-UTC| = |GST - GPST| + |GPST - UTC|
-                            let mut correction = t1_offset.time_correction_nanos(t)?;
-                            correction += t2_offset.time_correction_nanos(t)?;
-                            return Ok(correction);
-                        } else if t1_offset.lhs == t2_offset.rhs && t2_offset.lhs == rhs {
-                            // |GST-UTC|  = |GST-GPST| - |UTC - GPST|
-                            let mut correction = t1_offset.time_correction_nanos(t)?;
-                            correction -= t2_offset.time_correction_nanos(t)?;
-                            return Ok(correction);
-                        }
-                    }
-                } else if t1_offset.rhs == rhs {
-                    for t2_offset in self.time_offsets.iter() {
-                        if t1_offset.rhs == t2_offset.lhs && t2_offset.rhs == rhs {
-                            //  |GPST - GST| & |GPST - UTC|
-                            // |GST-UTC| = |GPST - UTC| - |GPST -GST|
-                        } else if t2_offset.rhs == rhs {
-                            // |GST - UTC| = |GST - GPST| - |UTC - GPST|
-                        }
-                    }
-                }
-            }
+            // // Cross-mixed corrections
+            // for t1_offset in self.time_offsets.iter() {
+            //     if t1_offset.lhs == lhs {
+            //         for t2_offset in self.time_offsets.iter() {
+            //             if t1_offset.rhs == t2_offset.rhs && t2_offset.lhs == rhs {
+            //                 // |GST-BDT| = |GST-GPST| ; |BDT-GPST|
+            //                 let mut correction = t1_offset.time_correction_nanos(t)?;
+            //                 correction -= t2_offset.time_correction_nanos(t)?;
+            //                 return Ok(correction);
+            //             }
+            //         }
+            //     }
+            // }
 
             Err(Error::UnknownTimeCorection)
         }
