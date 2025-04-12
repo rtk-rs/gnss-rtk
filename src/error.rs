@@ -137,4 +137,6 @@ pub enum Error {
     UnknownTimeCorection,
     #[error("time correct is outdated (at least weekly)")]
     OutdatedTimeCorrection,
+    #[error("postfit filter converged to physically invalid state")]
+    PostFitUpdate,
 }

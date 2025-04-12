@@ -8,6 +8,8 @@ use serde::Serialize;
 
 pub(crate) mod apriori;
 pub(crate) mod dop;
+pub(crate) mod kalman;
+pub(crate) mod postfit;
 pub(crate) mod state;
 
 use nalgebra::{DVector, MatrixXx4};

@@ -8,6 +8,8 @@ use anise::{
     prelude::{Epoch, Frame, Unit},
 };
 
+use log::debug;
+
 use crate::{
     navigation::Apriori,
     prelude::{Duration, Orbit},
@@ -64,6 +66,13 @@ impl State {
             0.0,
         );
         let orbit = Orbit::from_cartesian_pos_vel(pos_vel, t, frame);
+        Self::from_orbit(&orbit, frame)
+    }
+
+    /// Create new [State] from ECEF pos+vel
+    pub fn from_pos_vel_ecef_m(pos_vel_m: Vector6, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
+        let pos_vel_km = pos_vel_m / 1.0E3;
+        let orbit = Orbit::from_cartesian_pos_vel(pos_vel_km, t, frame);
         Self::from_orbit(&orbit, frame)
     }
 
@@ -144,6 +153,17 @@ impl State {
         self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
         self.clock_dt = new_clock_dt;
+
+        Ok(())
+    }
+
+    /// Temporal postfit update
+    pub fn temporal_postfit_update(&mut self, dx: Vector6) -> PhysicsResult<()> {
+        self.pos_m = (dx[0], dx[1], dx[2]);
+        self.vel_m_s = (dx[3], dx[4], dx[5]);
+
+        let new_orbit = self.to_orbit();
+        self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
         Ok(())
     }
