@@ -39,10 +39,10 @@ Therefore, we rely on somewhat "advanced" interfacing, mainly:
 Deployment
 ==========
 
-:warning: ANISE is limiting and requires internet access either
+:warning: ANISE requires internet access either
 
 1. at built time, when built with `embed_ephem` option 
-2. at first ever deployment when using low precision models, when built without `embed-ephem` option
+2. at first deployment ever, when using low precision models and built without `embed-ephem` option
 3. regularly, when using highest precision models, regardless of the compilation options.
 
 This library provides an `embed_ephem` compilation option to reduce the requirements on low precision systems.
