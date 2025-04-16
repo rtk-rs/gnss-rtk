@@ -3,7 +3,6 @@ use crate::{constants::Constants, error::Error, prelude::Candidate};
 use log::error;
 
 use nalgebra::{Matrix4, Vector4};
-use nyx_space::cosmic::SPEED_OF_LIGHT_M_S;
 
 pub struct Bancroft {
     a: Vector4<f64>,
@@ -49,7 +48,7 @@ impl Bancroft {
                     if let Some(clock_corr) = cd[i].clock_corr {
                         let dt_i = clock_corr.duration.to_seconds();
                         let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
-                        let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
+                        let pr_i = r_i + dt_i * Constants::SPEED_OF_LIGHT_M_S - tgd_i;
 
                         b[(j, 0)] = x_i;
                         b[(j, 1)] = y_i;

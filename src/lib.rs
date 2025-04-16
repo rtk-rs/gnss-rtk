@@ -5,7 +5,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate gnss_rs as gnss;
-extern crate nyx_space as nyx;
+//extern crate nyx_space as nyx;
 
 // private modules
 mod ambiguity;
@@ -57,9 +57,6 @@ pub mod prelude {
         naif::SPK,
         prelude::{Aberration, Almanac, Frame, Orbit},
     };
-
-    // nyx
-    pub use nyx_space::{cosmic::SPEED_OF_LIGHT_M_S, md::prelude::Arc};
 
     // hifitime types
     pub use hifitime::{Duration, Epoch, TimeScale};

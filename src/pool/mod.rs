@@ -1,4 +1,4 @@
-use log::{debug, error};
+use log::error;
 
 use std::collections::HashMap;
 

@@ -1,5 +1,5 @@
 use crate::error::Error;
-use nyx::linalg::{DefaultAllocator, DimName, OMatrix, OVector};
+use nalgebra::{DefaultAllocator, DimName, OMatrix, OVector};
 
 #[derive(Debug, Clone)]
 pub struct Kalman<S>

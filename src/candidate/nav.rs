@@ -1,8 +1,6 @@
 //! Position solving candidate
 use log::{debug, warn};
 
-use nyx::cosmic::SPEED_OF_LIGHT_M_S;
-
 use crate::{
     bias::IonosphereBias,
     constants::Constants,
@@ -59,7 +57,7 @@ impl Candidate {
 
             let r_sat_0 = r_0 - r_sat;
 
-            dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+            dr = 2.0 * mu / Constants::SPEED_OF_LIGHT_M_S / Constants::SPEED_OF_LIGHT_M_S
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
             rho += dr;
@@ -99,7 +97,7 @@ impl Candidate {
         if cfg.modeling.sv_clock_bias {
             let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
             contribution.clock_correction = Some(dt.duration);
-            bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
+            bias_m -= dt.duration.to_seconds() * Constants::SPEED_OF_LIGHT_M_S;
 
             let sv_ts = self
                 .sv
@@ -111,7 +109,7 @@ impl Candidate {
                 if let Ok(correction_seconds) =
                     absolute_time.time_correction_seconds(self.t, sv_ts, cfg.timescale)
                 {
-                    bias_m += correction_seconds * SPEED_OF_LIGHT_M_S;
+                    bias_m += correction_seconds * Constants::SPEED_OF_LIGHT_M_S;
 
                     debug!(
                         "{}({}) - |{} - {}| {} ns correction",
@@ -128,12 +126,12 @@ impl Candidate {
         }
 
         if cfg.modeling.sv_total_group_delay {
-            bias_m -= self.tgd.unwrap_or_default().to_seconds() * SPEED_OF_LIGHT_M_S;
+            bias_m -= self.tgd.unwrap_or_default().to_seconds() * Constants::SPEED_OF_LIGHT_M_S;
         }
 
         if cfg.modeling.cable_delay {
             if let Some(delay) = cfg.externalref_delay {
-                bias_m -= delay * SPEED_OF_LIGHT_M_S;
+                bias_m -= delay * Constants::SPEED_OF_LIGHT_M_S;
             }
 
             for _ in cfg.int_delay.iter() {
