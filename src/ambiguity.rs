@@ -1,6 +1,7 @@
 use crate::{
     averager::Averager,
-    prelude::{Duration, Epoch, SPEED_OF_LIGHT_M_S},
+    constants::Constants,
+    prelude::{Duration, Epoch},
 };
 
 use log::{error, warn};
@@ -105,9 +106,9 @@ impl Solver {
     }
 
     pub fn solve(&mut self, input: Input) -> Option<Output> {
-        let lambda_1 = SPEED_OF_LIGHT_M_S / input.f1_hz;
-        let lambda_2 = SPEED_OF_LIGHT_M_S / input.f2_hz;
-        let lambda_wl = SPEED_OF_LIGHT_M_S / (input.f1_hz - input.f2_hz);
+        let lambda_1 = Constants::SPEED_OF_LIGHT_M_S / input.f1_hz;
+        let lambda_2 = Constants::SPEED_OF_LIGHT_M_S / input.f2_hz;
+        let lambda_wl = Constants::SPEED_OF_LIGHT_M_S / (input.f1_hz - input.f2_hz);
 
         let lw = (input.f1_hz * input.l1 - input.f2_hz * input.l2) / (input.f1_hz - input.f2_hz);
         let cn = (input.f1_hz * input.c1 + input.f2_hz * input.c2) / (input.f1_hz + input.f2_hz);

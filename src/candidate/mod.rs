@@ -4,7 +4,8 @@ use log::debug;
 
 use crate::{
     ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
-    prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SPEED_OF_LIGHT_M_S, SV},
+    constants::Constants,
+    prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SV},
 };
 
 use anise::errors::AlmanacResult;
@@ -186,7 +187,7 @@ impl Candidate {
 
         let (_, pr) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
 
-        t_tx -= pr / SPEED_OF_LIGHT_M_S * Unit::Second;
+        t_tx -= pr / Constants::SPEED_OF_LIGHT_M_S * Unit::Second;
 
         if cfg.modeling.sv_total_group_delay {
             if let Some(tgd) = self.tgd {

@@ -4,7 +4,7 @@ use crate::{
     constants::Constants,
     navigation::apriori::Apriori,
     pool::Pool,
-    prelude::{Almanac, Vector3, SPEED_OF_LIGHT_M_S, SUN_J2000},
+    prelude::{Almanac, Vector3, SUN_J2000},
 };
 
 use log::{debug, error, info};
@@ -106,7 +106,9 @@ impl Pool {
                             let r_v_sat =
                                 pos_m.0 * vel_m_s.0 + pos_m.1 * vel_m_s.1 + pos_m.2 * vel_m_s.2;
 
-                            let bias = -2.0 * r_v_sat / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+                            let bias = -2.0 * r_v_sat
+                                / Constants::SPEED_OF_LIGHT_M_S
+                                / Constants::SPEED_OF_LIGHT_M_S
                                 * Unit::Second;
 
                             // let ea_deg = sv_orbit.ea_deg().map_err(Error::Physics)?;

@@ -1,5 +1,7 @@
 pub struct Constants;
 
+use anise::constants::SPEED_OF_LIGHT_KM_S;
+
 impl Constants {
     /// Earth angular velocity, in WGS84 frame rad/s
     pub const EARTH_ANGULAR_VEL_RAD: f64 = 7.2921151467E-5;
@@ -17,4 +19,6 @@ impl Constants {
     // pub const LOVE_DEGREE2: f64 = 0.6078;
     // /// Shida degree^2 term
     // pub const SHIDA_DEGREE2: f64 = 0.0847;
+    /// Speed of light in m.s⁻¹
+    pub const SPEED_OF_LIGHT_M_S: f64 = SPEED_OF_LIGHT_KM_S * 1000.0;
 }
