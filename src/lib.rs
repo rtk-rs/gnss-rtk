@@ -41,6 +41,7 @@ pub mod prelude {
         candidate::{Candidate, ClockCorrection, Observation},
         carrier::{Carrier, Signal},
         cfg::{Config, Method, Profile},
+        constants::SPEED_OF_LIGHT_M_S,
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,

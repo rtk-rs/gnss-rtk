@@ -1,4 +1,4 @@
-use crate::{constants::Constants, prelude::Error};
+use crate::{constants::SPEED_OF_LIGHT_M_S, prelude::Error};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -148,7 +148,7 @@ impl Carrier {
     }
 
     pub fn wavelength(&self) -> f64 {
-        Constants::SPEED_OF_LIGHT_M_S / self.frequency_hz()
+        SPEED_OF_LIGHT_M_S / self.frequency_hz()
     }
 }
 

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
     averager::Averager,
-    constants::Constants,
+    constants::{EARTH_ANGULAR_VEL_RAD, SPEED_OF_LIGHT_M_S},
     prelude::{Candidate, Config, Duration, Epoch, Frame, Orbit, OrbitSource, SV},
     smoothing::Smoother,
 };
@@ -29,7 +29,7 @@ pub struct Pool {
 }
 
 fn orbit_rotation(t: Epoch, dt: Duration, orbit: Orbit, modeling: bool, frame: Frame) -> Orbit {
-    let we = Constants::EARTH_ANGULAR_VEL_RAD * dt.to_seconds();
+    let we = EARTH_ANGULAR_VEL_RAD * dt.to_seconds();
     let (we_sin, we_cos) = we.sin_cos();
     let dcm3 = if modeling {
         Matrix3::new(we_cos, we_sin, 0.0, -we_sin, we_cos, 0.0, 0.0, 0.0, 1.0)

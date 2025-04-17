@@ -7,7 +7,7 @@ use anise::{
 };
 
 use crate::{
-    constants::Constants,
+    constants::SPEED_OF_LIGHT_M_S,
     navigation::Apriori,
     prelude::{Duration, Orbit},
 };
@@ -128,7 +128,7 @@ impl State {
             self.pos_m.2 + dx[2],
         );
 
-        let new_clock_dt = dx[3] / Constants::SPEED_OF_LIGHT_M_S * Unit::Second;
+        let new_clock_dt = dx[3] / SPEED_OF_LIGHT_M_S * Unit::Second;
 
         let dt_s = (t - self.t).to_seconds();
 
