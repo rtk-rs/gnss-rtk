@@ -5,7 +5,7 @@ use hifitime::Duration;
 
 use crate::{
     cfg::Modeling,
-    constants::Constants,
+    constants::{EARTH_GRAVITATION, SPEED_OF_LIGHT_M_S},
     navigation::{apriori::Apriori, Navigation},
     prelude::{
         Almanac, Candidate, Carrier, ClockCorrection, Config, Epoch, Error, Method, Observation,
@@ -406,9 +406,7 @@ fn cpp_matrix() {
             (sv_coords_m[i].0.powi(2) + sv_coords_m[i].1.powi(2) + sv_coords_m[i].2.powi(2)).sqrt();
         let r_sat_0 = r_0 - r_sat;
 
-        let dr = 2.0 * Constants::EARTH_GRAVITATION
-            / Constants::SPEED_OF_LIGHT_M_S
-            / Constants::SPEED_OF_LIGHT_M_S
+        let dr = 2.0 * EARTH_GRAVITATION / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
             * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
         // let (dx_m, dy_m, dz_m) = (

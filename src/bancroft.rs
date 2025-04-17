@@ -1,5 +1,9 @@
 //! Brancroft solver
-use crate::{constants::Constants, error::Error, prelude::Candidate};
+use crate::{
+    constants::{EARTH_EQUATORIAL_RADIUS_KM, SPEED_OF_LIGHT_M_S},
+    error::Error,
+    prelude::Candidate,
+};
 use log::error;
 
 use nalgebra::{Matrix4, Vector4};
@@ -48,7 +52,7 @@ impl Bancroft {
                     if let Some(clock_corr) = cd[i].clock_corr {
                         let dt_i = clock_corr.duration.to_seconds();
                         let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
-                        let pr_i = r_i + dt_i * Constants::SPEED_OF_LIGHT_M_S - tgd_i;
+                        let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
 
                         b[(j, 0)] = x_i;
                         b[(j, 1)] = y_i;
@@ -84,7 +88,7 @@ impl Bancroft {
 
     /// [Bancroft] resolution
     pub fn resolve(&self) -> Result<Vector4<f64>, Error> {
-        let r_e = Constants::EARTH_EQUATORIAL_RADIUS_KM * 1.0E3;
+        let r_e = EARTH_EQUATORIAL_RADIUS_KM * 1.0E3;
 
         let b_inv = self.b.try_inverse().ok_or(Error::MatrixInversion)?;
 
