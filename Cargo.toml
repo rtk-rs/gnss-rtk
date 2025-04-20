@@ -41,7 +41,7 @@ itertools = "0.14"
 
 serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
 
-gnss-rs = { git = "https://github.com/rtk-rs/gnss", branch = "dep/hifitime" }
+gnss-rs = { git = "https://github.com/rtk-rs/gnss", branch = "main" }
 
 anise = { git = "https://github.com/nyx-space/anise", branch = "dep/hifitime-github" }
 hifitime = { git = "https://github.com/nyx-space/hifitime", branch = "master", features = ["serde", "std"] }
