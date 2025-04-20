@@ -38,7 +38,10 @@ map_3d = "0.1.5"
 polyfit-rs = "0.2"
 nalgebra = "0.33"
 itertools = "0.14"
-gnss-rs = "2.3.5"
-anise = "0.5.3"
-hifitime = { version = "4.0", features = ["std"] }
+
 serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
+
+gnss-rs = { git = "https://github.com/rtk-rs/gnss", branch = "dep/hifitime" }
+
+anise = { git = "https://github.com/nyx-space/anise", branch = "dep/hifitime-github" }
+hifitime = { git = "https://github.com/nyx-space/hifitime", branch = "master", features = ["serde", "std"] }
