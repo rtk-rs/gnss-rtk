@@ -1,10 +1,8 @@
-use itertools::Itertools;
-
 use log::{debug, error, warn};
 
 use anise::{
     math::Vector3,
-    prelude::{Almanac, Duration, Frame},
+    prelude::{Almanac, Frame},
 };
 
 use crate::{
@@ -12,7 +10,7 @@ use crate::{
     bias::Bias,
     candidate::Candidate,
     cfg::{Config, Method},
-    navigation::{apriori::Apriori, postfit::PostfitKf, state::State, Navigation, PVTSolution},
+    navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
     prelude::{Epoch, Error},
@@ -197,7 +195,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
                     debug!("{} - initial state: {}", t, state);
                     state
                 },
-            },
+            }
         };
 
         self.pool.post_fit(&self.almanac, &self.cfg, &apriori);

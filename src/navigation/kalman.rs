@@ -75,7 +75,6 @@ where
         h_mat: OMatrix<f64, S, S>,
         r_mat: OMatrix<f64, S, S>,
     ) -> Result<OVector<f64, S>, Error> {
-
         if !self.initialized {
             return Err(Error::UninitializedFilter);
         }

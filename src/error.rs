@@ -135,4 +135,6 @@ pub enum Error {
     PostFitUpdate,
     #[error("internal error: filter is not initialized (bad op)")]
     UninitializedFilter,
+    #[error("rejected solution: GDOP limit exceeded")]
+    MaxGdopExceeded,
 }

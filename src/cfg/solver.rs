@@ -9,6 +9,10 @@ const fn default_max_gdop() -> f64 {
     5.0
 }
 
+const fn default_postfit_denoising() -> Option<f64> {
+    Some(1000.0)
+}
+
 #[derive(Default, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ElevationMappingFunction {
@@ -58,16 +62,16 @@ pub struct SolverOpts {
     /// Possible extra denoising filter, at the expense
     /// of more processing time. The configuration is the denoising factor.
     /// 1000 for x1000 improvement attempt.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(feature = "serde", serde(default = "default_postfit_denoising"))]
     pub postfit_denoising: Option<f64>,
 }
 
 impl Default for SolverOpts {
     fn default() -> Self {
         Self {
-            filter: Default::default(),
             max_gdop: default_max_gdop(),
             weight_matrix: default_weight_matrix(),
+            postfit_denoising: default_postfit_denoising(),
         }
     }
 }
@@ -77,8 +81,8 @@ impl SolverOpts {
     pub fn static_preset() -> Self {
         Self {
             max_gdop: 3.0,
-            postfit_denoising: 1000.0,
             weight_matrix: default_weight_matrix(),
+            postfit_denoising: default_postfit_denoising(),
         }
     }
 
@@ -86,7 +90,7 @@ impl SolverOpts {
      * form the weight matrix to be used in the solving process
      */
     pub(crate) fn weight_matrix(&self) -> OMatrix<f64, U8, U8> {
-        match self.filter.weight_matrix {
+        match self.weight_matrix {
             Some(WeightMatrix::Covar) => panic!("not implemented yet"),
             Some(WeightMatrix::MappingFunction(_)) => panic!("mapf: not implemented yet"),
             //                Some(WeightMatrix::MappingFunction(mapf)) => {

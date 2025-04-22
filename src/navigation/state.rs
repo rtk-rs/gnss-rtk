@@ -30,12 +30,10 @@ impl std::fmt::Display for Residual {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Default, Copy)]
 pub struct State {
     /// [Epoch] of resolution
     pub t: Epoch,
-    /// [Frame] we work with
-    pub frame: Frame,
     /// Clock dt as [Duration]
     pub clock_dt: Duration,
     /// Clock drift (s.s⁻¹)
@@ -62,7 +60,7 @@ impl State {
     /// Create new [State] initialized from [Apriori]
     pub fn from_apriori(apriori: &Apriori) -> PhysicsResult<Self> {
         let orbit = apriori.to_orbit();
-        Self::from_orbit(&orbit, apriori.frame)
+        Self::from_orbit(&orbit)
     }
 
     /// Create new [State] from ECEF coordinates.
@@ -76,22 +74,21 @@ impl State {
             0.0,
         );
         let orbit = Orbit::from_cartesian_pos_vel(pos_vel, t, frame);
-        Self::from_orbit(&orbit, frame)
+        Self::from_orbit(&orbit)
     }
 
     /// Create new [State] from ECEF pos+vel
     pub fn from_pos_vel_ecef_m(pos_vel_m: Vector6, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
         let pos_vel_km = pos_vel_m / 1.0E3;
         let orbit = Orbit::from_cartesian_pos_vel(pos_vel_km, t, frame);
-        Self::from_orbit(&orbit, frame)
+        Self::from_orbit(&orbit)
     }
 
     /// Create new [State] from [Orbit]al solution.
-    pub fn from_orbit(orbit: &Orbit, frame: Frame) -> PhysicsResult<Self> {
+    pub fn from_orbit(orbit: &Orbit) -> PhysicsResult<Self> {
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let latlongalt = orbit.latlongalt()?;
         Ok(Self {
-            frame,
             t: orbit.epoch,
             clock_drift_s_s: 0.0_f64,
             clock_dt: Default::default(),
@@ -130,7 +127,7 @@ impl State {
     }
 
     /// Converts [State] to [Orbit]
-    pub fn to_orbit(&self) -> Orbit {
+    pub fn to_orbit(&self, frame: Frame) -> Orbit {
         let pos_vel_km = Vector6::new(
             self.pos_m.0 / 1.0E3,
             self.pos_m.1 / 1.0E3,
@@ -140,7 +137,7 @@ impl State {
             self.vel_m_s.2 / 1.0E3,
         );
 
-        Orbit::from_cartesian_pos_vel(pos_vel_km, self.t, self.frame)
+        Orbit::from_cartesian_pos_vel(pos_vel_km, self.t, frame)
     }
 
     /// Derivative mutable update
@@ -162,7 +159,7 @@ impl State {
     }
 
     /// Temporal mutable update
-    pub fn temporal_update(&mut self, t: Epoch, dx: Vector4) -> PhysicsResult<()> {
+    pub fn temporal_update(&mut self, t: Epoch, frame: Frame, dx: Vector4) -> PhysicsResult<()> {
         let new_pos_m = (
             self.pos_m.0 + dx[0],
             self.pos_m.1 + dx[1],
@@ -187,7 +184,7 @@ impl State {
         self.pos_m = new_pos_m;
 
         // update attitude
-        let new_orbit = self.to_orbit();
+        let new_orbit = self.to_orbit(frame);
         self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
         self.clock_dt = new_clock_dt;
@@ -196,11 +193,11 @@ impl State {
     }
 
     /// Temporal postfit update
-    pub fn temporal_postfit_update(&mut self, dx: Vector6) -> PhysicsResult<()> {
+    pub fn temporal_postfit_update(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
         self.pos_m = (dx[0], dx[1], dx[2]);
         self.vel_m_s = (dx[3], dx[4], dx[5]);
 
-        let new_orbit = self.to_orbit();
+        let new_orbit = self.to_orbit(frame);
         self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
         Ok(())

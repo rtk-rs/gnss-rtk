@@ -179,13 +179,13 @@ impl Config {
     /// You can then customize [Self] as you will.
     pub fn static_preset(method: Method) -> Self {
         let mut s = Self::default();
-        
+
         s.method = method;
         s.profile = Profile::Static;
 
         s.max_tropo_bias = 15.0;
         s.solver.max_gdop = 3.0;
-        s.solver.postfit_denoising = 1000.0;
+        s.solver.postfit_denoising = Some(1000.0);
 
         match method {
             Method::PPP => {
@@ -204,13 +204,13 @@ impl Config {
     /// and rover [Profile]. You can then customize [Self] as you will.
     pub fn dynamic_preset(profile: Profile, method: Method) -> Self {
         let mut s = Self::default();
-        
+
         s.method = method;
         s.profile = profile;
 
         s.max_tropo_bias = 15.0;
         s.solver.max_gdop = 5.0;
-        s.solver.postfit_denoising = 1000.0;
+        s.solver.postfit_denoising = Some(1000.0);
 
         match method {
             Method::PPP => {

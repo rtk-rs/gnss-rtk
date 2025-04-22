@@ -3,25 +3,23 @@ use log::{debug, error};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-pub(crate) mod solutions;
 pub(crate) mod apriori;
+pub(crate) mod solutions;
 
 mod dop;
-mod postfit;
 mod kalman;
+mod postfit;
 
 pub(crate) mod state;
 
 use nalgebra::{DVector, Matrix4, MatrixXx4, Vector4, U4};
 
-use anise::{
-    prelude::Epoch,
-    astro::PhysicsResult,
-};
-
 use crate::{
-    navigation::{apriori::Apriori, dop::DilutionOfPrecision, kalman::Kalman, postfit::PostfitKf, state::State},
-    prelude::{Bias, Candidate, Config, Duration, Error, IonosphereBias, Signal, SV},
+    navigation::{
+        apriori::Apriori, dop::DilutionOfPrecision, kalman::Kalman, postfit::PostfitKf,
+        state::State,
+    },
+    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal, SV},
 };
 
 pub use solutions::PVTSolution;
@@ -56,6 +54,8 @@ pub struct SVContribution {
 pub(crate) struct Navigation {
     /// [Config] preset
     cfg: Config,
+    /// [Frame]
+    frame: Frame,
     /// [Kalman]
     kalman: Kalman<U4>,
     /// Postfit [Kalman]
@@ -74,17 +74,18 @@ pub(crate) struct Navigation {
 
 impl Navigation {
     /// Creates new [Navigation] solver.
-    pub fn new(cfg: &Config, apriori: &Apriori) -> PhysicsResult<Self> {
-        Ok(Self {
+    pub fn new(cfg: &Config, frame: Frame) -> Self {
+        Self {
+            frame,
             postfit: None,
             cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
             sv: Vec::with_capacity(8),
             kalman: Kalman::<U4>::new(),
-            state: State::from_apriori(apriori)?,
+            state: State::default(),
             dop: DilutionOfPrecision::default(),
-        })
+        }
     }
 
     /// Reset [Navigation] filter
@@ -123,13 +124,18 @@ impl Navigation {
                     .expect("internal error: undetermined past epoch");
 
                 let dt = t - prev_epoch;
-                let dx = postfit_kf.run(dt, &self.state)?;
+                let dx = postfit.run(dt, &self.state)?;
 
                 // update state
-                state.temporal_update(t, dx).map_err(|e| {
-                    error!("{} - state update failed with physical error: {}", t, e);
-                    Error::StateUpdate
-                })?;
+                self.state
+                    .temporal_postfit_update(self.frame, dx)
+                    .map_err(|e| {
+                        error!(
+                            "{} - postfit state update failed with physical error: {}",
+                            t, e
+                        );
+                        Error::StateUpdate
+                    })?;
             } else {
                 self.postfit = Some(PostfitKf::new(
                     &self.state,
@@ -163,7 +169,7 @@ impl Navigation {
         let mut b = Vec::<f64>::with_capacity(size);
         let mut h = MatrixXx4::<f64>::zeros(size);
 
-        let mut pending = state;
+        let mut pending = state.clone();
 
         // initial measurement vector
         for i in 0..size {
@@ -210,14 +216,16 @@ impl Navigation {
         let q_diag = Vector4::<f64>::new(0.0, 0.0, 0.0, 100E-6_f64.powi(2)); //TODO
         let q_mat = Matrix4::from_diagonal(&q_diag);
 
+        let mut ht_h_inv = Matrix4::zeros();
+
         // run
         for _ in 0..nb_iter {
-
             // form H tile
             for i in 0..b.len() {
                 let dr_i = sv[i].relativistic_path_range_m;
-                
-                let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
+
+                let (dx, dy, dz) =
+                    candidates[i].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
 
                 h[(i, 0)] = dx;
                 h[(i, 1)] = dy;
@@ -233,7 +241,8 @@ impl Navigation {
             // run
             let ht = h.transpose();
             let ht_h = ht.clone() * h.clone();
-            let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
+            ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
+
             let ht_b = ht * b_vec.clone();
 
             let dx = ht_h_inv * ht_b;
@@ -241,7 +250,7 @@ impl Navigation {
             // update latest DoP
             self.dop = DilutionOfPrecision::new(&pending, ht_h_inv);
 
-            pending.temporal_update(t, dx).map_err(|e| {
+            pending.temporal_update(t, self.frame, dx).map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate
             })?;
@@ -271,16 +280,17 @@ impl Navigation {
         }
 
         // validation
-        self.state_validation(&pending)?;
+        self.state_validation(t, &pending)?;
 
         // arm kalman
-        self.kalman.initialize(&pending.to_vector4(), ht_h_inv);
+        self.kalman.initialize(pending.to_vector4(), ht_h_inv);
 
         self.state = pending;
-        self.past_epoch = Some(t);
+        self.prev_epoch = Some(t);
 
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+
         Ok(())
     }
 
@@ -292,7 +302,6 @@ impl Navigation {
         size: usize,
         bias: &B,
     ) -> Result<(), Error> {
-
         panic!("kf run: not yet");
 
         // let mut pending = self.state;
@@ -336,9 +345,9 @@ impl Navigation {
 
         // let pres = pres.transpose().dot(pres);
         // let denom = pres.len() as f64 - 4.0 - 1.0; /// x, y, z ,dt
-        // 
+        //
         // let chisqr = chisqr(0.001, m-n-1);
-        // 
+        //
         // if pres >= chisqr {
         //     error!("{} - measurement residual test failed! setup is too noisy ({}/{})", t, pres, chisqr);
         // }
@@ -355,11 +364,7 @@ mod test {
 
     #[test]
     fn test_dop() {
-        let almanac = Almanac::until_2035().unwrap();
-        let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
-
         let state = State {
-            frame,
             t: Default::default(),
             clock_dt: Default::default(),
             clock_drift_s_s: 0.0,

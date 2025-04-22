@@ -20,10 +20,12 @@ pub struct Apriori {
 
 impl Apriori {
     /// Create new [Apriori] from past [State] and new [Epoch].
-    pub fn from_state(t: Epoch, state: &State) -> PhysicsResult<Self> {
-        let orbital = state.to_orbit();
-        let mut apriori = Self::from_orbit(&orbital, state.frame)?;
+    pub fn from_state(t: Epoch, frame: Frame, state: &State) -> PhysicsResult<Self> {
+        let orbital = state.to_orbit(frame);
+
+        let mut apriori = Self::from_orbit(&orbital, frame)?;
         apriori.t = t;
+
         Ok(apriori)
     }
 
@@ -37,7 +39,9 @@ impl Apriori {
             0.0,
             0.0,
         );
+
         let orbit = Orbit::from_cartesian_pos_vel(pos_vel, t, frame);
+
         Self::from_orbit(&orbit, frame)
     }
 
@@ -45,6 +49,7 @@ impl Apriori {
     pub fn from_orbit(orbit: &Orbit, frame: Frame) -> PhysicsResult<Self> {
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let latlongalt = orbit.latlongalt()?;
+
         Ok(Self {
             frame,
             t: orbit.epoch,
