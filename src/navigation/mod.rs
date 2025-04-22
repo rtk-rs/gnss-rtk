@@ -112,18 +112,19 @@ impl Navigation {
     }
 
     /// Iterates mutable [Navigation] filter.
-    pub fn solving<B: Bias>(
+    pub fn solving<B: Bias, T: Time>(
         &mut self,
         t: Epoch,
         past_state: &State,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
+        absolute_time: &AbsoluteTime<T>
     ) -> Result<(), Error> {
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, bias)?;
+            self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
         } else {
-            self.kf_iteration(t, candidates, size, bias)?;
+            self.kf_iteration(t, candidates, size, bias, absolute_time)?;
         }
 
         if let Some(denoising) = &self.cfg.solver.postfit_denoising {
@@ -162,7 +163,7 @@ impl Navigation {
     }
 
     /// Filter first iteration.
-    pub fn kf_initialization<B: Bias>(
+    pub fn kf_initialization<B: Bias, T: Time>(
         &mut self,
         t: Epoch,
         state: &State,
@@ -279,6 +280,7 @@ impl Navigation {
                     pending.lat_long_alt_deg_deg_km,
                     &mut unused,
                     bias,
+                    absolute_time,
                 ) {
                     Ok((b_i, _)) => {
                         b_vec[i] = b_i;
@@ -306,7 +308,7 @@ impl Navigation {
     }
 
     /// [Kalman] filter iteration
-    pub fn kf_iteration<B: Bias>(
+    pub fn kf_iteration<B: Bias, T: Time>(
         &mut self,
         t: Epoch,
         candidates: &[Candidate],
