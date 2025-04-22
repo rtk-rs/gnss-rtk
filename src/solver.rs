@@ -33,14 +33,12 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     orbit_source: O,
     /// [Bias] model implementation
     bias: B,
-    /// Previous resolved [State].
-    past_state: Option<State>,
-    /// Possible initial (very first) preset
-    initial_ecef_m: Option<Vector3>,
     /// Pool
     pool: Pool,
     /// [Navigation] solver
     navigation: Navigation,
+    /// Possible initial (very first) preset
+    initial_ecef_m: Option<Vector3>,
 }
 
 impl<O: OrbitSource, B: Bias> Solver<O, B> {
@@ -233,11 +231,16 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
 
         // Solution validation
 
-        // Validated solution
+        // Publish solution
         let solution = PVTSolution::new(&nav.state, &nav.dop, &nav.sv);
         self.past_state = Some(nav.state.clone());
 
         Ok((t, solution))
+    }
+
+    /// Reset this [Solver]
+    pub fn reset(&mut self) {
+        self.navigation.reset();
     }
 
     /// Apply signal quality criteria

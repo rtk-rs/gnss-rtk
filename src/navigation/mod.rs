@@ -57,10 +57,10 @@ pub(crate) struct Navigation {
     postfit: Option<PostfitKf>,
     /// True if this filter has been initialized
     pub initialized: bool,
-    /// Previous Epoch. Null on first attempt.
-    prev_epoch: Option<Epoch>,
     /// Navigation [State]
     pub state: State,
+    /// Previous Epoch. Null on first attempt.
+    prev_epoch: Option<Epoch>,
     /// [SVContribution]s
     pub sv: Vec<SVContribution>,
     /// [DilutionOfPrecision]
@@ -69,16 +69,30 @@ pub(crate) struct Navigation {
 
 impl Navigation {
     /// Creates new [Navigation] solver.
-    pub fn new(cfg: &Config) -> Self {
+    pub fn new(cfg: &Config, apriori: &Apriori) -> Self {
         Self {
             postfit: None,
             cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
-            state: State::default(),
             sv: Vec::with_capacity(8),
             kalman: Kalman::<U4>::default(),
+            state: State::from_apriori(state),
             dop: DilutionOfPrecision::default(),
+        }
+    }
+
+    /// Reset [Navigation] filter
+    pub fn reset(&mut self) {
+        self.initialized = false;
+        self.sv.clear();
+        self.prev_epoch = None;
+        self.dop = DilutionOfPrecision::default();
+
+        self.kalman.reset();
+
+        if let Some(postfit) = &mut self.postfit {
+            postfit.reset();
         }
     }
 
@@ -210,7 +224,7 @@ impl Navigation {
             }
 
             // verify correctness
-            if h.nrows() != b.count_rows() {
+            if h.nrows() != b.len() {
                 return Err(Error::MatrixDimension);
             }
 
