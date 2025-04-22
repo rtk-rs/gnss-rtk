@@ -1,11 +1,11 @@
-use log::{debug, error};
+use log::error;
 
 use std::collections::HashMap;
 
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
     averager::Averager,
-    constants::Constants,
+    constants::{EARTH_ANGULAR_VEL_RAD, SPEED_OF_LIGHT_M_S},
     prelude::{Candidate, Config, Duration, Epoch, Frame, Orbit, OrbitSource, SV},
     smoothing::Smoother,
 };
@@ -29,7 +29,7 @@ pub struct Pool {
 }
 
 fn orbit_rotation(t: Epoch, dt: Duration, orbit: Orbit, modeling: bool, frame: Frame) -> Orbit {
-    let we = Constants::EARTH_ANGULAR_VEL_RAD * dt.to_seconds();
+    let we = EARTH_ANGULAR_VEL_RAD * dt.to_seconds();
     let (we_sin, we_cos) = we.sin_cos();
     let dcm3 = if modeling {
         Matrix3::new(we_cos, we_sin, 0.0, -we_sin, we_cos, 0.0, 0.0, 0.0, 1.0)
@@ -79,6 +79,13 @@ impl Pool {
         self.inner.retain(f)
     }
 
+    pub fn retain_mut<F>(&mut self, f: F)
+    where
+        F: FnMut(&mut Candidate) -> bool,
+    {
+        self.inner.retain_mut(f)
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -92,8 +99,6 @@ impl Pool {
         self.inner.retain_mut(|cd| match cd.tx_epoch(cfg) {
             Ok(_) => {
                 if let Some(orbit) = orbits.next_at(cd.t_tx, cd.sv, self.earth_cef) {
-                    debug!("{} - sv dt_tx={} sv t={}", cd.t, cd.t_tx, cd.t);
-
                     let orbit = orbit_rotation(
                         cd.t,
                         cd.dt_tx,

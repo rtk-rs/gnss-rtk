@@ -5,7 +5,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate gnss_rs as gnss;
-extern crate nyx_space as nyx;
+//extern crate nyx_space as nyx;
 
 // private modules
 mod ambiguity;
@@ -20,6 +20,7 @@ mod orbit;
 mod pool;
 mod smoothing;
 mod solver;
+mod time;
 
 pub(crate) mod constants;
 // pub(crate) mod tides;
@@ -40,10 +41,12 @@ pub mod prelude {
         candidate::{Candidate, ClockCorrection, Observation},
         carrier::{Carrier, Signal},
         cfg::{Config, Method, Profile},
+        constants::SPEED_OF_LIGHT_M_S,
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,
         solver::Solver,
+        time::{Time, TimeOffset},
     };
 
     // gnss types
@@ -55,9 +58,6 @@ pub mod prelude {
         naif::SPK,
         prelude::{Aberration, Almanac, Frame, Orbit},
     };
-
-    // nyx
-    pub use nyx_space::{cosmic::SPEED_OF_LIGHT_M_S, md::prelude::Arc};
 
     // hifitime types
     pub use hifitime::{Duration, Epoch, TimeScale};

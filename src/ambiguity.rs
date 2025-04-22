@@ -1,6 +1,7 @@
 use crate::{
     averager::Averager,
-    prelude::{Duration, Epoch, SPEED_OF_LIGHT_M_S},
+    constants::SPEED_OF_LIGHT_M_S,
+    prelude::{Duration, Epoch},
 };
 
 use log::{error, warn};

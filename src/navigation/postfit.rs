@@ -1,4 +1,4 @@
-use nyx::linalg::{Matrix6, Vector6, U6};
+use nalgebra::{Matrix6, Vector6, U6};
 
 use crate::{
     error::Error,

@@ -1,6 +1,4 @@
-use crate::prelude::Error;
-
-use nyx::cosmic::SPEED_OF_LIGHT_M_S;
+use crate::{constants::SPEED_OF_LIGHT_M_S, prelude::Error};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -116,7 +114,7 @@ impl Carrier {
     }
 
     pub(crate) fn is_l1(&self) -> bool {
-        *self == Carrier::L1
+        matches!(*self, Self::L1 | Self::B1)
     }
 
     /// Returns unsigned frequency in kHz

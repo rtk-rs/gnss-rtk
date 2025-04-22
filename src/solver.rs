@@ -14,13 +14,15 @@ use crate::{
     orbit::OrbitSource,
     pool::Pool,
     prelude::{Epoch, Error},
+    time::{AbsoluteTime, Time},
 };
 
 /// [Solver] to resolve [PVTSolution]s.
 /// ## Generics:
 /// - O: [OrbitSource], custom [Orbit] provider.
 /// - B: custom [Bias] model.
-pub struct Solver<O: OrbitSource, B: Bias> {
+/// - T: [Time] source for correct absolute time
+pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     /// Solver [Config]uration preset
     pub cfg: Config,
     /// [Almanac]
@@ -37,9 +39,11 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     navigation: Navigation,
     /// Possible initial (very first) preset
     initial_ecef_m: Option<Vector3>,
+    /// [AbsoluteTime] source
+    absolute_time: AbsoluteTime<T>,
 }
 
-impl<O: OrbitSource, B: Bias> Solver<O, B> {
+impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
     /// Creates a new Position, Velocity, Time [Solver] without
     /// apriori knowledge of the initial position.
     /// ## Input
@@ -55,6 +59,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         earth_cef: Frame,
         cfg: Config,
         orbit_source: O,
+        time_source: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Result<Self, Error> {
@@ -63,6 +68,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             almanac,
             earth_cef,
             orbit_source,
+            time_source,
             bias,
             state_ecef_m,
         ))
@@ -81,9 +87,18 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         earth_cef: Frame,
         cfg: Config,
         orbit_source: O,
+        time_source: T,
         bias: B,
     ) -> Result<Self, Error> {
-        Self::new(almanac, earth_cef, cfg, orbit_source, bias, None)
+        Self::new(
+            almanac,
+            earth_cef,
+            cfg,
+            orbit_source,
+            time_source,
+            bias,
+            None,
+        )
     }
 
     /// Creates a new Position, Velocity, Time [Solver] with your own [Almanac] and [Frame] definitions.
@@ -100,6 +115,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         almanac: Almanac,
         earth_cef: Frame,
         orbit_source: O,
+        time_source: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
@@ -124,13 +140,14 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         let navigation = Navigation::new(&cfg, earth_cef);
 
         Self {
+            bias,
             almanac,
             earth_cef,
-            bias,
             navigation,
             orbit_source,
             initial_ecef_m,
             cfg: cfg.clone(),
+            absolute_time: AbsoluteTime::new(time_source),
             pool: Pool::allocate(cfg.code_smoothing, earth_cef),
         }
     }
@@ -140,6 +157,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
     /// - t: desired [Epoch]
     /// - pool: list of [Candidate]
     pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
+        let ts = self.cfg.timescale;
         let min_required = self.min_sv_required();
 
         if pool.len() < min_required {
@@ -147,12 +165,39 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             return Err(Error::NotEnoughCandidates);
         }
 
+        self.absolute_time.update(t);
+
         self.pool.new_epoch(pool);
-        self.pool.pre_fit(&self.cfg);
+        self.pool.pre_fit(&self.cfg, &self.absolute_time);
 
         if self.pool.len() < min_required {
             return Err(Error::NotEnoughPreFitCandidates);
         }
+
+        let t = if t.time_scale == self.cfg.timescale {
+            t
+        } else {
+            match self
+                .absolute_time
+                .epoch_time_correction(t, self.cfg.timescale)
+            {
+                Ok(new_t) => {
+                    let correction = t - new_t;
+                    debug!(
+                        "{} - |{} - {}| {} sampling instant correction",
+                        t, t.time_scale, ts, correction
+                    );
+                    new_t
+                },
+                Err(e) => {
+                    error!(
+                        "{} - failed to apply |{} - {}| correction: {}",
+                        t, t.time_scale, ts, e
+                    );
+                    return Err(e);
+                },
+            }
+        };
 
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);

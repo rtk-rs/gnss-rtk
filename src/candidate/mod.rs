@@ -4,7 +4,8 @@ use log::debug;
 
 use crate::{
     ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
-    prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SPEED_OF_LIGHT_M_S, SV},
+    constants::SPEED_OF_LIGHT_M_S,
+    prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SV},
 };
 
 use anise::errors::AlmanacResult;

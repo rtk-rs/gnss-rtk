@@ -1,10 +1,10 @@
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
     cfg::{Config, Method},
-    constants::Constants,
     navigation::state::State,
+    constants::{EARTH_GRAVITATION, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
     pool::Pool,
-    prelude::{Almanac, Frame, Vector3, SPEED_OF_LIGHT_M_S, SUN_J2000},
+    prelude::{Almanac, Frame, Vector3, SUN_J2000},
 };
 
 use log::{debug, error, info};
@@ -69,8 +69,8 @@ impl Pool {
 
     /// Velocities fit
     fn post_fit_velocities(&mut self, relativistic_clock_bias: bool) {
-        let mu = Constants::EARTH_GRAVITATION;
-        let w_e = Constants::EARTH_SEMI_MAJOR_AXIS_WGS84;
+        let mu = EARTH_GRAVITATION;
+        let w_e = EARTH_SEMI_MAJOR_AXIS_WGS84;
 
         for cd in self.inner.iter_mut() {
             if let Some(sv_orbit) = &mut cd.orbit {

@@ -20,6 +20,7 @@ use crate::{
         state::State,
     },
     prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal, SV},
+    time::{AbsoluteTime, Time},
 };
 
 pub use solutions::PVTSolution;
@@ -74,6 +75,14 @@ pub(crate) struct Navigation {
 
 impl Navigation {
     /// Creates new [Navigation] solver.
+    /// ## Input
+    /// - cfg: [Config] preset
+    /// - apriori: [Apriori] input
+    /// - candidates: selected [Candidate]s
+    /// - size: number of proposal
+    /// - bias: [Bias] model implementation
+    /// ## Returns
+    /// - [Navigation], [Error]
     pub fn new(cfg: &Config, frame: Frame) -> Self {
         Self {
             frame,
@@ -160,11 +169,12 @@ impl Navigation {
         candidates: &[Candidate],
         size: usize,
         bias: &B,
+        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         let nb_iter = 10; // TODO improve
 
         self.sv.clear();
-
+        
         let mut sv = Vec::with_capacity(size);
         let mut b = Vec::<f64>::with_capacity(size);
         let mut h = MatrixXx4::<f64>::zeros(size);
@@ -184,6 +194,7 @@ impl Navigation {
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
+                absolute_time,
             ) {
                 Ok((b_i, dr_i)) => {
                     b.push(b_i);
@@ -301,6 +312,7 @@ impl Navigation {
         candidates: &[Candidate],
         size: usize,
         bias: &B,
+        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         panic!("kf run: not yet");
 
@@ -357,6 +369,7 @@ impl Navigation {
 }
 
 #[cfg(test)]
+#[cfg(feature = "embed_ephem")]
 mod test {
     use super::{DilutionOfPrecision, State};
     use crate::prelude::{Almanac, EARTH_J2000};

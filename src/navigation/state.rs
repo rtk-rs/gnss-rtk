@@ -1,7 +1,5 @@
 use nalgebra::{OVector, U7};
 
-use nyx::cosmic::SPEED_OF_LIGHT_M_S;
-
 use anise::{
     astro::PhysicsResult,
     math::{Vector3, Vector4, Vector6},
@@ -9,6 +7,7 @@ use anise::{
 };
 
 use crate::{
+    constants::SPEED_OF_LIGHT_M_S,
     navigation::Apriori,
     prelude::{Duration, Orbit},
 };
