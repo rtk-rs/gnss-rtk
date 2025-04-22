@@ -132,7 +132,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             navigation,
             orbit_source,
             initial_ecef_m,
-            past_state: None,
             cfg: cfg.clone(),
             pool: Pool::allocate(cfg.code_smoothing, earth_cef),
         }
@@ -160,10 +159,11 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);
 
-        // Retrieve past state
-        let past_state = match self.past_state {
-            Some(state) => state,
-            None => match self.initial_ecef_m {
+        // past state
+        let past_state = if self.navigation.initialized {
+            self.navigation.state
+        } else {
+            match self.initial_ecef_m {
                 Some(x0_y0_z0_m) => {
                     let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef)
                         .unwrap_or_else(|e| {
@@ -218,10 +218,6 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         ) {
             Ok((_)) => {
                 info!("{} - navigation iteration completed", t);
-                debug!(
-                    "{} - new state: {:?} dt={}",
-                    t, nav.state.pos_m, nav.state.clock_dt
-                );
             },
             Err(e) => {
                 error!("{} - navigation iteration failure: {}", t, e);
@@ -229,11 +225,8 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             },
         }
 
-        // Solution validation
-
         // Publish solution
         let solution = PVTSolution::new(&nav.state, &nav.dop, &nav.sv);
-        self.past_state = Some(nav.state.clone());
 
         Ok((t, solution))
     }
@@ -282,23 +275,13 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
     }
 
     fn min_sv_required(&self) -> usize {
-        if self.past_state.is_none() {
-            if self.initial_ecef_m.is_none() {
-                4
-            } else {
-                if self.cfg.fixed_altitude.is_some() {
-                    3
-                } else {
-                    4
-                }
-            }
-        } else {
-            if self.cfg.fixed_altitude.is_some() {
-                3
-            } else {
-                4
-            }
+        let mut min_sv = 4;
+
+        if self.navigation.initialized && self.cfg.fixed_altitude.is_some() {
+            min_sv -= 1;
         }
+
+        min_sv
     }
 }
 

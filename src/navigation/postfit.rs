@@ -1,17 +1,9 @@
-use nyx::{
-    cosmic::State as NyxState,
-    dynamics::DynamicsError,
-    linalg::{Matrix6, OMatrix, OVector, Vector6, U3, U6},
-    od::{
-        filter::kalman::{KfEstimate, KF},
-        Filter, ODError,
-    },
-};
+use nyx::linalg::{Matrix6, Vector6, U6};
 
 use crate::{
     error::Error,
     navigation::{kalman::Kalman, state::State},
-    prelude::{Duration, Epoch, Frame, Orbit, EARTH_J2000},
+    prelude::Duration,
 };
 
 #[derive(Debug, Clone)]
@@ -112,4 +104,10 @@ impl PostfitKf {
 
         Ok(x_k)
     }
+
+    /// Reset this [PostfitKf]
+    pub fn reset(&mut self) {
+        self.kalman.reset();
+    }
+
 }

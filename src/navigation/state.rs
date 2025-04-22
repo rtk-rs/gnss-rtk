@@ -1,19 +1,19 @@
-use nalgebra::Vector4;
+use nalgebra::{OVector, U7};
 
 use nyx::cosmic::SPEED_OF_LIGHT_M_S;
 
 use anise::{
     astro::PhysicsResult,
-    math::{Vector3, Vector6},
+    math::{Vector3, Vector4, Vector6},
     prelude::{Epoch, Frame, Unit},
 };
-
-use log::debug;
 
 use crate::{
     navigation::Apriori,
     prelude::{Duration, Orbit},
 };
+
+pub type Vector7 = OVector<f64, U7>;
 
 pub struct Residual {
     pub err_dt: Duration,
@@ -116,6 +116,19 @@ impl State {
         )
     }
 
+    /// Outputs (x, y, z, vel_x, vel_y, vel_z, dt) as vector7
+    pub fn to_vector7(&self) -> Vector7 {
+        Vector7::from_row_slice(&[
+            self.pos_m.0,
+            self.pos_m.1,
+            self.pos_m.2,
+            self.vel_m_s.0,
+            self.vel_m_s.1,
+            self.vel_m_s.2,
+            self.clock_dt.to_seconds(),
+        ])
+    }
+
     /// Converts [State] to [Orbit]
     pub fn to_orbit(&self) -> Orbit {
         let pos_vel_km = Vector6::new(
@@ -149,7 +162,7 @@ impl State {
     }
 
     /// Temporal mutable update
-    pub fn temporal_update(&mut self, t: Epoch, dx: Vector4<f64>) -> PhysicsResult<()> {
+    pub fn temporal_update(&mut self, t: Epoch, dx: Vector4) -> PhysicsResult<()> {
         let new_pos_m = (
             self.pos_m.0 + dx[0],
             self.pos_m.1 + dx[1],

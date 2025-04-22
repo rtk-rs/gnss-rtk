@@ -133,4 +133,6 @@ pub enum Error {
     StateUpdate,
     #[error("postfit filter converged to physically invalid state")]
     PostFitUpdate,
+    #[error("internal error: filter is not initialized (bad op)")]
+    UninitializedFilter,
 }

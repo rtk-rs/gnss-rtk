@@ -5,16 +5,8 @@ use nalgebra::{dimension::U8, OMatrix};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-const fn default_model_update() -> bool {
-    true
-}
-
-const fn default_gdop_threshold() -> Option<f64> {
-    None
-}
-
-const fn default_tdop_threshold() -> Option<f64> {
-    None
+const fn default_max_gdop() -> f64 {
+    5.0
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -54,61 +46,15 @@ fn default_weight_matrix() -> Option<WeightMatrix> {
     //))
 }
 
-/// Filter loop exit criteria
-#[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum LoopExitCriteria {
-    /// Exit solver loop when maximal number of iterations has been reached.
-    Iteration(usize),
-    // Norm(f64),
-}
-
-impl Default for LoopExitCriteria {
-    fn default() -> LoopExitCriteria {
-        LoopExitCriteria::Iteration(10)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct FilterOpts {
-    /// Update not only the position but perturbations model as well,
-    /// for each filter iteration, at the expense of more processing time.
-    #[cfg_attr(feature = "serde", serde(default = "default_model_update"))]
-    pub model_update: bool,
-    /// Filter iteration loop exit criteria.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub loop_exit: LoopExitCriteria,
-    /// Weight Matrix
-    #[cfg_attr(feature = "serde", serde(default = "default_weight_matrix"))]
-    pub weight_matrix: Option<WeightMatrix>,
-}
-
-impl Default for FilterOpts {
-    fn default() -> Self {
-        Self {
-            weight_matrix: None,
-            model_update: default_model_update(),
-            loop_exit: LoopExitCriteria::default(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SolverOpts {
     /// GDOP threshold to invalidate ongoing GDOP
-    #[cfg_attr(feature = "serde", serde(default = "default_gdop_threshold"))]
-    pub gdop_threshold: Option<f64>,
-    /// TDOP threshold to invalidate ongoing TDOP
-    #[cfg_attr(feature = "serde", serde(default = "default_tdop_threshold"))]
-    pub tdop_threshold: Option<f64>,
-    // /// Filter to use
-    // #[cfg_attr(feature = "serde", serde(default))]
-    // pub filter: Filter,
-    /// Filter options
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub filter: FilterOpts,
+    #[cfg_attr(feature = "serde", serde(default = "default_max_gdop"))]
+    pub max_gdop: f64,
+    /// Weight Matrix
+    #[cfg_attr(feature = "serde", serde(default = "default_weight_matrix"))]
+    pub weight_matrix: Option<WeightMatrix>,
     /// Possible extra denoising filter, at the expense
     /// of more processing time. The configuration is the denoising factor.
     /// 1000 for x1000 improvement attempt.
@@ -120,9 +66,8 @@ impl Default for SolverOpts {
     fn default() -> Self {
         Self {
             filter: Default::default(),
-            postfit_denoising: Default::default(),
-            gdop_threshold: default_gdop_threshold(),
-            tdop_threshold: default_tdop_threshold(),
+            max_gdop: default_max_gdop(),
+            weight_matrix: default_weight_matrix(),
         }
     }
 }
@@ -131,10 +76,9 @@ impl SolverOpts {
     /// Parameter settings recommended for static ultra precise applications
     pub fn static_preset() -> Self {
         Self {
-            filter: Default::default(),
-            gdop_threshold: default_gdop_threshold(),
-            tdop_threshold: default_tdop_threshold(),
-            postfit_denoising: Some(1E3),
+            max_gdop: 3.0,
+            postfit_denoising: 1000.0,
+            weight_matrix: default_weight_matrix(),
         }
     }
 

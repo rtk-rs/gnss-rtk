@@ -19,11 +19,11 @@ pub struct PVTSolution {
     /// Latitude, longitude and altitude above mean sea level,
     /// in degrees and meters.
     pub lat_long_alt_deg_deg_m: (f64, f64, f64),
-    /// Timescale
+    /// [TimeScale] of clock_offset [Duration] expression.
     pub timescale: TimeScale,
     /// Clock offset (s)
     pub clock_offset: Duration,
-    /// Clock drift (s.s⁻¹)
+    /// Clock drift (s.s⁻¹) within [TimeScale]
     pub clock_drift_s_s: f64,
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV

@@ -1,25 +1,30 @@
 use log::{debug, error};
 
-pub mod solutions;
-pub use solutions::PVTSolution;
-
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+pub(crate) mod solutions;
 pub(crate) mod apriori;
-pub(crate) mod dop;
-pub(crate) mod kalman;
-pub(crate) mod postfit;
+
+mod dop;
+mod postfit;
+mod kalman;
+
 pub(crate) mod state;
 
 use nalgebra::{DVector, Matrix4, MatrixXx4, Vector4, U4};
 
-use anise::prelude::Epoch;
+use anise::{
+    prelude::Epoch,
+    astro::PhysicsResult,
+};
 
 use crate::{
-    navigation::{apriori::Apriori, dop::DilutionOfPrecision, kalman::Kalman, state::State},
+    navigation::{apriori::Apriori, dop::DilutionOfPrecision, kalman::Kalman, postfit::PostfitKf, state::State},
     prelude::{Bias, Candidate, Config, Duration, Error, IonosphereBias, Signal, SV},
 };
+
+pub use solutions::PVTSolution;
 
 /// SV Navigation information
 #[derive(Debug, Clone, Default)]
@@ -69,31 +74,31 @@ pub(crate) struct Navigation {
 
 impl Navigation {
     /// Creates new [Navigation] solver.
-    pub fn new(cfg: &Config, apriori: &Apriori) -> Self {
-        Self {
+    pub fn new(cfg: &Config, apriori: &Apriori) -> PhysicsResult<Self> {
+        Ok(Self {
             postfit: None,
             cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
             sv: Vec::with_capacity(8),
-            kalman: Kalman::<U4>::default(),
-            state: State::from_apriori(state),
+            kalman: Kalman::<U4>::new(),
+            state: State::from_apriori(apriori)?,
             dop: DilutionOfPrecision::default(),
-        }
+        })
     }
 
     /// Reset [Navigation] filter
     pub fn reset(&mut self) {
-        self.initialized = false;
         self.sv.clear();
-        self.prev_epoch = None;
-        self.dop = DilutionOfPrecision::default();
-
         self.kalman.reset();
 
         if let Some(postfit) = &mut self.postfit {
             postfit.reset();
         }
+
+        self.prev_epoch = None;
+        self.initialized = false;
+        self.dop = DilutionOfPrecision::default();
     }
 
     /// Iterates mutable [Navigation] filter.
@@ -108,7 +113,7 @@ impl Navigation {
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, size, bias)?;
         } else {
-            self.kf_iteration(t, past_state, candidates, size, bias)?;
+            self.kf_iteration(t, candidates, size, bias)?;
         }
 
         if let Some(denoising) = &self.cfg.solver.postfit_denoising {
@@ -141,11 +146,11 @@ impl Navigation {
         Ok(())
     }
 
-    /// [Kalman] initialization.
+    /// Filter first iteration.
     pub fn kf_initialization<B: Bias>(
         &mut self,
         t: Epoch,
-        past_state: &State,
+        state: &State,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
@@ -156,7 +161,9 @@ impl Navigation {
 
         let mut sv = Vec::with_capacity(size);
         let mut b = Vec::<f64>::with_capacity(size);
-        let mut h = MatrixXx4::<f64>::zeros(len);
+        let mut h = MatrixXx4::<f64>::zeros(size);
+
+        let mut pending = state;
 
         // initial measurement vector
         for i in 0..size {
@@ -166,16 +173,16 @@ impl Navigation {
 
             match candidates[i].vector_contribution(
                 t,
-                cfg,
-                past_state.pos_m,
-                past_state.lat_long_alt_deg_deg_km,
+                &self.cfg,
+                pending.pos_m,
+                pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
             ) {
                 Ok((b_i, dr_i)) => {
                     b.push(b_i);
 
-                    if cfg.modeling.relativistic_path_range {
+                    if self.cfg.modeling.relativistic_path_range {
                         debug!(
                             "{}({}) - relativistic path range: {:.3}m",
                             t, candidates[i].sv, dr_i
@@ -190,32 +197,27 @@ impl Navigation {
             }
         }
 
-        let len = b.len();
+        let b_len = b.len();
 
-        if len < 4 {
+        if b_len < 4 {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        // TODO improve this
-        // form measurement vector
-        let mut b_vec = DVector::<f64>::zeros(len);
-        for i in 0..len {
-            b_vec[i] = b[i];
-        }
+        // TODO improve this: form vector
+        let mut b_vec = DVector::<f64>::from_row_slice(&b);
 
-        // TODO improve this
-        let q_diag = Vector4::<f64>::new(0.0, 0.0, 0.0, 100E-6_f64.powi(2));
+        // TODO improve this: programmable Q
+        let q_diag = Vector4::<f64>::new(0.0, 0.0, 0.0, 100E-6_f64.powi(2)); //TODO
         let q_mat = Matrix4::from_diagonal(&q_diag);
 
         // run
-        let mut state = past_state;
-
         for _ in 0..nb_iter {
+
             // form H tile
             for i in 0..b.len() {
                 let dr_i = sv[i].relativistic_path_range_m;
-
-                let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, state.pos_m);
+                
+                let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
 
                 h[(i, 0)] = dx;
                 h[(i, 1)] = dy;
@@ -224,7 +226,7 @@ impl Navigation {
             }
 
             // verify correctness
-            if h.nrows() != b.len() {
+            if h.nrows() != b_len {
                 return Err(Error::MatrixDimension);
             }
 
@@ -237,26 +239,25 @@ impl Navigation {
             let dx = ht_h_inv * ht_b;
 
             // update latest DoP
-            self.dop = DilutionOfPrecision::new(&state, ht_h_inv);
+            self.dop = DilutionOfPrecision::new(&pending, ht_h_inv);
 
-            state.temporal_update(t, dx).map_err(|e| {
+            pending.temporal_update(t, dx).map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate
             })?;
 
-            // TODO improve convergence determination
-            // let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
+            debug!("{} - pending state {}", t, pending);
 
-            // update of the measurement models
-            for i in 0..b.len() {
+            // models update
+            for i in 0..b_len {
                 let mut unused = SVContribution::default();
 
                 match candidates[i].vector_contribution(
                     t,
                     &self.cfg,
-                    state.pos_m,
-                    state.lat_long_alt_deg_deg_km,
-                    &mut dummy,
+                    pending.pos_m,
+                    pending.lat_long_alt_deg_deg_km,
+                    &mut unused,
                     bias,
                 ) {
                     Ok((b_i, _)) => {
@@ -269,7 +270,17 @@ impl Navigation {
             }
         }
 
-        self.kalman.initialize(&state.to_vector4(), ht_h_inv);
+        // validation
+        self.state_validation(&pending)?;
+
+        // arm kalman
+        self.kalman.initialize(&pending.to_vector4(), ht_h_inv);
+
+        self.state = pending;
+        self.past_epoch = Some(t);
+
+        debug!("{} - new state {}", t, self.state);
+        debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
         Ok(())
     }
 
@@ -277,31 +288,62 @@ impl Navigation {
     pub fn kf_iteration<B: Bias>(
         &mut self,
         t: Epoch,
-        past_state: &State,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
     ) -> Result<(), Error> {
-        let z_k = state_state.vector();
 
-        let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
-        let f_mat = Matrix4::from_diagonal(&f_diag);
+        panic!("kf run: not yet");
 
-        let dx = self.kalman.run(z_k, f_mat, h_mat, r_mat)?;
+        // let mut pending = self.state;
 
-        self.state.temporal_update(t, dx);
+        // let z_k = pending.to_vector4();
 
-        Ok(())
+        // // TODO improve: dynamics
+        // let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
+        // let f_mat = Matrix4::from_diagonal(&f_diag);
+
+        // let (dx, ht_h_inv) = self.kalman.run(z_k, f_mat, h_mat, r_mat)?;
+
+        // pending.temporal_update(t, dx).map_err(|e| {
+        //     error!("{} - state update failed with physical error: {}", t, e);
+        //     Error::StateUpdate
+        // })?;
+
+        // // update
+        // self.dop = DilutionOfPrecision::new(&pending, ht_h_inv);
+
+        // // validation
+        // self.state_validation(&pending);
+
+        // self.state = pending;
+        // self.past_epoch = Some(t);
+
+        // debug!("{} - new state {}", t, self.state);
+        // debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+        // Ok(())
     }
 
-    /// Reset [Navigation] filter
-    pub fn reset(&mut self) {
-        self.prev_epoch = None;
-        self.sv.clear();
-        self.kalman.reset();
-        if let Some(postfit) = &mut self.postfit {
-            postfit.reset();
+    /// Validate pending [State]
+    fn state_validation(&self, t: Epoch, pending: &State) -> Result<(), Error> {
+        // const n: usize = 4; // x, y, z, dt
+
+        if self.dop.gdop > self.cfg.solver.max_gdop {
+            return Err(Error::MaxGdopExceeded);
         }
+
+        // let m = pres.len();
+
+        // let pres = pres.transpose().dot(pres);
+        // let denom = pres.len() as f64 - 4.0 - 1.0; /// x, y, z ,dt
+        // 
+        // let chisqr = chisqr(0.001, m-n-1);
+        // 
+        // if pres >= chisqr {
+        //     error!("{} - measurement residual test failed! setup is too noisy ({}/{})", t, pres, chisqr);
+        // }
+
+        Ok(())
     }
 }
 

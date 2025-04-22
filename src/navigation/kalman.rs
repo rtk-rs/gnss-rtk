@@ -25,9 +25,10 @@ where
     DefaultAllocator: nalgebra::allocator::Allocator<S>,
 {
     /// Create a new [Kalman] filter without initialization.
-    pub fn new(q_mat: OMatrix<f64, S, S>) -> Self {
+    pub fn new() -> Self {
         let x_k = OVector::<f64, S>::zeros();
         let p_k = OMatrix::<f64, S, S>::zeros();
+        let q_mat = OMatrix::<f64, S, S>::zeros();
         Self {
             p_k,
             x_k,
@@ -54,6 +55,11 @@ where
         }
     }
 
+    /// Update Q [OMatrix]
+    pub fn update_q_mat(&mut self, q_mat: OMatrix<f64, S, S>) {
+        self.q_mat = q_mat;
+    }
+
     /// Initialize this [Kalman] filter
     pub fn initialize(&mut self, x_0: OVector<f64, S>, p_0: OMatrix<f64, S, S>) {
         self.x_k = x_0;
@@ -69,6 +75,11 @@ where
         h_mat: OMatrix<f64, S, S>,
         r_mat: OMatrix<f64, S, S>,
     ) -> Result<OVector<f64, S>, Error> {
+
+        if !self.initialized {
+            return Err(Error::UninitializedFilter);
+        }
+
         let f_mat_t = f_mat.transpose();
 
         let xk_k_1 = f_mat.clone() * self.x_k.clone();
