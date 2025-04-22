@@ -8,9 +8,13 @@ where
     DefaultAllocator: nalgebra::allocator::Allocator<S, S>,
     DefaultAllocator: nalgebra::allocator::Allocator<S>,
 {
+    /// P_k Matrix
     p_k: OMatrix<f64, S, S>,
+    /// x_k Vector
     x_k: OVector<f64, S>,
+    /// Q Covar Matrix
     q_mat: OMatrix<f64, S, S>,
+    /// True if this [Kalman] filter is initialized
     pub initialized: bool,
 }
 
@@ -20,7 +24,7 @@ where
     DefaultAllocator: nalgebra::allocator::Allocator<S, S>,
     DefaultAllocator: nalgebra::allocator::Allocator<S>,
 {
-    /// Create a new [Kalman] filter with null initial state
+    /// Create a new [Kalman] filter without initialization.
     pub fn new(q_mat: OMatrix<f64, S, S>) -> Self {
         let x_k = OVector::<f64, S>::zeros();
         let p_k = OMatrix::<f64, S, S>::zeros();
@@ -33,6 +37,10 @@ where
     }
 
     /// Create a new [Kalman] filter with initial state x_0, p_0.
+    /// ## Input
+    /// - x_0: Initial vectorized state
+    /// - P_0: Initial P Matrix
+    /// - Q: covar matrix
     pub fn new_initialized(
         x_0: OVector<f64, S>,
         p_0: OMatrix<f64, S, S>,
@@ -53,6 +61,7 @@ where
         self.initialized = true;
     }
 
+    /// Execute this [Kalman] filter.
     pub fn run(
         &mut self,
         z_k: OVector<f64, S>,
@@ -80,5 +89,12 @@ where
         self.p_k = p_k;
 
         Ok(self.x_k.clone())
+    }
+
+    /// Reset this [Kalman] filter
+    pub fn reset(&mut self) {
+        self.initialized = false;
+        self.x_k = OVector::<f64, S>::zeros();
+        self.p_k = OMatrix::<f64, S, S>::zeros();
     }
 }

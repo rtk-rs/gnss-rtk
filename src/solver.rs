@@ -39,8 +39,8 @@ pub struct Solver<O: OrbitSource, B: Bias> {
     initial_ecef_m: Option<Vector3>,
     /// Pool
     pool: Pool,
-    /// Possible [PostfitKf]
-    postfit_kf: Option<PostfitKf>,
+    /// [Navigation] solver
+    navigation: Navigation,
 }
 
 impl<O: OrbitSource, B: Bias> Solver<O, B> {
@@ -125,14 +125,16 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             _ => None,
         };
 
+        let navigation = Navigation::new(&cfg);
+
         Self {
             almanac,
             earth_cef,
             bias,
+            navigation,
             orbit_source,
             initial_ecef_m,
             past_state: None,
-            postfit_kf: None,
             cfg: cfg.clone(),
             pool: Pool::allocate(cfg.code_smoothing, earth_cef),
         }
@@ -154,42 +156,48 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         self.pool.pre_fit(&self.cfg);
 
         if self.pool.len() < min_required {
-            // TODO: catch and reset self
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);
 
-        // Obtain apriori
-        let apriori = match self.past_state {
-            Some(state) => Apriori::from_state(t, &state).unwrap_or_else(|e| {
-                panic!(
-                    "Internal error. Solver reinit procedure failed due to physical error: {}",
-                    e
-                )
-            }),
+        // Retrieve past state
+        let past_state = match self.past_state {
+            Some(state) => state,
             None => match self.initial_ecef_m {
                 Some(x0_y0_z0_m) => {
-                    debug!("{}: initializing with external preset {}", t, x0_y0_z0_m);
+                    let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef)
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "Solver initialization failure - {}. Invalid user preset?",
+                                e
+                            );
+                        });
 
-                    Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef).unwrap_or_else(|e| {
-                        panic!(
-                            "Solver initialization failure - {}. Invalid user preset?",
-                            e
-                        )
-                    })
+                    let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+                        panic!("Solver failed to initialize itself. Physical error: {}", e);
+                    });
+
+                    debug!("{} - initial state: {}", t, state);
+                    state
                 },
                 None => {
                     let solver = Bancroft::new(&pool)?;
                     let solution = solver.resolve()?;
                     let x0_y0_z0_m = Vector3::new(solution[0], solution[1], solution[2]);
 
-                    debug!("{}: initial solution: {}", t, x0_y0_z0_m);
+                    let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef)
+                        .unwrap_or_else(|e| {
+                            panic!("Solver failed to initialize itself. Phyiscal error :{}", e);
+                        });
 
-                    Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef).unwrap_or_else(|e| {
-                        panic!("Solver failed to initialize itself. Phyiscal error :{}", e)
-                    })
+                    let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+                        panic!("Solver failed to initialize itself. Physical error: {}", e);
+                    });
+
+                    debug!("{} - initial state: {}", t, state);
+                    state
                 },
             },
         };
@@ -199,70 +207,31 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         let pool_size = self.pool.len();
 
         if pool_size < min_required {
-            // TODO: catch & reset self
-            // self.pool.end_of_epoch();
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
-        // Build nav filter
-        let mut nav = match Navigation::new(
+        // Solving attempt
+        match self.navigation.solving(
             t,
-            &self.cfg,
-            apriori,
+            &past_state,
             &self.pool.candidates(),
             pool_size,
             &self.bias,
         ) {
-            Ok(nav) => nav,
-            Err(e) => {
-                error!("matrix formation error: {}", e);
-                return Err(e);
-            },
-        };
-
-        // discard non contributing data
-        let contributing = nav.sv.iter().map(|contrib| contrib.sv).collect::<Vec<_>>();
-        self.pool.retain(|cd| contributing.contains(&cd.sv));
-
-        let pool_size = self.pool.len();
-
-        // iterate nav filter
-        match nav.resolve(t, &self.pool.candidates(), pool_size, &self.bias) {
-            Ok(()) => {
+            Ok((_)) => {
+                info!("{} - navigation iteration completed", t);
                 debug!(
-                    "{} - converged | {:?} dt={}",
+                    "{} - new state: {:?} dt={}",
                     t, nav.state.pos_m, nav.state.clock_dt
                 );
             },
             Err(e) => {
-                error!("{} - navigation error: {}", t, e);
+                error!("{} - navigation iteration failure: {}", t, e);
                 return Err(e);
             },
         }
 
-        if let Some(denoising) = &self.cfg.solver.postfit_denoising {
-            if let Some(postfit_kf) = &mut self.postfit_kf {
-                let dt_30s = Duration::from_seconds(30.0); // TODO
-                let dx = postfit_kf.run(dt_30s, &nav.state)?;
-
-                nav.state
-                    .temporal_postfit_update(dx)
-                    .or(Err(Error::PostFitUpdate))?;
-            } else {
-                self.postfit_kf = Some(PostfitKf::new(
-                    &nav.state,
-                    1.0 / denoising,
-                    1.0 / denoising,
-                    1.0,
-                    1.0,
-                ));
-            }
-        }
-
-        if let Some(past_state) = self.past_state {
-            nav.state
-                .velocity_update(past_state.t, past_state.pos_m, past_state.clock_dt);
-        }
+        // Solution validation
 
         // Validated solution
         let solution = PVTSolution::new(&nav.state, &nav.dop, &nav.sv);

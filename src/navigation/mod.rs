@@ -47,16 +47,20 @@ pub struct SVContribution {
     pub clock_correction: Option<Duration>,
 }
 
-/// [Navigation] Filter
+/// [Navigation] Solver
 pub(crate) struct Navigation {
     /// [Config] preset
     cfg: Config,
     /// [Kalman]
     kalman: Kalman<U4>,
-    /// Filter [State]
+    /// Postfit [Kalman]
+    postfit: Option<PostfitKf>,
+    /// True if this filter has been initialized
+    pub initialized: bool,
+    /// Previous Epoch. Null on first attempt.
+    prev_epoch: Option<Epoch>,
+    /// Navigation [State]
     pub state: State,
-    /// Measurement vector
-    pub b: DVector<f64>,
     /// [SVContribution]s
     pub sv: Vec<SVContribution>,
     /// [DilutionOfPrecision]
@@ -64,35 +68,93 @@ pub(crate) struct Navigation {
 }
 
 impl Navigation {
-    /// Creates new [Navigation] filter
-    /// ## Input
-    /// - cfg: [Config] preset
-    /// - apriori: [Apriori] input
-    /// - candidates: selected [Candidate]s
-    /// - size: number of proposal
-    /// - bias: [Bias] model implementation
-    /// ## Returns
-    /// - [Navigation], [Error]
-    pub fn new<B: Bias>(
+    /// Creates new [Navigation] solver.
+    pub fn new(cfg: &Config) -> Self {
+        Self {
+            postfit: None,
+            cfg: cfg.clone(),
+            prev_epoch: None,
+            initialized: false,
+            state: State::default(),
+            sv: Vec::with_capacity(8),
+            kalman: Kalman::<U4>::default(),
+            dop: DilutionOfPrecision::default(),
+        }
+    }
+
+    /// Iterates mutable [Navigation] filter.
+    pub fn solving<B: Bias>(
+        &mut self,
         t: Epoch,
-        cfg: &Config,
-        apriori: Apriori,
+        past_state: &State,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-    ) -> Result<Self, Error> {
+    ) -> Result<(), Error> {
+        if !self.kalman.initialized {
+            self.kf_initialization(t, past_state, candidates, size, bias)?;
+        } else {
+            self.kf_iteration(t, past_state, candidates, size, bias)?;
+        }
+
+        if let Some(denoising) = &self.cfg.solver.postfit_denoising {
+            if let Some(postfit) = &mut self.postfit {
+                let prev_epoch = self
+                    .prev_epoch
+                    .expect("internal error: undetermined past epoch");
+
+                let dt = t - prev_epoch;
+                let dx = postfit_kf.run(dt, &self.state)?;
+
+                // update state
+                state.temporal_update(t, dx).map_err(|e| {
+                    error!("{} - state update failed with physical error: {}", t, e);
+                    Error::StateUpdate
+                })?;
+            } else {
+                self.postfit = Some(PostfitKf::new(
+                    &self.state,
+                    1.0 / denoising,
+                    1.0 / denoising,
+                    1.0,
+                    1.0,
+                ));
+            }
+        }
+
+        self.prev_epoch = Some(t);
+
+        Ok(())
+    }
+
+    /// [Kalman] initialization.
+    pub fn kf_initialization<B: Bias>(
+        &mut self,
+        t: Epoch,
+        past_state: &State,
+        candidates: &[Candidate],
+        size: usize,
+        bias: &B,
+    ) -> Result<(), Error> {
+        let nb_iter = 10; // TODO improve
+
+        self.sv.clear();
+
         let mut sv = Vec::with_capacity(size);
         let mut b = Vec::<f64>::with_capacity(size);
+        let mut h = MatrixXx4::<f64>::zeros(len);
 
+        // initial measurement vector
         for i in 0..size {
             let mut contrib = SVContribution::default();
+
             contrib.sv = candidates[i].sv;
 
             match candidates[i].vector_contribution(
                 t,
                 cfg,
-                apriori.pos_m,
-                apriori.lat_long_alt_deg_deg_km,
+                past_state.pos_m,
+                past_state.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
             ) {
@@ -115,111 +177,116 @@ impl Navigation {
         }
 
         let len = b.len();
+
         if len < 4 {
             return Err(Error::MatrixMinimalDimension);
         }
 
+        // TODO improve this
+        // form measurement vector
         let mut b_vec = DVector::<f64>::zeros(len);
-
         for i in 0..len {
             b_vec[i] = b[i];
         }
 
-        let state = State::from_apriori(&apriori).or(Err(Error::NavigationFilterInitError))?;
-        debug!("initial state: {:?}", state.pos_m);
-
+        // TODO improve this
         let q_diag = Vector4::<f64>::new(0.0, 0.0, 0.0, 100E-6_f64.powi(2));
         let q_mat = Matrix4::from_diagonal(&q_diag);
 
-        Ok(Self {
-            sv,
-            state,
-            b: b_vec,
-            cfg: cfg.clone(),
-            kalman: Kalman::new(q_mat),
-            dop: DilutionOfPrecision::default(),
-        })
+        // run
+        let mut state = past_state;
+
+        for _ in 0..nb_iter {
+            // form H tile
+            for i in 0..b.len() {
+                let dr_i = sv[i].relativistic_path_range_m;
+
+                let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, state.pos_m);
+
+                h[(i, 0)] = dx;
+                h[(i, 1)] = dy;
+                h[(i, 2)] = dz;
+                h[(i, 3)] = 1.0;
+            }
+
+            // verify correctness
+            if h.nrows() != b.count_rows() {
+                return Err(Error::MatrixDimension);
+            }
+
+            // run
+            let ht = h.transpose();
+            let ht_h = ht.clone() * h.clone();
+            let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
+            let ht_b = ht * b_vec.clone();
+
+            let dx = ht_h_inv * ht_b;
+
+            // update latest DoP
+            self.dop = DilutionOfPrecision::new(&state, ht_h_inv);
+
+            state.temporal_update(t, dx).map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
+
+            // TODO improve convergence determination
+            // let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
+
+            // update of the measurement models
+            for i in 0..b.len() {
+                let mut unused = SVContribution::default();
+
+                match candidates[i].vector_contribution(
+                    t,
+                    &self.cfg,
+                    state.pos_m,
+                    state.lat_long_alt_deg_deg_km,
+                    &mut dummy,
+                    bias,
+                ) {
+                    Ok((b_i, _)) => {
+                        b_vec[i] = b_i;
+                    },
+                    Err(e) => {
+                        error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                    },
+                }
+            }
+        }
+
+        self.kalman.initialize(&state.to_vector4(), ht_h_inv);
+        Ok(())
     }
 
-    /// Iterates mutable [Navigation] filter.
-    pub fn resolve<B: Bias>(
+    /// [Kalman] filter iteration
+    pub fn kf_iteration<B: Bias>(
         &mut self,
         t: Epoch,
+        past_state: &State,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
     ) -> Result<(), Error> {
-        if !self.kalman.initialized {
-            for _ in 0..10 {
-                let len = self.b.len();
+        let z_k = state_state.vector();
 
-                let mut h = MatrixXx4::<f64>::zeros(len);
+        let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
+        let f_mat = Matrix4::from_diagonal(&f_diag);
 
-                // form matrix
-                for i in 0..size {
-                    let dr_i = self.sv[i].relativistic_path_range_m;
+        let dx = self.kalman.run(z_k, f_mat, h_mat, r_mat)?;
 
-                    let (dx, dy, dz) =
-                        candidates[i].matrix_contribution(&self.cfg, dr_i, self.state.pos_m);
+        self.state.temporal_update(t, dx);
 
-                    h[(i, 0)] = dx;
-                    h[(i, 1)] = dy;
-                    h[(i, 2)] = dz;
-                    h[(i, 3)] = 1.0;
-                }
+        Ok(())
+    }
 
-                if h.nrows() != self.b.nrows() {
-                    return Err(Error::MatrixDimension);
-                }
-
-                let ht = h.transpose();
-                let ht_h = ht.clone() * h.clone();
-                let ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
-                let ht_b = ht * self.b.clone();
-
-                let dx = ht_h_inv * ht_b;
-
-                self.state.temporal_update(t, dx).map_err(|e| {
-                    error!("{} - physical error: {}", t, e);
-                    Error::StateUpdate
-                })?;
-
-                self.dop = DilutionOfPrecision::new(&self.state, ht_h_inv);
-
-                // let norm = (dx[0].powi(2) + dx[1].powi(2) + dx[2].powi(2)).sqrt();
-
-                if self.cfg.solver.filter.model_update {
-                    let mut j = 0;
-                    // does not update the contribution
-                    let mut dummy = SVContribution::default();
-                    for i in 0..size {
-                        match candidates[i].vector_contribution(
-                            t,
-                            &self.cfg,
-                            self.state.pos_m,
-                            self.state.lat_long_alt_deg_deg_km,
-                            &mut dummy,
-                            bias,
-                        ) {
-                            Ok((b_i, _)) => {
-                                self.b[j] = b_i;
-                                j += 1;
-                            },
-                            Err(e) => {
-                                error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
-                            },
-                        }
-                    }
-                }
-
-                self.kalman.initialize(dx, ht_h_inv);
-            }
-
-            Ok(())
-        } else {
-            self.kalman.run()?;
-
-            Ok(())
+    /// Reset [Navigation] filter
+    pub fn reset(&mut self) {
+        self.prev_epoch = None;
+        self.sv.clear();
+        self.kalman.reset();
+        if let Some(postfit) = &mut self.postfit {
+            postfit.reset();
         }
     }
 }

@@ -48,6 +48,16 @@ pub struct State {
     pub vel_m_s: (f64, f64, f64),
 }
 
+impl std::fmt::Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "x={} y={} z={} dt={}",
+            self.pos_m.0, self.pos_m.1, self.pos_m.2, self.clock_dt
+        )
+    }
+}
+
 impl State {
     /// Create new [State] initialized from [Apriori]
     pub fn from_apriori(apriori: &Apriori) -> PhysicsResult<Self> {
@@ -89,6 +99,21 @@ impl State {
             pos_m: (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]),
             vel_m_s: (pos_vel_m[3], pos_vel_m[4], pos_vel_m[5]),
         })
+    }
+
+    /// Outputs (x, y, z) as vector3
+    pub fn to_vector3(&self) -> Vector3 {
+        Vector3::new(self.pos_m.0, self.pos_m.1, self.pos_m.2)
+    }
+
+    /// Outputs (x, y, z, dt) as vector3
+    pub fn to_vector4(&self) -> Vector4 {
+        Vector4::new(
+            self.pos_m.0,
+            self.pos_m.1,
+            self.pos_m.2,
+            self.clock_dt.to_seconds(),
+        )
     }
 
     /// Converts [State] to [Orbit]
