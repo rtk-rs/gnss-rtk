@@ -1,4 +1,4 @@
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 
 use anise::{
     math::Vector3,
@@ -121,7 +121,7 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             _ => None,
         };
 
-        let navigation = Navigation::new(&cfg);
+        let navigation = Navigation::new(&cfg, earth_cef);
 
         Self {
             almanac,
@@ -157,8 +157,8 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);
 
-        // past state
-        let past_state = if self.navigation.initialized {
+        // current state
+        let state = if self.navigation.initialized {
             self.navigation.state
         } else {
             match self.initial_ecef_m {
@@ -198,7 +198,8 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
             }
         };
 
-        self.pool.post_fit(&self.almanac, &self.cfg, &apriori);
+        self.pool
+            .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state);
 
         let pool_size = self.pool.len();
 
@@ -207,13 +208,10 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         }
 
         // Solving attempt
-        match self.navigation.solving(
-            t,
-            &past_state,
-            &self.pool.candidates(),
-            pool_size,
-            &self.bias,
-        ) {
+        match self
+            .navigation
+            .solving(t, &state, &self.pool.candidates(), pool_size, &self.bias)
+        {
             Ok((_)) => {
                 info!("{} - navigation iteration completed", t);
             },
@@ -224,7 +222,11 @@ impl<O: OrbitSource, B: Bias> Solver<O, B> {
         }
 
         // Publish solution
-        let solution = PVTSolution::new(&nav.state, &nav.dop, &nav.sv);
+        let solution = PVTSolution::new(
+            &self.navigation.state,
+            &self.navigation.dop,
+            &self.navigation.sv,
+        );
 
         Ok((t, solution))
     }

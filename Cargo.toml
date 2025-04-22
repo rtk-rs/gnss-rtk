@@ -40,6 +40,8 @@ nalgebra = "0.33"
 itertools = "0.14"
 gnss-rs = "2.3.5"
 nyx-space = "2.0.0"
-anise = "0.5.3"
-hifitime = { version = "4.0", features = ["std"] }
 serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
+
+anise = { git = "https://github.com/nyx-space/anise", branch = "dep/hifitime-github" }
+hifitime = { git = "https://github.com/nyx-space/hifitime", branch = "master", features = ["serde", "std"] }
+
