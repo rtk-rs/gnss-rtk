@@ -119,7 +119,7 @@ impl Navigation {
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-        absolute_time: &AbsoluteTime<T>
+        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
@@ -175,7 +175,7 @@ impl Navigation {
         let nb_iter = 10; // TODO improve
 
         self.sv.clear();
-        
+
         let mut sv = Vec::with_capacity(size);
         let mut b = Vec::<f64>::with_capacity(size);
         let mut h = MatrixXx4::<f64>::zeros(size);
@@ -316,35 +316,54 @@ impl Navigation {
         bias: &B,
         absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
-        panic!("kf run: not yet");
+        let mut pending = self.state.clone();
 
-        // let mut pending = self.state;
+        let z_k = pending.to_vector4();
 
-        // let z_k = pending.to_vector4();
+        // TODO improve: dynamics
+        let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
+        let f_mat = Matrix4::from_diagonal(&f_diag);
 
-        // // TODO improve: dynamics
-        // let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
-        // let f_mat = Matrix4::from_diagonal(&f_diag);
+        let h_mat = f_mat.clone();
 
-        // let (dx, ht_h_inv) = self.kalman.run(z_k, f_mat, h_mat, r_mat)?;
+        // form H tile
+        for i in 0..b.len() {
+            let dr_i = sv[i].relativistic_path_range_m;
 
-        // pending.temporal_update(t, dx).map_err(|e| {
-        //     error!("{} - state update failed with physical error: {}", t, e);
-        //     Error::StateUpdate
-        // })?;
+            let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
 
-        // // update
-        // self.dop = DilutionOfPrecision::new(&pending, ht_h_inv);
+            h_mat[(i, 0)] = dx;
+            h_mat[(i, 1)] = dy;
+            h_mat[(i, 2)] = dz;
+            h_mat[(i, 3)] = 1.0;
+        }
 
-        // // validation
-        // self.state_validation(&pending);
+        // verify correctness
+        if h.nrows() != b_len {
+            return Err(Error::MatrixDimension);
+        }
 
-        // self.state = pending;
-        // self.past_epoch = Some(t);
+        let r_mat = f_mat.clone();
 
-        // debug!("{} - new state {}", t, self.state);
-        // debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
-        // Ok(())
+        let (dx, ht_h_inv) = self.kalman.run(z_k, f_mat, h_mat, r_mat)?;
+
+        pending.temporal_update(t, self.frame, dx).map_err(|e| {
+            error!("{} - state update failed with physical error: {}", t, e);
+            Error::StateUpdate
+        })?;
+
+        // update
+        self.dop = DilutionOfPrecision::new(&pending, ht_h_inv);
+
+        // validation
+        self.state_validation(t, &pending);
+
+        self.state = pending;
+        self.prev_epoch = Some(t);
+
+        debug!("{} - new state {}", t, self.state);
+        debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+        Ok(())
     }
 
     /// Validate pending [State]

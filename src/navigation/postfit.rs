@@ -11,10 +11,6 @@ pub struct PostfitKf {
     kalman: Kalman<U6>,
     r_mat: Matrix6<f64>,
     h_mat: Matrix6<f64>,
-    meas_pos_std_dev_m: f64,
-    meas_vel_std_dev_m_s: f64,
-    state_pos_std_dev_m: f64,
-    state_vel_std_dev_m_s: f64,
 }
 
 impl PostfitKf {
@@ -67,10 +63,6 @@ impl PostfitKf {
             r_mat,
             h_mat,
             kalman,
-            meas_pos_std_dev_m,
-            meas_vel_std_dev_m_s,
-            state_pos_std_dev_m,
-            state_vel_std_dev_m_s,
         }
     }
 
@@ -100,7 +92,7 @@ impl PostfitKf {
             state.vel_m_s.2,
         );
 
-        let x_k = self.kalman.run(z_k, f_mat, self.h_mat, self.r_mat)?;
+        let (x_k, _) = self.kalman.run(z_k, f_mat, self.h_mat, self.r_mat)?;
 
         Ok(x_k)
     }

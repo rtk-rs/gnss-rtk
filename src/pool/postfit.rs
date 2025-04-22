@@ -1,8 +1,8 @@
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
     cfg::{Config, Method},
-    navigation::state::State,
     constants::{EARTH_GRAVITATION, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
+    navigation::state::State,
     pool::Pool,
     prelude::{Almanac, Frame, Vector3, SUN_J2000},
 };

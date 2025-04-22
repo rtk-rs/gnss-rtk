@@ -253,10 +253,14 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         }
 
         // Solving attempt
-        match self
-            .navigation
-            .solving(t, &state, &self.pool.candidates(), pool_size, &self.bias, &self.absolute_time)
-        {
+        match self.navigation.solving(
+            t,
+            &state,
+            &self.pool.candidates(),
+            pool_size,
+            &self.bias,
+            &self.absolute_time,
+        ) {
             Ok((_)) => {
                 info!("{} - navigation iteration completed", t);
             },

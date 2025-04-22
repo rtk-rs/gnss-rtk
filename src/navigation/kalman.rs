@@ -74,7 +74,7 @@ where
         f_mat: OMatrix<f64, S, S>,
         h_mat: OMatrix<f64, S, S>,
         r_mat: OMatrix<f64, S, S>,
-    ) -> Result<OVector<f64, S>, Error> {
+    ) -> Result<(OVector<f64, S>, OMatrix<f64, S, S>), Error> {
         if !self.initialized {
             return Err(Error::UninitializedFilter);
         }
@@ -98,7 +98,7 @@ where
         self.x_k = x_k;
         self.p_k = p_k;
 
-        Ok(self.x_k.clone())
+        Ok((self.x_k.clone(), self.p_k.clone()))
     }
 
     /// Reset this [Kalman] filter
