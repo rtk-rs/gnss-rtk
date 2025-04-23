@@ -97,13 +97,13 @@ impl State {
         })
     }
 
-    /// Outputs (x, y, z) as vector3
-    pub fn to_vector3(&self) -> Vector3 {
+    /// Returns (x, y, z) as [Vector3]
+    pub fn to_pos_vector3(&self) -> Vector3 {
         Vector3::new(self.pos_m.0, self.pos_m.1, self.pos_m.2)
     }
 
-    /// Outputs (x, y, z, dt) as vector3
-    pub fn to_vector4(&self) -> Vector4 {
+    /// Returns (x, y, z, dt) as [Vector4]
+    pub fn to_pos_dt_vector4(&self) -> Vector4 {
         Vector4::new(
             self.pos_m.0,
             self.pos_m.1,
@@ -112,8 +112,20 @@ impl State {
         )
     }
 
-    /// Outputs (x, y, z, vel_x, vel_y, vel_z, dt) as vector7
-    pub fn to_vector7(&self) -> Vector7 {
+    /// Returns (x, y, z, vel_x, vel_y, vel_z) as [Vector6]
+    pub fn to_pos_vel_vector6(&self) -> Vector6 {
+        Vector6::from_row_slice(&[
+            self.pos_m.0,
+            self.pos_m.1,
+            self.pos_m.2,
+            self.vel_m_s.0,
+            self.vel_m_s.1,
+            self.vel_m_s.2,
+        ])
+    }
+
+    /// Returns (x, y, z, vel_x, vel_y, vel_z, dt) as [Vector7]
+    pub fn to_pos_vel_dt_vector7(&self) -> Vector7 {
         Vector7::from_row_slice(&[
             self.pos_m.0,
             self.pos_m.1,
