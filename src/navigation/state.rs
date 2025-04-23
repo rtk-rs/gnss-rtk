@@ -157,8 +157,8 @@ impl State {
         self.clock_drift_s_s = (self.clock_dt - past_dt).to_seconds() / dt_s;
     }
 
-    /// Temporal mutable update
-    pub fn temporal_update(&mut self, t: Epoch, frame: Frame, dx: Vector4) -> PhysicsResult<()> {
+    /// Temporal update
+    pub fn update(&mut self, t: Epoch, frame: Frame, dx: Vector4) -> PhysicsResult<()> {
         let new_pos_m = (
             self.pos_m.0 + dx[0],
             self.pos_m.1 + dx[1],
@@ -191,8 +191,8 @@ impl State {
         Ok(())
     }
 
-    /// Temporal postfit update
-    pub fn temporal_postfit_update(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
+    /// Temporal update
+    pub fn postfit_update(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
         self.pos_m = (dx[0], dx[1], dx[2]);
         self.vel_m_s = (dx[3], dx[4], dx[5]);
 

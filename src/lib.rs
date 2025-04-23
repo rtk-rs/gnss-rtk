@@ -63,5 +63,5 @@ pub mod prelude {
     pub use hifitime::{Duration, Epoch, TimeScale};
 
     // nalgebra
-    pub use nalgebra::Vector3;
+    pub use nalgebra::{Vector3, Vector4, Vector6};
 }

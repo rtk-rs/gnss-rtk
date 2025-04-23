@@ -25,35 +25,45 @@ use crate::{
 pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     /// Solver [Config]uration preset
     pub cfg: Config,
+
     /// [Almanac]
     almanac: Almanac,
+
     /// [Frame]
     earth_cef: Frame,
+
     /// [OrbitSource]
     orbit_source: O,
+
     /// [Bias] model implementation
     bias: B,
+
     /// Pool
     pool: Pool,
+
     /// [Navigation] solver
     navigation: Navigation,
-    /// Possible initial (very first) preset
+
+    /// Possible initial position
     initial_ecef_m: Option<Vector3>,
+
     /// [AbsoluteTime] source
     absolute_time: AbsoluteTime<T>,
 }
 
 impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
-    /// Creates a new Position, Velocity, Time [Solver] without
-    /// apriori knowledge of the initial position.
+    /// Creates a new Position, Velocity, Time (PVT) [Solver] with possible
+    /// apriori knowledge. When set to None, the [Solver] will have to
+    /// determine a first initial guess itself.
+    ///
     /// ## Input
     /// - almanac: provided valid [Almanac]
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
     /// - orbit_source: custom [OrbitSource] implementation.
     /// - bias: [Bias] model implementation
-    /// - state_ecef_m: if you have accurate knowledge of the initial position,
-    /// you may define it here. Otherwise, we recommend you tie this to None.
+    /// - state_ecef_m: provide initial state as ECEF 3D coordinates,
+    /// otherwise we will have to figure them.
     pub fn new(
         almanac: Almanac,
         earth_cef: Frame,
@@ -76,6 +86,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
 
     /// Creates a new Position [Solver] without apriori knowledge.
     /// The solver will have to initiliaze iteself.
+    ///
     /// ## Input
     /// - almanac: provided valid [Almanac]
     /// - earth_cef: [Frame] that must be an ECEF
@@ -101,7 +112,8 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         )
     }
 
-    /// Creates a new Position, Velocity, Time [Solver] with your own [Almanac] and [Frame] definitions.
+    /// Creates a new Position, Velocity, Time (PVT) [Solver] with your own [Almanac] and [Frame] definitions.
+    ///
     /// ## Input
     /// - cfg: solver [Config]uration
     /// - almanac: [Almanac] definition
@@ -152,10 +164,14 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         }
     }
 
-    /// [PVTSolution] resolution attempt.
-    /// ## Inputs
-    /// - t: desired [Epoch]
-    /// - pool: list of [Candidate]
+    /// PVT (Position, Velocity, Time) solution solving attempt.
+    ///
+    /// ## Input
+    /// - t: [Epoch] of observation
+    /// - pool: proposed [Candidate]s
+    ///
+    /// ## Output
+    /// - ([Epoch], [PVTSolution]): epoch is simply copied, and resolved solution.
     pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
         let ts = self.cfg.timescale;
         let min_required = self.min_sv_required();
