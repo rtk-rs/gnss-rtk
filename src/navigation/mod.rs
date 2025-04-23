@@ -8,15 +8,20 @@ pub(crate) mod solutions;
 
 mod dop;
 mod kalman;
-mod postfit;
+// mod postfit;
 
 pub(crate) mod state;
 
-use nalgebra::{DVector, Matrix4, MatrixXx4, Vector4, U4};
+use nalgebra::{
+    DVector, DefaultAllocator, DimName, Matrix4, Matrix4xX, MatrixXx4, OVector, Vector4, U4,
+};
 
 use crate::{
     navigation::{
-        apriori::Apriori, dop::DilutionOfPrecision, kalman::Kalman, postfit::PostfitKf,
+        apriori::Apriori,
+        dop::DilutionOfPrecision,
+        kalman::{Kalman, KfEstimate},
+        // postfit::PostfitKf,
         state::State,
     },
     prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal, SV},
@@ -55,20 +60,27 @@ pub struct SVContribution {
 pub(crate) struct Navigation {
     /// [Config] preset
     cfg: Config,
+
     /// [Frame]
     frame: Frame,
+
     /// [Kalman]
     kalman: Kalman<U4>,
-    /// Postfit [Kalman]
-    postfit: Option<PostfitKf>,
+
+    // /// Postfit [Kalman]
+    // postfit: Option<PostfitKf>,
     /// True if this filter has been initialized
     pub initialized: bool,
+
     /// Navigation [State]
     pub state: State,
+
     /// Previous Epoch. Null on first attempt.
     prev_epoch: Option<Epoch>,
+
     /// [SVContribution]s
     pub sv: Vec<SVContribution>,
+
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
 }
@@ -86,7 +98,7 @@ impl Navigation {
     pub fn new(cfg: &Config, frame: Frame) -> Self {
         Self {
             frame,
-            postfit: None,
+            // postfit: None,
             cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
@@ -102,9 +114,9 @@ impl Navigation {
         self.sv.clear();
         self.kalman.reset();
 
-        if let Some(postfit) = &mut self.postfit {
-            postfit.reset();
-        }
+        // if let Some(postfit) = &mut self.postfit {
+        //     postfit.reset();
+        // }
 
         self.prev_epoch = None;
         self.initialized = false;
@@ -124,37 +136,35 @@ impl Navigation {
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
         } else {
-            self.kf_iteration(t, candidates, size, bias, absolute_time)?;
+            self.kf_run(t, candidates, size, bias, absolute_time)?;
         }
 
         if let Some(denoising) = &self.cfg.solver.postfit_denoising {
-            if let Some(postfit) = &mut self.postfit {
-                let prev_epoch = self
-                    .prev_epoch
-                    .expect("internal error: undetermined past epoch");
+            // if let Some(postfit) = &mut self.postfit {
+            //     let prev_epoch = self
+            //         .prev_epoch
+            //         .expect("internal error: undetermined past epoch");
 
-                let dt = t - prev_epoch;
-                let dx = postfit.run(dt, &self.state)?;
+            //     let dt = t - prev_epoch;
+            //     let dx = postfit.run(&self.state, dt)?;
 
-                // update state
-                self.state
-                    .temporal_postfit_update(self.frame, dx)
-                    .map_err(|e| {
-                        error!(
-                            "{} - postfit state update failed with physical error: {}",
-                            t, e
-                        );
-                        Error::StateUpdate
-                    })?;
-            } else {
-                self.postfit = Some(PostfitKf::new(
-                    &self.state,
-                    1.0 / denoising,
-                    1.0 / denoising,
-                    1.0,
-                    1.0,
-                ));
-            }
+            //     // update state
+            //     self.state.postfit_update(self.frame, dx).map_err(|e| {
+            //         error!(
+            //             "{} - postfit state update failed with physical error: {}",
+            //             t, e
+            //         );
+            //         Error::StateUpdate
+            //     })?;
+            // } else {
+            //     self.postfit = Some(PostfitKf::new(
+            //         &self.state,
+            //         1.0 / denoising,
+            //         1.0 / denoising,
+            //         1.0,
+            //         1.0,
+            //     ));
+            // }
         }
 
         self.prev_epoch = Some(t);
@@ -172,17 +182,17 @@ impl Navigation {
         bias: &B,
         absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
-        let nb_iter = 10; // TODO improve
+        let nb_iter = 10;
 
         self.sv.clear();
 
-        let mut sv = Vec::with_capacity(size);
-        let mut b = Vec::<f64>::with_capacity(size);
-        let mut h = MatrixXx4::<f64>::zeros(size);
-
         let mut pending = state.clone();
+        let mut indexes = Vec::<usize>::with_capacity(size);
 
-        // initial measurement vector
+        let mut y_k = Vec::<f64>::with_capacity(size);
+        let mut sv = Vec::with_capacity(size);
+
+        // measurement
         for i in 0..size {
             let mut contrib = SVContribution::default();
 
@@ -197,8 +207,9 @@ impl Navigation {
                 bias,
                 absolute_time,
             ) {
-                Ok((b_i, dr_i)) => {
-                    b.push(b_i);
+                Ok((y_i, dr_i)) => {
+                    y_k.push(y_i);
+                    indexes.push(i);
 
                     if self.cfg.modeling.relativistic_path_range {
                         debug!(
@@ -215,65 +226,71 @@ impl Navigation {
             }
         }
 
-        let b_len = b.len();
-
-        if b_len < 4 {
+        let y_len = y_k.len();
+        if y_len < 4 {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        // TODO improve this: form vector
-        let mut b_vec = DVector::<f64>::from_row_slice(&b);
+        let mut y_k = DVector::<f64>::from_row_slice(&y_k);
+        let mut g_k = MatrixXx4::<f64>::zeros(y_len);
 
-        // TODO improve this: programmable Q
-        let q_diag = Vector4::<f64>::new(0.0, 0.0, 0.0, 100E-6_f64.powi(2)); //TODO
-        let q_mat = Matrix4::from_diagonal(&q_diag);
+        let r_k = MatrixXx4::<f64>::identity(y_len); // TODO
+        let w_k = MatrixXx4::<f64>::identity(y_len); // TODO
 
-        let mut ht_h_inv = Matrix4::zeros();
+        let mut x_k = Vector4::zeros();
+        let mut p_k = Matrix4::zeros();
+
+        let mut gt_w_g_inv = Matrix4::zeros();
+        let mut gt_g_inv = Matrix4::zeros();
 
         // run
         for _ in 0..nb_iter {
-            // form H tile
-            for i in 0..b.len() {
-                let dr_i = sv[i].relativistic_path_range_m;
+            // form g_k
+            for (i, index) in indexes.iter().enumerate() {
+                let dr_i = sv[*index].relativistic_path_range_m;
 
                 let (dx, dy, dz) =
-                    candidates[i].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
+                    candidates[*index].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
 
-                h[(i, 0)] = dx;
-                h[(i, 1)] = dy;
-                h[(i, 2)] = dz;
-                h[(i, 3)] = 1.0;
+                g_k[(i, 0)] = dx;
+                g_k[(i, 1)] = dy;
+                g_k[(i, 2)] = dz;
+                g_k[(i, 3)] = 1.0;
             }
 
             // verify correctness
-            if h.nrows() != b_len {
+            if g_k.nrows() != y_len {
                 return Err(Error::MatrixDimension);
             }
 
             // run
-            let ht = h.transpose();
-            let ht_h = ht.clone() * h.clone();
-            ht_h_inv = ht_h.try_inverse().ok_or(Error::MatrixInversion)?;
+            let gt = g_k.transpose();
 
-            let ht_b = ht * b_vec.clone();
+            let gt_g = gt.clone() * g_k.clone();
+            let gt_w_g = gt_g * w_k.clone();
 
-            let dx = ht_h_inv * ht_b;
+            gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
-            // update latest DoP
-            self.dop = DilutionOfPrecision::new(&pending, ht_h_inv);
+            let gt_w_b = gt * w_k.clone() * y_k.clone();
 
-            pending.temporal_update(t, self.frame, dx).map_err(|e| {
+            x_k = gt_w_g_inv.clone() * gt_w_b;
+            p_k = gt_w_g.try_inverse().ok_or(Error::MatrixInversion)?;
+
+            pending.update(t, self.frame, x_k).map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate
             })?;
 
+            // update latest DoP
+            self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+
             debug!("{} - pending state {}", t, pending);
 
             // models update
-            for i in 0..b_len {
+            for (i, index) in indexes.iter().enumerate() {
                 let mut unused = SVContribution::default();
 
-                match candidates[i].vector_contribution(
+                match candidates[*index].vector_contribution(
                     t,
                     &self.cfg,
                     pending.pos_m,
@@ -282,11 +299,14 @@ impl Navigation {
                     bias,
                     absolute_time,
                 ) {
-                    Ok((b_i, _)) => {
-                        b_vec[i] = b_i;
+                    Ok((y_i, _)) => {
+                        y_k[i] = y_i;
                     },
                     Err(e) => {
-                        error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                        error!(
+                            "{}({}) - cannot contribute: {}",
+                            t, candidates[*index].sv, e
+                        );
                     },
                 }
             }
@@ -296,7 +316,17 @@ impl Navigation {
         self.state_validation(t, &pending)?;
 
         // arm kalman
-        self.kalman.initialize(pending.to_vector4(), ht_h_inv);
+        let initial_state = KfEstimate::new(x_k, p_k);
+
+        // TODO only for static positioning
+        let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
+        let f_k = Matrix4::from_diagonal(&f_diag);
+
+        // TODO
+        let q_diag = Vector4::new(0.0, 0.0, 0.0, 0.0);
+        let q_k = Matrix4::from_diagonal(&q_diag);
+
+        self.kalman.initialize(initial_state, f_k, q_k);
 
         self.state = pending;
         self.prev_epoch = Some(t);
@@ -307,8 +337,8 @@ impl Navigation {
         Ok(())
     }
 
-    /// [Kalman] filter iteration
-    pub fn kf_iteration<B: Bias, T: Time>(
+    /// [Kalman] filter run
+    pub fn kf_run<B: Bias, T: Time>(
         &mut self,
         t: Epoch,
         candidates: &[Candidate],
@@ -316,38 +346,89 @@ impl Navigation {
         bias: &B,
         absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
+        self.sv.clear();
+
         let mut pending = self.state.clone();
+        let mut indexes = Vec::<usize>::with_capacity(size);
 
-        let z_k = pending.to_vector4();
+        let mut y_k = Vec::<f64>::with_capacity(size);
+        let mut sv = Vec::with_capacity(size);
 
-        // TODO improve: dynamics
-        let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
-        let f_mat = Matrix4::from_diagonal(&f_diag);
+        // measurement
+        for i in 0..size {
+            let mut contrib = SVContribution::default();
 
-        let h_mat = f_mat.clone();
+            contrib.sv = candidates[i].sv;
 
-        // form H tile
-        for i in 0..b.len() {
-            let dr_i = sv[i].relativistic_path_range_m;
+            match candidates[i].vector_contribution(
+                t,
+                &self.cfg,
+                pending.pos_m,
+                pending.lat_long_alt_deg_deg_km,
+                &mut contrib,
+                bias,
+                absolute_time,
+            ) {
+                Ok((y_i, dr_i)) => {
+                    y_k.push(y_i);
+                    indexes.push(i);
 
-            let (dx, dy, dz) = candidates[i].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
+                    if self.cfg.modeling.relativistic_path_range {
+                        debug!(
+                            "{}({}) - relativistic path range: {:.3}m",
+                            t, candidates[i].sv, dr_i
+                        );
+                    }
 
-            h_mat[(i, 0)] = dx;
-            h_mat[(i, 1)] = dy;
-            h_mat[(i, 2)] = dz;
-            h_mat[(i, 3)] = 1.0;
+                    sv.push(contrib);
+                },
+                Err(e) => {
+                    error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                },
+            }
+        }
+
+        let y_len = y_k.len();
+        if y_len < 4 {
+            return Err(Error::MatrixMinimalDimension);
+        }
+
+        let mut y_k = DVector::<f64>::from_row_slice(&y_k);
+        let mut g_k = MatrixXx4::<f64>::zeros(y_len);
+
+        let r_k = MatrixXx4::<f64>::identity(y_len); // TODO
+        let w_k = Matrix4xX::<f64>::identity(y_len); // TODO
+
+        // form g_k
+        for (i, index) in indexes.iter().enumerate() {
+            let dr_i = sv[*index].relativistic_path_range_m;
+
+            let (dx, dy, dz) =
+                candidates[*index].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
+
+            g_k[(i, 0)] = dx;
+            g_k[(i, 1)] = dy;
+            g_k[(i, 2)] = dz;
+            g_k[(i, 3)] = 1.0;
         }
 
         // verify correctness
-        if h.nrows() != b_len {
+        if g_k.nrows() != y_len {
             return Err(Error::MatrixDimension);
         }
 
-        let r_mat = f_mat.clone();
+        // TODO only for static positioning
+        let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
+        let f_k = Matrix4::from_diagonal(&f_diag);
 
-        let (dx, ht_h_inv) = self.kalman.run(z_k, f_mat, h_mat, r_mat)?;
+        // TODO
+        let q_diag = Vector4::new(0.0, 0.0, 0.0, 0.0);
+        let q_k = Matrix4::from_diagonal(&q_diag);
 
-        pending.temporal_update(t, self.frame, dx).map_err(|e| {
+        let g_k = g_k.to_owned();
+        let (dx, ht_h_inv) = self.kalman.run(f_k, g_k, q_k, y_k)?;
+
+        pending.update(t, self.frame, dx).map_err(|e| {
             error!("{} - state update failed with physical error: {}", t, e);
             Error::StateUpdate
         })?;

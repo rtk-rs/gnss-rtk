@@ -2,15 +2,23 @@ use nalgebra::{Matrix6, Vector6, U6};
 
 use crate::{
     error::Error,
-    navigation::{kalman::Kalman, state::State},
+    navigation::{
+        kalman::{Kalman, KfEstimate},
+        state::State,
+    },
     prelude::Duration,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PostfitKf {
-    kalman: Kalman<U6>,
+    /// Dynamics matrix
+    f_k: Matrix6<f64>,
+    /// R matrix
     r_mat: Matrix6<f64>,
+    /// H Matrix
     h_mat: Matrix6<f64>,
+    /// [Kalman] filter
+    kalman: Kalman<U6>,
 }
 
 impl PostfitKf {
@@ -22,17 +30,6 @@ impl PostfitKf {
         meas_pos_std_dev_m: f64,
         meas_vel_std_dev_m_s: f64,
     ) -> Self {
-        let q_diag = Vector6::new(
-            state_pos_std_dev_m.powi(2),
-            state_pos_std_dev_m.powi(2),
-            state_pos_std_dev_m.powi(2),
-            state_vel_std_dev_m_s.powi(2),
-            state_vel_std_dev_m_s.powi(2),
-            state_vel_std_dev_m_s.powi(2),
-        );
-
-        let q_mat = Matrix6::from_diagonal(&q_diag);
-
         let r_diag = Vector6::new(
             meas_pos_std_dev_m.powi(2),
             meas_pos_std_dev_m.powi(2),
@@ -42,25 +39,32 @@ impl PostfitKf {
             meas_vel_std_dev_m_s.powi(2),
         );
 
-        let r_mat = Matrix6::from_diagonal(&r_diag);
+        let r_k = Matrix6::from_diagonal(&r_diag);
 
-        let x_0 = Vector6::new(
-            state.pos_m.0,
-            state.pos_m.1,
-            state.pos_m.2,
-            state.vel_m_s.0,
-            state.vel_m_s.1,
-            state.vel_m_s.2,
+        let x_0 = state.to_pos_vel_vector6();
+
+        let q_diag = Vector6::new(
+            state_pos_std_dev_m.powi(2),
+            state_pos_std_dev_m.powi(2),
+            state_pos_std_dev_m.powi(2),
+            state_vel_std_dev_m_s.powi(2),
+            state_vel_std_dev_m_s.powi(2),
+            state_vel_std_dev_m_s.powi(2),
         );
 
+        let q_k = Matrix6::from_diagonal(&q_diag);
         let p_0 = Matrix6::from_diagonal(&q_diag);
 
-        let h_mat = Matrix6::identity();
+        let f_k = Matrix6::identity();
 
-        let kalman = Kalman::new_initialized(x_0, p_0, q_mat);
+        let mut kalman = Kalman::new();
+        let initial_state = KfEstimate::new(x_0, p_0);
+
+        kalman.initialize(initial_state, f_k, q_k);
 
         Self {
-            r_mat,
+            f_k,
+            r_mat: r_k,
             h_mat,
             kalman,
         }
@@ -71,30 +75,18 @@ impl PostfitKf {
     /// - state: new [State]
     pub fn run(
         &mut self,
-        sampling_interval: Duration,
         state: &State,
-    ) -> Result<Vector6<f64>, Error> {
+        sampling_interval: Duration,
+    ) -> Result<KfEstimate<U6>, Error> {
         let dt_s = sampling_interval.to_seconds();
 
-        let f_diag = Vector6::<f64>::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-        let mut f_mat = Matrix6::from_diagonal(&f_diag);
+        self.f_k[(0, 3)] = dt_s;
+        self.f_k[(1, 4)] = dt_s;
+        self.f_k[(2, 5)] = dt_s;
 
-        f_mat[(0, 3)] = dt_s;
-        f_mat[(1, 4)] = dt_s;
-        f_mat[(2, 5)] = dt_s;
+        let y_k = state.to_pos_vel_vector6();
 
-        let z_k = Vector6::new(
-            state.pos_m.0,
-            state.pos_m.1,
-            state.pos_m.2,
-            state.vel_m_s.0,
-            state.vel_m_s.1,
-            state.vel_m_s.2,
-        );
-
-        let (x_k, _) = self.kalman.run(z_k, f_mat, self.h_mat, self.r_mat)?;
-
-        Ok(x_k)
+        self.kalman.run(self.f_k, g_k, r_k, q_k, y_k)
     }
 
     /// Reset this [PostfitKf]
