@@ -1,9 +1,8 @@
 use crate::error::Error;
 use nalgebra::{
     allocator::Allocator,
-    constraint::{DimEq, SameNumberOfColumns, SameNumberOfRows, ShapeConstraint},
-    Const, DVector, DefaultAllocator, DimName, Matrix4, MatrixMN, MatrixXx4, OMatrix, OVector,
-    Vector4, U4,
+    constraint::{SameNumberOfRows, ShapeConstraint},
+    DefaultAllocator, DimName, OMatrix, OVector,
 };
 
 #[derive(Clone)]
@@ -23,8 +22,9 @@ where
 impl<S> KfEstimate<S>
 where
     S: DimName,
-    DefaultAllocator: nalgebra::allocator::Allocator<S, S>,
-    DefaultAllocator: nalgebra::allocator::Allocator<S>,
+    DefaultAllocator: Allocator<S> + Allocator<S, S>,
+    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
 {
     /// Create a zero [KfEstimate]
     pub fn zero() -> Self {
@@ -43,8 +43,9 @@ where
 pub struct Kalman<S>
 where
     S: DimName,
-    DefaultAllocator: nalgebra::allocator::Allocator<S, S>,
-    DefaultAllocator: nalgebra::allocator::Allocator<S>,
+    DefaultAllocator: Allocator<S> + Allocator<S, S>,
+    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
 {
     /// True if this [Kalman] filter has been initialized
     pub initialized: bool,
@@ -56,8 +57,9 @@ where
 impl<S> Kalman<S>
 where
     S: DimName,
-    DefaultAllocator: nalgebra::allocator::Allocator<S, S>,
-    DefaultAllocator: nalgebra::allocator::Allocator<S>,
+    DefaultAllocator: Allocator<S> + Allocator<S, S>,
+    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
 {
     /// Create a new [Kalman] filter
     pub fn new() -> Self {
@@ -94,22 +96,30 @@ where
     /// ## Input
     /// - f_k: Dynamics [OMatrix]
     /// - g_k: G [OMatrix]
+    /// - w_k: W [OMatrix]
     /// - q_k: Q [OMatrix]
     /// - y_k: Measurement [OVector]
-    pub fn run(
+    pub fn run<N: DimName>(
         &mut self,
-        f_k: Matrix4<f64>,
-        g_k: MatrixXx4<f64>,
-        q_k: OMatrix<f64, U4, U4>,
-        y_k: DVector<f64>,
-    ) -> Result<KfEstimate<U4>, Error> {
+        f_k: OMatrix<f64, S, S>,
+        g_k: OMatrix<f64, N, S>,
+        w_k: OMatrix<f64, N, S>,
+        q_k: OMatrix<f64, S, S>,
+        y_k: OVector<f64, N>,
+    ) -> Result<KfEstimate<S>, Error>
+    where
+        DefaultAllocator: Allocator<N> + Allocator<N, S> + Allocator<S, N>,
+        ShapeConstraint: SameNumberOfRows<S, N>,
+        <ShapeConstraint as SameNumberOfRows<S, N>>::Representative: DimName,
+    {
         if !self.initialized {
             panic!("internal error: filter not initialized!");
         }
 
         let gt = g_k.transpose();
-
-        let gt_w_y = gt.clone() * y_k; // vec<4>
+        let gt_g = gt.clone() * g_k;
+        let gt_g_w = gt_g.clone() * w_k.clone();
+        let gt_g_w_y = gt_g_w.clone() * y_k.clone();
 
         let p_inv = self
             .prediction
@@ -118,30 +128,18 @@ where
             .try_inverse()
             .ok_or(Error::MatrixInversion)?;
 
-        let p_inv_x = p_inv.clone() * self.prediction.x.clone(); // vec<4> (2)
+        let p_inv_x = p_inv.clone() * self.prediction.x.clone();
 
-        let mut gt_w_y_p_inv_x = Vector4::zeros();
+        let gt_g_w_y_p_inv_x = gt_g_w_y + p_inv_x;
+        let gt_w_g_p_inv = gt_g_w.clone() + p_inv;
 
-        let mut gt_w_g = Matrix4::zeros();
+        let x_k = self.prediction.p.clone() * gt_g_w_y_p_inv_x;
 
-        for i in 0.. {
-            gt_w_y_p_inv_x[i] = gt_w_y[i] + p_inv_x[i];
-        }
-
-        let x_k = self.prediction.p.clone() * gt_w_y_p_inv_x;
-
-        let gt_g = gt.clone() * g_k.clone();
-        let gt_g_p_inv = gt_g + p_inv.clone();
-
-        let p_k = (gt.clone() * g_k.clone() + p_inv)
-            .try_inverse()
-            .ok_or(Error::MatrixInversion)?;
+        let p_k = gt_w_g_p_inv.try_inverse().ok_or(Error::MatrixInversion)?;
 
         // prediction
         let x_k1 = f_k.clone() * x_k.clone();
         let p_k1 = f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
-
-        let g_g_t = g_k.clone() * gt.clone();
 
         self.prediction = KfEstimate { x: x_k1, p: p_k1 };
 
