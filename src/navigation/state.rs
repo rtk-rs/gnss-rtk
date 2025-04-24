@@ -151,14 +151,20 @@ where
             "internal error: invalid state dimensions!"
         );
 
-        if t != self.t {
-            let dt_s = (t - self.t).to_seconds();
-            self.clock_drift_s_s = (self.x[3] + dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
+        let dt = (t - self.t).to_seconds();
+        if dt > 0.0 {
+            self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt;
+
+            self.velocity_m_s = Vector3::new(
+                (self.x[0] + dx[0] - self.x[0]) / dt,
+                (self.x[1] + dx[1] - self.x[1]) / dt,
+                (self.x[2] + dx[2] - self.x[2]) / dt,
+            );
         }
 
         for i in 0..U::USIZE {
             if i == 3 {
-                self.x[i] += dx[i] / SPEED_OF_LIGHT_M_S;
+                self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
             } else {
                 self.x[i] += dx[i];
             }
@@ -185,14 +191,16 @@ where
             "internal error: invalid state dimensions!"
         );
 
-        if t != self.t {
-            let dt_s = (t - self.t).to_seconds();
-            self.clock_drift_s_s = (self.x[3] + dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
+        let dt = (t - self.t).to_seconds();
+        if dt > 0.0 {
+            self.clock_drift_s_s = (dx[3] - self.x[3]) / dt;
+
+            self.velocity_m_s = Vector3::new(dx[0] / dt, dx[1] / dt, dx[2] / dt);
         }
 
         for i in 0..U::USIZE {
             if i == 3 {
-                self.x[i] += dx[i] / SPEED_OF_LIGHT_M_S;
+                self.x[i] += dx[i];
             } else {
                 self.x[i] += dx[i];
             }

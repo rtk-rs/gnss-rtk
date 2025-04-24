@@ -446,9 +446,7 @@ where
         f_k[(3, 3)] = 0.0; // TODO only for static positioning
 
         let mut q_k = OMatrix::<f64, S, S>::zeros();
-        f_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
-
-        let g_k = g_k.to_owned();
+        q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
 
         let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
 
