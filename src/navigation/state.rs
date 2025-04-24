@@ -210,7 +210,7 @@ impl State {
 
     /// Temporal update
     pub fn update(&mut self, t: Epoch, frame: Frame, dx: &DVector<f64>) -> PhysicsResult<()> {
-        assert_eq!(dx.ncols(), 4, "internal error: invalid updated dimensions!");
+        assert_eq!(dx.nrows(), 4, "internal error: invalid updated dimensions!");
 
         let new_pos_m = (
             self.pos_m.0 + dx[0],

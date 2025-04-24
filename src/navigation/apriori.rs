@@ -1,5 +1,4 @@
 use anise::{
-    astro::PhysicsResult,
     math::{Vector3, Vector6},
     prelude::{Epoch, Frame},
 };
@@ -14,23 +13,21 @@ pub struct Apriori {
     pub frame: Frame,
     /// ECEF position (m)
     pub pos_m: (f64, f64, f64),
-    /// Geodeticy position (ddeg, ddeg, km above mean sea level)
-    pub lat_long_alt_deg_deg_km: (f64, f64, f64),
 }
 
 impl Apriori {
     /// Create new [Apriori] from past [State] and new [Epoch].
-    pub fn from_state(t: Epoch, frame: Frame, state: &State) -> PhysicsResult<Self> {
+    pub fn from_state(t: Epoch, frame: Frame, state: &State) -> Self {
         let orbital = state.to_orbit(frame);
 
-        let mut apriori = Self::from_orbit(&orbital, frame)?;
+        let mut apriori = Self::from_orbit(&orbital, frame);
         apriori.t = t;
 
-        Ok(apriori)
+        apriori
     }
 
     /// Create new [Apriori] from ECEF coordinates.
-    pub fn from_ecef_m(pos_m: Vector3, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
+    pub fn from_ecef_m(pos_m: Vector3, t: Epoch, frame: Frame) -> Self {
         let pos_vel = Vector6::new(
             pos_m[0] / 1.0E3,
             pos_m[1] / 1.0E3,
@@ -46,17 +43,15 @@ impl Apriori {
     }
 
     /// Create new [Apriori] from [Orbit]al solution.
-    pub fn from_orbit(orbit: &Orbit, frame: Frame) -> PhysicsResult<Self> {
+    pub fn from_orbit(orbit: &Orbit, frame: Frame) -> Self {
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
-        let latlongalt = orbit.latlongalt()?;
 
-        Ok(Self {
+        Self {
             frame,
             t: orbit.epoch,
-            lat_long_alt_deg_deg_km: latlongalt,
             pos_m: (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]),
             // vel_m_s: (pos_vel_m[3], pos_vel_m[4], pos_vel_m[5]),
-        })
+        }
     }
 
     /// Converts [Apriori] to [Orbit]

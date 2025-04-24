@@ -224,13 +224,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         } else {
             match self.initial_ecef_m {
                 Some(x0_y0_z0_m) => {
-                    let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef)
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "Solver initialization failure - {}. Invalid user preset?",
-                                e
-                            );
-                        });
+                    let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef);
 
                     let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
                         panic!("Solver failed to initialize itself. Physical error: {}", e);
@@ -244,10 +238,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
                     let solution = solver.resolve()?;
                     let x0_y0_z0_m = Vector3::new(solution[0], solution[1], solution[2]);
 
-                    let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef)
-                        .unwrap_or_else(|e| {
-                            panic!("Solver failed to initialize itself. Phyiscal error :{}", e);
-                        });
+                    let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef);
 
                     let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
                         panic!("Solver failed to initialize itself. Physical error: {}", e);

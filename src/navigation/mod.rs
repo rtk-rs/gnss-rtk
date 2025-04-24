@@ -12,10 +12,7 @@ mod kalman;
 
 pub(crate) mod state;
 
-use nalgebra::{
-    DMatrix, DVector, DefaultAllocator, DimName, Matrix4, Matrix4xX, MatrixXx4, OVector, Vector4,
-    U4,
-};
+use nalgebra::{DMatrix, DVector, Matrix4, Matrix4xX, MatrixXx4, Vector4, U4};
 
 use crate::{
     navigation::{
@@ -227,7 +224,7 @@ impl Navigation {
             }
         }
 
-        let y_len = y_k.len();
+        let y_len = indexes.len();
         if y_len < 4 {
             return Err(Error::MatrixMinimalDimension);
         }
@@ -236,13 +233,11 @@ impl Navigation {
         let mut g_k = DMatrix::<f64>::zeros(y_len, 4);
 
         let r_k = DMatrix::<f64>::identity(y_len, y_len); // TODO
-        let w_k = DMatrix::<f64>::identity(y_len, y_len); // TODO
 
         let mut x_k = DVector::<f64>::zeros(4);
         let mut p_k = DMatrix::<f64>::zeros(4, 4);
 
-        let mut gt_g_inv = DMatrix::zeros(4, 4);
-        let mut gt_w_g_inv = DMatrix::<f64>::zeros(y_len, y_len);
+        let gt_w_g_inv = DMatrix::<f64>::zeros(y_len, y_len);
 
         // run
         for _ in 0..nb_iter {
@@ -264,24 +259,27 @@ impl Navigation {
                 return Err(Error::MatrixDimension);
             }
 
+            // TODO
+            let w_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
+
             // run
             let gt = g_k.transpose();
-
             let gt_g = gt.clone() * g_k.clone();
-            let gt_w_g = gt_g.clone() * w_k.clone();
+            let gt_w = gt.clone() * w_k.clone();
+            let gt_w_g = gt_w * g_k.clone();
+            let gt_w_g_inv = gt_w_g.try_inverse().ok_or(Error::MatrixInversion)?;
+            let gt_w_g_inv_gt = gt_w_g_inv.clone() * gt.clone();
+            let gt_w_g_inv_gt_w = gt_w_g_inv_gt * w_k.clone();
 
-            gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
-
-            let gt_w_b = gt * w_k.clone() * y_k.clone();
-
-            x_k = gt_w_g_inv.clone() * gt_w_b;
-
-            p_k = gt_w_g.try_inverse().ok_or(Error::MatrixInversion)?;
+            x_k = gt_w_g_inv_gt_w * y_k.clone();
+            p_k = gt_w_g_inv.clone();
 
             pending.update(t, self.frame, &x_k).map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate
             })?;
+
+            let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
             // update latest DoP
             self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
@@ -315,7 +313,7 @@ impl Navigation {
         }
 
         // validation
-        self.state_validation(t, &pending)?;
+        self.state_validation()?;
 
         // arm kalman
         let initial_state = KfEstimate::<U4>::new(x_k, p_k);
@@ -395,11 +393,11 @@ impl Navigation {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        let mut y_k = DVector::<f64>::from_row_slice(&y_k);
+        let y_k = DVector::<f64>::from_row_slice(&y_k);
         let mut g_k = DMatrix::<f64>::zeros(y_len, 4);
 
         let r_k = MatrixXx4::<f64>::identity(y_len); // TODO
-        let w_k = Matrix4xX::<f64>::identity(y_len); // TODO
+        let w_k = DMatrix::identity(y_len, y_len);
 
         // form g_k
         for (i, index) in indexes.iter().enumerate() {
@@ -429,8 +427,6 @@ impl Navigation {
 
         let g_k = g_k.to_owned();
 
-        let w_k = DMatrix::identity(y_len, y_len);
-
         let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
 
         pending
@@ -448,7 +444,7 @@ impl Navigation {
         self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
         // validation
-        self.state_validation(t, &pending);
+        self.state_validation()?;
 
         self.state = pending;
         self.prev_epoch = Some(t);
@@ -459,7 +455,7 @@ impl Navigation {
     }
 
     /// Validate pending [State]
-    fn state_validation(&self, t: Epoch, pending: &State) -> Result<(), Error> {
+    fn state_validation(&self) -> Result<(), Error> {
         // const n: usize = 4; // x, y, z, dt
 
         if self.dop.gdop > self.cfg.solver.max_gdop {

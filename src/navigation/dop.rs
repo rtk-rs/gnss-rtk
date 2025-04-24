@@ -1,4 +1,4 @@
-use nalgebra::{DMatrix, Matrix3, Matrix4};
+use nalgebra::{DMatrix, Matrix3};
 
 use crate::navigation::state::State;
 
