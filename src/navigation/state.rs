@@ -1,21 +1,12 @@
-use nalgebra::{
-    allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, RawStorage, Vector, U3, U4,
-    U7,
-};
+use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, U4};
 
 use anise::{
     astro::PhysicsResult,
     math::{Vector3, Vector4, Vector6},
-    prelude::{Epoch, Frame, Unit},
+    prelude::{Epoch, Frame},
 };
 
-use crate::{
-    constants::SPEED_OF_LIGHT_M_S,
-    navigation::Apriori,
-    prelude::{Duration, Orbit},
-};
-
-pub type Vector7 = OVector<f64, U7>;
+use crate::{constants::SPEED_OF_LIGHT_M_S, navigation::Apriori, prelude::Orbit};
 
 #[derive(Clone, Copy)]
 pub struct State<D: DimName>
@@ -29,8 +20,8 @@ where
     x: OVector<f64, D>,
     /// Clock drift (s.s⁻¹)
     clock_drift_s_s: f64,
-    /// Possible past [Epoch]
-    past_epoch: Option<Epoch>,
+    /// Velocity (m.s⁻¹)
+    velocity_m_s: Vector3,
     /// Geodeticy position (ddeg, ddeg, km above mean sea level)
     pub lat_long_alt_deg_deg_km: (f64, f64, f64),
 }
@@ -44,7 +35,7 @@ where
         Self {
             t: Default::default(),
             x: OVector::<f64, D>::zeros(),
-            past_epoch: Default::default(),
+            velocity_m_s: Default::default(),
             clock_drift_s_s: Default::default(),
             lat_long_alt_deg_deg_km: Default::default(),
         }
@@ -57,13 +48,13 @@ where
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let pos_m = self.position_ecef_m();
+        let position_vel_m = self.position_velocity_ecef_m();
         let (offset, drift) = self.clock_profile_s();
 
         write!(
             f,
-            "x={} y={} z={} dt={}s drift={}s/s",
-            pos_m[0], pos_m[1], pos_m[2], offset, drift,
+            "{} dt={:.11E}s drift={:.11E}s/s",
+            position_vel_m, offset, drift,
         )
     }
 }
@@ -79,28 +70,28 @@ where
         Self::from_orbit(&orbit)
     }
 
-    /// Create new [State] from ECEF coordinates.
-    pub fn from_ecef_m(pos_m: Vector3, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
-        let pos_vel = Vector6::new(
-            pos_m[0] / 1.0E3,
-            pos_m[1] / 1.0E3,
-            pos_m[2] / 1.0E3,
-            0.0,
-            0.0,
-            0.0,
-        );
+    // /// Create new [State] from ECEF coordinates.
+    // pub fn from_ecef_m(pos_m: Vector3, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
+    //     let pos_vel = Vector6::new(
+    //         pos_m[0] / 1.0E3,
+    //         pos_m[1] / 1.0E3,
+    //         pos_m[2] / 1.0E3,
+    //         0.0,
+    //         0.0,
+    //         0.0,
+    //     );
 
-        let orbit = Orbit::from_cartesian_pos_vel(pos_vel, t, frame);
+    //     let orbit = Orbit::from_cartesian_pos_vel(pos_vel, t, frame);
 
-        Self::from_orbit(&orbit)
-    }
+    //     Self::from_orbit(&orbit)
+    // }
 
-    /// Create new [State] from ECEF pos+vel
-    pub fn from_pos_vel_ecef_m(pos_vel_m: Vector6, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
-        let pos_vel_km = pos_vel_m / 1.0E3;
-        let orbit = Orbit::from_cartesian_pos_vel(pos_vel_km, t, frame);
-        Self::from_orbit(&orbit)
-    }
+    // /// Create new [State] from ECEF pos+vel
+    // pub fn from_pos_vel_ecef_m(pos_vel_m: Vector6, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
+    //     let pos_vel_km = pos_vel_m / 1.0E3;
+    //     let orbit = Orbit::from_cartesian_pos_vel(pos_vel_km, t, frame);
+    //     Self::from_orbit(&orbit)
+    // }
 
     /// Create new [State] from [Orbit]al solution.
     pub fn from_orbit(orbit: &Orbit) -> PhysicsResult<Self> {
@@ -114,15 +105,15 @@ where
 
         let mut x = OVector::<f64, D>::zeros();
 
-        for i in 0..3 {
+        for i in 0..=2 {
             x[i] = pos_vel_m[i];
         }
 
         Ok(Self {
             x,
             t: orbit.epoch,
-            past_epoch: None,
             clock_drift_s_s: 0.0_f64,
+            velocity_m_s: Default::default(),
             lat_long_alt_deg_deg_km: latlongalt,
         })
     }
@@ -139,8 +130,7 @@ where
 
     /// Returns estimated clock (offset, drift) in seconds and s.s⁻¹.
     pub fn clock_profile_s(&self) -> (f64, f64) {
-        let offset = self.x[3];
-        (offset, self.clock_drift_s_s)
+        (self.x[3], self.clock_drift_s_s)
     }
 
     /// Converts [State] to [Orbit]
@@ -148,24 +138,6 @@ where
         let pos_vel_km_s = self.position_velocity_ecef_m() / 1.0E3;
         Orbit::from_cartesian_pos_vel(pos_vel_km_s, self.t, frame)
     }
-
-    // /// Derivative mutable update
-    // pub fn velocity_update(
-    //     &mut self,
-    //     past_t: Epoch,
-    //     past_pos_m: (f64, f64, f64),
-    //     past_dt: Duration,
-    // ) {
-    //     let dt_s = (self.t - past_t).to_seconds();
-
-    //     self.vel_m_s = (
-    //         (self.pos_m.0 - past_pos_m.0) / dt_s,
-    //         (self.pos_m.1 - past_pos_m.1) / dt_s,
-    //         (self.pos_m.2 - past_pos_m.2) / dt_s,
-    //     );
-
-    //     self.clock_drift_s_s = (self.clock_dt - past_dt).to_seconds() / dt_s;
-    // }
 
     /// [State] update
     pub fn update_dyn_vec(
@@ -179,18 +151,16 @@ where
             "internal error: invalid state dimensions!"
         );
 
+        let dt_s = (t - self.t).to_seconds();
+        self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
+
         for i in 0..U4::USIZE {
             if i != 3 {
                 self.x[i] += dx[i];
+            } else {
+                self.x[i] += dx[i] / SPEED_OF_LIGHT_M_S;
             }
         }
-
-        if let Some(past_t) = self.past_epoch {
-            let dt_s = (t - past_t).to_seconds();
-            self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
-        }
-
-        self.x[3] = dx[3] / SPEED_OF_LIGHT_M_S;
 
         self.t = t;
 
@@ -213,18 +183,14 @@ where
             "internal error: invalid state dimensions!"
         );
 
+        let dt_s = (t - self.t).to_seconds();
+        self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
+
         for i in 0..U4::USIZE {
             if i != 3 {
                 self.x[i] += dx[i];
             }
         }
-
-        if let Some(past_t) = self.past_epoch {
-            let dt_s = (t - past_t).to_seconds();
-            self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
-        }
-
-        self.x[3] = dx[3] / SPEED_OF_LIGHT_M_S;
 
         self.t = t;
 

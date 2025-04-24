@@ -233,6 +233,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
                     });
 
                     debug!("{} - initial state: {}", t, state);
+                    self.navigation.state = state;
                     state
                 },
                 None => {
@@ -247,6 +248,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
                     });
 
                     debug!("{} - initial state: {}", t, state);
+                    self.navigation.state = state;
                     state
                 },
             }
@@ -292,44 +294,6 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
     /// Reset this [Solver]
     pub fn reset(&mut self) {
         self.navigation.reset();
-    }
-
-    /// Apply signal quality criteria
-    fn signal_quality_filter(min_snr: f64, pool: &mut Vec<Candidate>) {
-        pool.retain_mut(|cd| {
-            cd.min_snr_mask(min_snr);
-            !cd.observations.is_empty()
-        })
-    }
-
-    /// Apply signal condition criteria
-    fn signal_condition_filter(t: Epoch, method: Method, pool: &mut Vec<Candidate>) {
-        pool.retain(|cd| match method {
-            Method::SPP => {
-                if cd.l1_pseudo_range().is_some() {
-                    true
-                } else {
-                    error!("{} ({}) missing pseudo range observation", t, cd.sv);
-                    false
-                }
-            },
-            Method::CPP => {
-                if cd.cpp_compatible() {
-                    true
-                } else {
-                    debug!("{} ({}) missing secondary frequency", t, cd.sv);
-                    false
-                }
-            },
-            Method::PPP => {
-                if cd.ppp_compatible() {
-                    true
-                } else {
-                    debug!("{} ({}) missing phase or phase combination", t, cd.sv);
-                    false
-                }
-            },
-        })
     }
 
     fn min_sv_required(&self) -> usize {
