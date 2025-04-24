@@ -147,8 +147,7 @@ where
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
         } else {
-            self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
-            // self.kf_run(t, candidates, size, bias, absolute_time)?;
+            self.kf_run(t, candidates, size, bias, absolute_time)?;
         }
 
         if let Some(denoising) = &self.cfg.solver.postfit_denoising {
@@ -251,9 +250,7 @@ where
 
         let r_k = DMatrix::<f64>::identity(y_len, y_len); // TODO
 
-        let mut x4 = OVector::<f64, U4>::zeros();
         let mut x_k = DVector::<f64>::zeros(S::USIZE);
-
         let mut p_k = DMatrix::<f64>::zeros(S::USIZE, S::USIZE);
 
         let gt_w_g_inv = DMatrix::<f64>::zeros(y_len, y_len);
@@ -295,10 +292,12 @@ where
             x_k = gt_w_g_inv_gt_w * y_k.clone();
             p_k = gt_w_g_inv.clone();
 
-            pending.update_dyn_vec(t, self.frame, &x_k).map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
-                Error::StateUpdate
-            })?;
+            pending
+                .update_dyn_vec::<U4>(t, self.frame, &x_k)
+                .map_err(|e| {
+                    error!("{} - state update failed with physical error: {}", t, e);
+                    Error::StateUpdate
+                })?;
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
@@ -444,17 +443,17 @@ where
         }
 
         let mut f_k = OMatrix::<f64, S, S>::identity();
-        f_k[(4, 4)] = 0.0; // TODO only for static positioning
+        f_k[(3, 3)] = 0.0; // TODO only for static positioning
 
         let mut q_k = OMatrix::<f64, S, S>::zeros();
-        f_k[(4, 4)] = 1E-3_f64.powi(2); // TODO clock uncertainty
+        f_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
 
         let g_k = g_k.to_owned();
 
         let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
 
         pending
-            .update_static_vec(t, self.frame, &estimate.x)
+            .update_static_vec::<U4>(t, self.frame, &estimate.x)
             .map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate

@@ -27,28 +27,20 @@ use crate::{
 pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     /// Solver [Config]uration preset
     pub cfg: Config,
-
     /// [Almanac]
     almanac: Almanac,
-
     /// [Frame]
     earth_cef: Frame,
-
     /// [OrbitSource]
     orbit_source: O,
-
     /// [Bias] model implementation
     bias: B,
-
     /// Pool
     pool: Pool,
-
     /// [Navigation] solver
     navigation: Navigation<U4>,
-
     /// Possible initial position
     initial_ecef_m: Option<Vector3>,
-
     /// [AbsoluteTime] source
     absolute_time: AbsoluteTime<T>,
 }
@@ -229,7 +221,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
                     let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef);
 
                     let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
-                        panic!("Solver failed to initialize itself. Physical error: {}", e);
+                        panic!("Solver initial preset is physically incorrect: {}", e);
                     });
 
                     debug!("{} - initial state: {}", t, state);
@@ -273,10 +265,10 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             &self.absolute_time,
         ) {
             Ok((_)) => {
-                info!("{} - navigation iteration completed", t);
+                info!("{} - iteration completed", t);
             },
             Err(e) => {
-                error!("{} - navigation iteration failure: {}", t, e);
+                error!("{} - iteration failure: {}", t, e);
                 return Err(e);
             },
         }

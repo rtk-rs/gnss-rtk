@@ -3,9 +3,12 @@ use anise::{
     prelude::{Epoch, Frame},
 };
 
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+//use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
-use crate::{navigation::State, prelude::Orbit};
+use crate::{
+    //navigation::State,
+    prelude::Orbit,
+};
 
 #[derive(Clone, Copy)]
 pub struct Apriori {
@@ -18,20 +21,20 @@ pub struct Apriori {
 }
 
 impl Apriori {
-    /// Create new [Apriori] from past [State] and new [Epoch].
-    pub fn from_state<D: DimName>(t: Epoch, frame: Frame, state: &State<D>) -> Self
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
-        let orbital = state.to_orbit(frame);
+    // /// Create new [Apriori] from past [State] and new [Epoch].
+    // pub fn from_state<D: DimName>(t: Epoch, frame: Frame, state: &State<D>) -> Self
+    // where
+    //     DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    //     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    //     <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    // {
+    //     let orbital = state.to_orbit(frame);
 
-        let mut apriori = Self::from_orbit(&orbital, frame);
-        apriori.t = t;
+    //     let mut apriori = Self::from_orbit(&orbital, frame);
+    //     apriori.t = t;
 
-        apriori
-    }
+    //     apriori
+    // }
 
     /// Create new [Apriori] from ECEF coordinates.
     pub fn from_ecef_m(pos_m: Vector3, t: Epoch, frame: Frame) -> Self {
@@ -57,7 +60,6 @@ impl Apriori {
             frame,
             t: orbit.epoch,
             pos_m: (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]),
-            // vel_m_s: (pos_vel_m[3], pos_vel_m[4], pos_vel_m[5]),
         }
     }
 

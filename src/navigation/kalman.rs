@@ -147,18 +147,17 @@ where
         );
 
         assert_eq!(g_k.ncols(), 4, "internal error: invalid G dimensions!");
+
         assert_eq!(
             g_k.nrows(),
             y_k.nrows(),
             "internal error: invalid G dimensions!"
         );
 
-        let w_k = w_k.transpose() * w_k;
-
         let gt = g_k.transpose();
-        let gt_g = gt.clone() * g_k;
-        let gt_g_w = gt_g.clone() * w_k.clone();
-        let gt_g_w_y = gt_g_w.clone() * y_k.clone();
+        let gt_w = gt.clone() * w_k;
+        let gt_w_y = gt_w.clone() * y_k;
+        let gt_w_g = gt_w.clone() * g_k.clone();
 
         let p_inv = self
             .prediction
@@ -169,12 +168,11 @@ where
 
         let p_inv_x = p_inv.clone() * self.prediction.x.clone();
 
-        let gt_g_w_y_p_inv_x = gt_g_w_y + p_inv_x;
-        let gt_w_g_p_inv = gt_g_w.clone() + p_inv;
+        let x_k = gt_w_y + p_inv_x;
+        let x_k = self.prediction.p.clone() * x_k;
 
-        let x_k = self.prediction.p.clone() * gt_g_w_y_p_inv_x;
-
-        let p_k = gt_w_g_p_inv.try_inverse().ok_or(Error::MatrixInversion)?;
+        let p_k = gt_w_g + p_inv;
+        let p_k = p_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
         // prediction
         let x_k1 = f_k.clone() * x_k.clone();

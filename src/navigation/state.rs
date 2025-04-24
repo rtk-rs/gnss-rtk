@@ -140,7 +140,7 @@ where
     }
 
     /// [State] update
-    pub fn update_dyn_vec(
+    pub fn update_dyn_vec<U: DimName>(
         &mut self,
         t: Epoch,
         frame: Frame,
@@ -151,14 +151,16 @@ where
             "internal error: invalid state dimensions!"
         );
 
-        let dt_s = (t - self.t).to_seconds();
-        self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
+        if t != self.t {
+            let dt_s = (t - self.t).to_seconds();
+            self.clock_drift_s_s = (self.x[3] + dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
+        }
 
-        for i in 0..U4::USIZE {
-            if i != 3 {
-                self.x[i] += dx[i];
-            } else {
+        for i in 0..U::USIZE {
+            if i == 3 {
                 self.x[i] += dx[i] / SPEED_OF_LIGHT_M_S;
+            } else {
+                self.x[i] += dx[i];
             }
         }
 
@@ -172,7 +174,7 @@ where
     }
 
     /// [State] update
-    pub fn update_static_vec(
+    pub fn update_static_vec<U: DimName>(
         &mut self,
         t: Epoch,
         frame: Frame,
@@ -183,11 +185,15 @@ where
             "internal error: invalid state dimensions!"
         );
 
-        let dt_s = (t - self.t).to_seconds();
-        self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
+        if t != self.t {
+            let dt_s = (t - self.t).to_seconds();
+            self.clock_drift_s_s = (self.x[3] + dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt_s;
+        }
 
-        for i in 0..U4::USIZE {
-            if i != 3 {
+        for i in 0..U::USIZE {
+            if i == 3 {
+                self.x[i] += dx[i] / SPEED_OF_LIGHT_M_S;
+            } else {
                 self.x[i] += dx[i];
             }
         }
