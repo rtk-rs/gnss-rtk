@@ -73,8 +73,8 @@ where
     /// True if this [Kalman] filter has been initialized
     pub initialized: bool,
 
-    /// Latest predicted [KfEstimate]
-    prediction: KfEstimate<S>,
+    /// Last [KfEstimate]
+    state: KfEstimate<S>,
 }
 
 impl<S> Kalman<S>
@@ -88,30 +88,19 @@ where
     pub fn new() -> Self {
         Self {
             initialized: false,
-            prediction: KfEstimate::zero(),
+            state: KfEstimate::zero(),
         }
     }
 
     /// Initialize this [Kalman]filter
-    pub fn initialize(
-        &mut self,
-        initial_estimate: KfEstimate<S>,
-        f_k: OMatrix<f64, S, S>,
-        q_k: OMatrix<f64, S, S>,
-    ) {
-        // prediction
-        let x_k1 = f_k.clone() * initial_estimate.x.clone();
-        let p_k1 = f_k.clone() * initial_estimate.p.clone() * f_k.transpose() + q_k;
-
-        self.prediction = KfEstimate { x: x_k1, p: p_k1 };
-
+    pub fn initialize(&mut self, state: KfEstimate<S>) {
+        self.state = state;
         self.initialized = true;
     }
 
     /// Reset this [Kalman] filter
     pub fn reset(&mut self) {
         self.initialized = false;
-        self.prediction = KfEstimate::zero();
     }
 
     /// Run this [Kalman] filter, returning new [KfEstimate].
@@ -154,31 +143,24 @@ where
             "internal error: invalid G dimensions!"
         );
 
+        // prediction
+        let x_k1 = f_k.clone() * self.state.x.clone();
+        let p_k1 = f_k.clone() * self.state.p.clone() * f_k.transpose() + q_k;
+
+        let p_inv = p_k1.clone().try_inverse().ok_or(Error::MatrixInversion)?;
+
+        let p_inv_x = p_inv.clone() * x_k1.clone();
+
         let gt = g_k.transpose();
         let gt_w = gt.clone() * w_k;
         let gt_w_y = gt_w.clone() * y_k;
         let gt_w_g = gt_w.clone() * g_k.clone();
 
-        let p_inv = self
-            .prediction
-            .p
-            .clone()
-            .try_inverse()
-            .ok_or(Error::MatrixInversion)?;
-
-        let p_inv_x = p_inv.clone() * self.prediction.x.clone();
-
-        let x_k = gt_w_y + p_inv_x;
-        let x_k = self.prediction.p.clone() * x_k;
-
         let p_k = gt_w_g + p_inv;
         let p_k = p_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
-        // prediction
-        let x_k1 = f_k.clone() * x_k.clone();
-        let p_k1 = f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
-
-        self.prediction = KfEstimate { x: x_k1, p: p_k1 };
+        let x_k = gt_w_y + p_inv_x;
+        let x_k = p_k * x_k;
 
         Ok(KfEstimate { x: x_k, p: p_k })
     }

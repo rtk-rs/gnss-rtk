@@ -253,8 +253,6 @@ where
         let mut x_k = DVector::<f64>::zeros(S::USIZE);
         let mut p_k = DMatrix::<f64>::zeros(S::USIZE, S::USIZE);
 
-        let gt_w_g_inv = DMatrix::<f64>::zeros(y_len, y_len);
-
         // run
         for _ in 0..nb_iter {
             // form g_k
@@ -340,13 +338,14 @@ where
         // arm kalman
         let initial_state = KfEstimate::<S>::new(x_k, p_k);
 
+        // TODO only for static positioning
         let mut f_k = OMatrix::<f64, S, S>::identity();
-        f_k[(3, 3)] = 0.0; // TODO only for static positioning
+        f_k[(3, 3)] = 0.0;
 
         let mut q_k = OMatrix::<f64, S, S>::zeros();
         q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
 
-        self.kalman.initialize(initial_state, f_k, q_k);
+        self.kalman.initialize(initial_state);
 
         self.state = pending;
         self.prev_epoch = Some(t);
