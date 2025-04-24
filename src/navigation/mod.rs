@@ -12,7 +12,10 @@ mod kalman;
 
 pub(crate) mod state;
 
-use nalgebra::{DMatrix, DVector, Matrix4, Matrix4xX, MatrixXx4, Vector4, U4};
+use nalgebra::{
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Matrix4, MatrixXx4, OMatrix,
+    OVector, Vector4, U4,
+};
 
 use crate::{
     navigation::{
@@ -55,7 +58,12 @@ pub struct SVContribution {
 }
 
 /// [Navigation] Solver
-pub(crate) struct Navigation {
+pub(crate) struct Navigation<S: DimName>
+where
+    DefaultAllocator: Allocator<S> + Allocator<S, S>,
+    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
+{
     /// [Config] preset
     cfg: Config,
 
@@ -63,7 +71,7 @@ pub(crate) struct Navigation {
     frame: Frame,
 
     /// [Kalman]
-    kalman: Kalman<U4>,
+    kalman: Kalman<S>,
 
     // /// Postfit [Kalman]
     // postfit: Option<PostfitKf>,
@@ -71,7 +79,7 @@ pub(crate) struct Navigation {
     pub initialized: bool,
 
     /// Navigation [State]
-    pub state: State,
+    pub state: State<S>,
 
     /// Previous Epoch. Null on first attempt.
     prev_epoch: Option<Epoch>,
@@ -83,7 +91,12 @@ pub(crate) struct Navigation {
     pub dop: DilutionOfPrecision,
 }
 
-impl Navigation {
+impl<S: DimName> Navigation<S>
+where
+    DefaultAllocator: Allocator<S> + Allocator<S, S>,
+    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
+{
     /// Creates new [Navigation] solver.
     /// ## Input
     /// - cfg: [Config] preset
@@ -101,7 +114,7 @@ impl Navigation {
             prev_epoch: None,
             initialized: false,
             sv: Vec::with_capacity(8),
-            kalman: Kalman::<U4>::new(),
+            kalman: Kalman::<S>::new(),
             state: State::default(),
             dop: DilutionOfPrecision::default(),
         }
@@ -125,7 +138,7 @@ impl Navigation {
     pub fn solving<B: Bias, T: Time>(
         &mut self,
         t: Epoch,
-        past_state: &State,
+        past_state: &State<S>,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
@@ -134,7 +147,8 @@ impl Navigation {
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
         } else {
-            self.kf_run(t, candidates, size, bias, absolute_time)?;
+            self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
+            // self.kf_run(t, candidates, size, bias, absolute_time)?;
         }
 
         if let Some(denoising) = &self.cfg.solver.postfit_denoising {
@@ -174,12 +188,14 @@ impl Navigation {
     pub fn kf_initialization<B: Bias, T: Time>(
         &mut self,
         t: Epoch,
-        state: &State,
+        state: &State<S>,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
         absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
+        assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
+
         let nb_iter = 10;
 
         self.sv.clear();
@@ -195,11 +211,12 @@ impl Navigation {
             let mut contrib = SVContribution::default();
 
             contrib.sv = candidates[i].sv;
+            let position_m = pending.position_ecef_m();
 
             match candidates[i].vector_contribution(
                 t,
                 &self.cfg,
-                pending.pos_m,
+                position_m,
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
@@ -225,17 +242,19 @@ impl Navigation {
         }
 
         let y_len = indexes.len();
-        if y_len < 4 {
+        if y_len < S::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
         let mut y_k = DVector::<f64>::from_row_slice(&y_k);
-        let mut g_k = DMatrix::<f64>::zeros(y_len, 4);
+        let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
 
         let r_k = DMatrix::<f64>::identity(y_len, y_len); // TODO
 
-        let mut x_k = DVector::<f64>::zeros(4);
-        let mut p_k = DMatrix::<f64>::zeros(4, 4);
+        let mut x4 = OVector::<f64, U4>::zeros();
+        let mut x_k = DVector::<f64>::zeros(S::USIZE);
+
+        let mut p_k = DMatrix::<f64>::zeros(S::USIZE, S::USIZE);
 
         let gt_w_g_inv = DMatrix::<f64>::zeros(y_len, y_len);
 
@@ -245,8 +264,10 @@ impl Navigation {
             for (i, index) in indexes.iter().enumerate() {
                 let dr_i = sv[*index].relativistic_path_range_m;
 
+                let position_m = pending.position_ecef_m();
+
                 let (dx, dy, dz) =
-                    candidates[*index].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
+                    candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
                 g_k[(i, 0)] = dx;
                 g_k[(i, 1)] = dy;
@@ -274,7 +295,7 @@ impl Navigation {
             x_k = gt_w_g_inv_gt_w * y_k.clone();
             p_k = gt_w_g_inv.clone();
 
-            pending.update(t, self.frame, &x_k).map_err(|e| {
+            pending.update_dyn_vec(t, self.frame, &x_k).map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate
             })?;
@@ -290,10 +311,12 @@ impl Navigation {
             for (i, index) in indexes.iter().enumerate() {
                 let mut unused = SVContribution::default();
 
+                let position_m = pending.position_ecef_m();
+
                 match candidates[*index].vector_contribution(
                     t,
                     &self.cfg,
-                    pending.pos_m,
+                    position_m,
                     pending.lat_long_alt_deg_deg_km,
                     &mut unused,
                     bias,
@@ -316,15 +339,13 @@ impl Navigation {
         self.state_validation()?;
 
         // arm kalman
-        let initial_state = KfEstimate::<U4>::new(x_k, p_k);
+        let initial_state = KfEstimate::<S>::new(x_k, p_k);
 
-        // TODO only for static positioning
-        let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
-        let f_k = Matrix4::from_diagonal(&f_diag);
+        let mut f_k = OMatrix::<f64, S, S>::identity();
+        f_k[(3, 3)] = 0.0; // TODO only for static positioning
 
-        // TODO
-        let q_diag = Vector4::new(0.0, 0.0, 0.0, 0.0);
-        let q_k = Matrix4::from_diagonal(&q_diag);
+        let mut q_k = OMatrix::<f64, S, S>::zeros();
+        q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
 
         self.kalman.initialize(initial_state, f_k, q_k);
 
@@ -346,6 +367,8 @@ impl Navigation {
         bias: &B,
         absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
+        assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
+
         self.sv.clear();
 
         let mut pending = self.state.clone();
@@ -360,10 +383,12 @@ impl Navigation {
 
             contrib.sv = candidates[i].sv;
 
+            let pos_m = pending.position_ecef_m();
+
             match candidates[i].vector_contribution(
                 t,
                 &self.cfg,
-                pending.pos_m,
+                pos_m,
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
@@ -389,12 +414,12 @@ impl Navigation {
         }
 
         let y_len = y_k.len();
-        if y_len < 4 {
+        if y_len < S::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
         let y_k = DVector::<f64>::from_row_slice(&y_k);
-        let mut g_k = DMatrix::<f64>::zeros(y_len, 4);
+        let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
 
         let r_k = MatrixXx4::<f64>::identity(y_len); // TODO
         let w_k = DMatrix::identity(y_len, y_len);
@@ -403,8 +428,9 @@ impl Navigation {
         for (i, index) in indexes.iter().enumerate() {
             let dr_i = sv[*index].relativistic_path_range_m;
 
-            let (dx, dy, dz) =
-                candidates[*index].matrix_contribution(&self.cfg, dr_i, pending.pos_m);
+            let position_m = pending.position_ecef_m();
+
+            let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
             g_k[(i, 0)] = dx;
             g_k[(i, 1)] = dy;
@@ -417,20 +443,18 @@ impl Navigation {
             return Err(Error::MatrixDimension);
         }
 
-        // TODO only for static positioning
-        let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
-        let f_k = Matrix4::from_diagonal(&f_diag);
+        let mut f_k = OMatrix::<f64, S, S>::identity();
+        f_k[(4, 4)] = 0.0; // TODO only for static positioning
 
-        // TODO
-        let q_diag = Vector4::new(0.0, 0.0, 0.0, 0.0);
-        let q_k = Matrix4::from_diagonal(&q_diag);
+        let mut q_k = OMatrix::<f64, S, S>::zeros();
+        f_k[(4, 4)] = 1E-3_f64.powi(2); // TODO clock uncertainty
 
         let g_k = g_k.to_owned();
 
         let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
 
         pending
-            .update_4x1(t, self.frame, &estimate.x)
+            .update_static_vec(t, self.frame, &estimate.x)
             .map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate

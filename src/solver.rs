@@ -5,6 +5,8 @@ use anise::{
     prelude::{Almanac, Frame},
 };
 
+use nalgebra::U4;
+
 use crate::{
     bancroft::Bancroft,
     bias::Bias,
@@ -42,7 +44,7 @@ pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     pool: Pool,
 
     /// [Navigation] solver
-    navigation: Navigation,
+    navigation: Navigation<U4>,
 
     /// Possible initial position
     initial_ecef_m: Option<Vector3>,

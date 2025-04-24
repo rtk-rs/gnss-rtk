@@ -7,13 +7,24 @@ use crate::{
     prelude::{Almanac, Frame, Vector3, SUN_J2000},
 };
 
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+
 use log::{debug, error, info};
 
 use hifitime::Unit;
 
 impl Pool {
     /// Apply Post fit criterias
-    pub fn post_fit(&mut self, almanac: &Almanac, frame: Frame, cfg: &Config, state: &State) {
+    pub fn post_fit<D: DimName>(
+        &mut self,
+        almanac: &Almanac,
+        frame: Frame,
+        cfg: &Config,
+        state: &State<D>,
+    ) where
+        DefaultAllocator: Allocator<D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    {
         self.post_fit_attitudes(almanac, frame, cfg, state);
         self.post_fit_velocities(cfg.modeling.relativistic_clock_bias);
 
@@ -31,8 +42,18 @@ impl Pool {
     }
 
     /// Apply Attitudes Post fit
-    fn post_fit_attitudes(&mut self, almanac: &Almanac, frame: Frame, cfg: &Config, state: &State) {
+    fn post_fit_attitudes<D: DimName>(
+        &mut self,
+        almanac: &Almanac,
+        frame: Frame,
+        cfg: &Config,
+        state: &State<D>,
+    ) where
+        DefaultAllocator: Allocator<D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    {
         let rx_orbit = state.to_orbit(frame);
+
         self.inner
             .retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, rx_orbit) {
                 Ok(_) => true,

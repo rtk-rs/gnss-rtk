@@ -1,4 +1,4 @@
-use crate::prelude::Epoch;
+use crate::prelude::{Epoch, Vector3};
 
 pub(crate) mod tropo;
 pub use tropo::TroposphereModel;
@@ -34,7 +34,7 @@ pub struct BiasRuntime {
     /// Selected [SV] (elevation, azimuth) attitude in degrees.
     pub sv_elevation_azimuth_deg_deg: (f64, f64),
     /// Estimated receiver state, in meters ECEF.
-    pub rx_position_m: (f64, f64, f64),
+    pub rx_position_m: Vector3<f64>,
     /// Estimated receiver state, as (latitude, longitude, altitude above sea),
     /// in degrees and kilometers.
     pub rx_lat_long_alt_deg_deg_km: (f64, f64, f64),

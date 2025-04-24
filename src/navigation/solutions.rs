@@ -1,8 +1,10 @@
 //! PVT Solution
 use crate::{
     navigation::{DilutionOfPrecision, SVContribution, State},
-    prelude::{Duration, TimeScale},
+    prelude::TimeScale,
 };
+
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -22,7 +24,7 @@ pub struct PVTSolution {
     /// [TimeScale] of clock_offset [Duration] expression.
     pub timescale: TimeScale,
     /// Clock offset (s)
-    pub clock_offset: Duration,
+    pub clock_offset_s: f64,
     /// Clock drift (s.s⁻¹) within [TimeScale]
     pub clock_drift_s_s: f64,
     /// Space Vehicles that helped form this solution
@@ -39,22 +41,29 @@ pub struct PVTSolution {
 }
 
 impl PVTSolution {
-    pub(crate) fn new(
-        state: &State,
+    pub(crate) fn new<D: DimName>(
+        state: &State<D>,
         dop: &DilutionOfPrecision,
         contributions: &[SVContribution],
-    ) -> Self {
+    ) -> Self
+    where
+        DefaultAllocator: Allocator<D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    {
+        let pos_vel_ecef_m = state.position_velocity_ecef_m();
+        let (clock_offset_s, clock_drift_s_s) = state.clock_profile_s();
+
         Self {
             gdop: dop.gdop,
             tdop: dop.tdop,
             vdop: dop.vdop,
             hdop: dop.hdop,
-            pos_m: state.pos_m,
-            vel_m_s: state.vel_m_s,
+            pos_m: (pos_vel_ecef_m[0], pos_vel_ecef_m[1], pos_vel_ecef_m[1]),
+            vel_m_s: (pos_vel_ecef_m[0], pos_vel_ecef_m[1], pos_vel_ecef_m[1]),
             sv: contributions.to_vec(),
             timescale: state.t.time_scale,
-            clock_offset: state.clock_dt,
-            clock_drift_s_s: state.clock_drift_s_s,
+            clock_offset_s: clock_offset_s,
+            clock_drift_s_s: clock_drift_s_s,
             lat_long_alt_deg_deg_m: (
                 state.lat_long_alt_deg_deg_km.0,
                 state.lat_long_alt_deg_deg_km.1,

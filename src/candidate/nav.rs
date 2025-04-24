@@ -5,7 +5,7 @@ use crate::{
     bias::IonosphereBias,
     constants::{EARTH_GRAVITATION, SPEED_OF_LIGHT_M_S},
     navigation::SVContribution,
-    prelude::{Bias, BiasRuntime, Candidate, Config, Epoch, Error, Method, Signal},
+    prelude::{Bias, BiasRuntime, Candidate, Config, Epoch, Error, Method, Signal, Vector3},
     time::{AbsoluteTime, Time},
 };
 
@@ -26,7 +26,7 @@ impl Candidate {
         &self,
         t: Epoch,
         cfg: &Config,
-        x0_y0_z0_m: (f64, f64, f64),
+        x0_y0_z0_m: Vector3<f64>,
         rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
         contribution: &mut SVContribution,
         bias: &B,
@@ -37,7 +37,7 @@ impl Candidate {
         let mut dr = 0.0;
         let mut bias_m = 0.0;
 
-        let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
+        let (x0_m, y0_m, z0_m) = (x0_y0_z0_m[0], x0_y0_z0_m[1], x0_y0_z0_m[2]);
 
         let orbit = self.orbit.ok_or(Error::UnresolvedState)?;
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
@@ -145,7 +145,7 @@ impl Candidate {
             sv_elevation_azimuth_deg_deg: self
                 .attitude()
                 .expect("internal error: state not fully defined"),
-            rx_position_m: x0_y0_z0_m,
+            rx_position_m: Vector3::new(x0_m, y0_m, z0_m),
             rx_lat_long_alt_deg_deg_km,
             frequency_hz,
         };
@@ -187,9 +187,9 @@ impl Candidate {
         &self,
         cfg: &Config,
         dr: f64,
-        x0_y0_z0_m: (f64, f64, f64),
+        x0_y0_z0_m: Vector3<f64>,
     ) -> (f64, f64, f64) {
-        let (x0_m, y0_m, z0_m) = x0_y0_z0_m;
+        let (x0_m, y0_m, z0_m) = (x0_y0_z0_m[0], x0_y0_z0_m[1], x0_y0_z0_m[2]);
 
         let orbit = self.orbit.unwrap_or_else(|| {
             panic!("internal error: matrix contribution prior vector contribution")

@@ -1,4 +1,4 @@
-use nalgebra::{DMatrix, Matrix3};
+use nalgebra::{allocator::Allocator, DMatrix, DefaultAllocator, DimName, Matrix3};
 
 use crate::navigation::state::State;
 
@@ -45,7 +45,11 @@ impl DilutionOfPrecision {
     }
 
     /// Creates new [DillutionOfPrecision] from matrix
-    pub fn new(state: &State, g: DMatrix<f64>) -> Self {
+    pub fn new<D: DimName>(state: &State<D>, g: DMatrix<f64>) -> Self
+    where
+        DefaultAllocator: Allocator<D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    {
         assert_eq!(g.nrows(), 4, "internal error: G matrix dimensions");
         assert_eq!(g.ncols(), 4, "internal error: G matrix dimensions");
 

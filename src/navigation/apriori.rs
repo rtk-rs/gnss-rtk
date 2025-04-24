@@ -3,6 +3,8 @@ use anise::{
     prelude::{Epoch, Frame},
 };
 
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+
 use crate::{navigation::State, prelude::Orbit};
 
 #[derive(Clone, Copy)]
@@ -17,7 +19,12 @@ pub struct Apriori {
 
 impl Apriori {
     /// Create new [Apriori] from past [State] and new [Epoch].
-    pub fn from_state(t: Epoch, frame: Frame, state: &State) -> Self {
+    pub fn from_state<D: DimName>(t: Epoch, frame: Frame, state: &State<D>) -> Self
+    where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    {
         let orbital = state.to_orbit(frame);
 
         let mut apriori = Self::from_orbit(&orbital, frame);
