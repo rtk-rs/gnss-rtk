@@ -117,11 +117,11 @@ impl Carrier {
         matches!(*self, Self::L1 | Self::B1)
     }
 
-    /// Returns unsigned frequency in kHz
-    pub(crate) fn to_khz_unsigned(&self) -> u32 {
-        let freq_mhz = self.frequency_mega_hz() * 1.0E3;
-        freq_mhz as u32
-    }
+    // /// Returns unsigned frequency in kHz
+    // pub(crate) fn to_khz_unsigned(&self) -> u32 {
+    //     let freq_mhz = self.frequency_mega_hz() * 1.0E3;
+    //     freq_mhz as u32
+    // }
 
     /// Converts [Carrier] to exact frequency in Mhz with 1kHz garanteed accuracy.
     pub fn frequency_mega_hz(&self) -> f64 {
@@ -175,14 +175,14 @@ impl std::fmt::Display for Signal {
     }
 }
 
-impl Signal {
-    pub(crate) fn single(carrier: Carrier) -> Self {
-        Self::Single(carrier)
-    }
-    pub(crate) fn dual(lhs: Carrier, rhs: Carrier) -> Self {
-        Self::Dual((lhs, rhs))
-    }
-}
+// impl Signal {
+//     pub(crate) fn single(carrier: Carrier) -> Self {
+//         Self::Single(carrier)
+//     }
+//     pub(crate) fn dual(lhs: Carrier, rhs: Carrier) -> Self {
+//         Self::Dual((lhs, rhs))
+//     }
+// }
 
 #[cfg(test)]
 mod test {

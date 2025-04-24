@@ -41,10 +41,6 @@ pub enum Error {
     #[error("failed to invert matrix")]
     MatrixInversion,
     /// Invalid orbital states or bad signal data may cause the algebric calculations
-    /// to wind up here.
-    #[error("resolved time is `nan` (invalid value(s))")]
-    TimeIsNan,
-    /// Invalid orbital states or bad signal data may cause the algebric calculations
     /// to abort.
     #[error("internal navigation error")]
     NavigationError,
@@ -145,4 +141,6 @@ pub enum Error {
     UninitializedFilter,
     #[error("rejected solution: GDOP limit exceeded")]
     MaxGdopExceeded,
+    #[error("first solution is discarded")]
+    InvalidatedFirstSolution,
 }

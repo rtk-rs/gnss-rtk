@@ -37,6 +37,8 @@ pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     bias: B,
     /// Pool
     pool: Pool,
+    /// To invalidate first solution
+    first_solution: bool,
     /// [Navigation] solver
     navigation: Navigation<U4>,
     /// Possible initial position
@@ -153,6 +155,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             orbit_source,
             initial_ecef_m,
             cfg: cfg.clone(),
+            first_solution: true,
             absolute_time: AbsoluteTime::new(time_source),
             pool: Pool::allocate(cfg.code_smoothing, earth_cef),
         }
@@ -214,7 +217,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
 
         // current state
         let state = if self.navigation.initialized {
-            self.navigation.state
+            self.navigation.state.with_epoch(t)
         } else {
             match self.initial_ecef_m {
                 Some(x0_y0_z0_m) => {
@@ -225,7 +228,9 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
                     });
 
                     debug!("{} - initial state: {}", t, state);
+
                     self.navigation.state = state;
+
                     state
                 },
                 None => {
@@ -280,7 +285,12 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             &self.navigation.sv,
         );
 
-        Ok((t, solution))
+        if self.first_solution {
+            self.first_solution = false;
+            Err(Error::InvalidatedFirstSolution)
+        } else {
+            Ok((t, solution))
+        }
     }
 
     /// Reset this [Solver]

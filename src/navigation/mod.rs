@@ -8,13 +8,13 @@ pub(crate) mod solutions;
 
 mod dop;
 mod kalman;
-// mod postfit;
+mod postfit;
 
 pub(crate) mod state;
 
 use nalgebra::{
-    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Matrix4, MatrixXx4, OMatrix,
-    OVector, Vector4, U4,
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, MatrixXx4, OMatrix, OVector,
+    U4,
 };
 
 use crate::{
@@ -22,10 +22,13 @@ use crate::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
         kalman::{Kalman, KfEstimate},
-        // postfit::PostfitKf,
+        postfit::PostfitKf,
         state::State,
     },
-    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal, SV},
+    prelude::{
+        Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal,
+        SPEED_OF_LIGHT_M_S, SV,
+    },
     time::{AbsoluteTime, Time},
 };
 
@@ -73,8 +76,9 @@ where
     /// [Kalman]
     kalman: Kalman<S>,
 
-    // /// Postfit [Kalman]
-    // postfit: Option<PostfitKf>,
+    /// Postfit [Kalman]
+    postfit: Option<PostfitKf>,
+
     /// True if this filter has been initialized
     pub initialized: bool,
 
@@ -109,7 +113,7 @@ where
     pub fn new(cfg: &Config, frame: Frame) -> Self {
         Self {
             frame,
-            // postfit: None,
+            postfit: None,
             cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
@@ -125,9 +129,9 @@ where
         self.sv.clear();
         self.kalman.reset();
 
-        // if let Some(postfit) = &mut self.postfit {
-        //     postfit.reset();
-        // }
+        if let Some(postfit) = &mut self.postfit {
+            postfit.reset();
+        }
 
         self.prev_epoch = None;
         self.initialized = false;
@@ -150,35 +154,36 @@ where
             self.kf_run(t, candidates, size, bias, absolute_time)?;
         }
 
-        if let Some(denoising) = &self.cfg.solver.postfit_denoising {
-            // if let Some(postfit) = &mut self.postfit {
-            //     let prev_epoch = self
-            //         .prev_epoch
-            //         .expect("internal error: undetermined past epoch");
+        if self.cfg.solver.postfit_denoising > 0.0 {
+            if let Some(postfit) = &mut self.postfit {
+                let prev_epoch = self
+                    .prev_epoch
+                    .expect("internal error: undetermined past epoch");
 
-            //     let dt = t - prev_epoch;
-            //     let dx = postfit.run(&self.state, dt)?;
+                let dt = t - prev_epoch;
+                let dx = postfit.run(&self.state, dt)?;
 
-            //     // update state
-            //     self.state.postfit_update(self.frame, dx).map_err(|e| {
-            //         error!(
-            //             "{} - postfit state update failed with physical error: {}",
-            //             t, e
-            //         );
-            //         Error::StateUpdate
-            //     })?;
-            // } else {
-            //     self.postfit = Some(PostfitKf::new(
-            //         &self.state,
-            //         1.0 / denoising,
-            //         1.0 / denoising,
-            //         1.0,
-            //         1.0,
-            //     ));
-            // }
+                // update state
+                self.state.postfit_update(self.frame, dx.x).map_err(|e| {
+                    error!(
+                        "{} - postfit state update failed with physical error: {}",
+                        t, e
+                    );
+                    Error::StateUpdate
+                })?;
+            } else {
+                self.postfit = Some(PostfitKf::new(
+                    &self.state,
+                    1.0 / self.cfg.solver.postfit_denoising,
+                    1.0 / self.cfg.solver.postfit_denoising,
+                    1.0,
+                    1.0,
+                ));
+            }
         }
 
         self.prev_epoch = Some(t);
+        self.initialized = true;
 
         Ok(())
     }
@@ -251,6 +256,8 @@ where
         let r_k = DMatrix::<f64>::identity(y_len, y_len); // TODO
 
         let mut x_k = DVector::<f64>::zeros(S::USIZE);
+        let mut x_k_update = OVector::<f64, S>::zeros();
+
         let mut p_k = DMatrix::<f64>::zeros(S::USIZE, S::USIZE);
 
         // run
@@ -290,12 +297,14 @@ where
             x_k = gt_w_g_inv_gt_w * y_k.clone();
             p_k = gt_w_g_inv.clone();
 
-            pending
-                .update_dyn_vec::<U4>(t, self.frame, &x_k)
-                .map_err(|e| {
-                    error!("{} - state update failed with physical error: {}", t, e);
-                    Error::StateUpdate
-                })?;
+            for i in 0..S::USIZE {
+                x_k_update[i] = x_k[i];
+            }
+
+            pending.update(t, self.frame, &x_k_update).map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
@@ -336,11 +345,15 @@ where
         self.state_validation()?;
 
         // arm kalman
-        let initial_state = KfEstimate::<S>::new(x_k, p_k);
+        let initial_state = KfEstimate::<S>::from_dynamic(x_k, p_k);
 
-        // TODO only for static positioning
-        let mut f_k = OMatrix::<f64, S, S>::identity();
-        f_k[(3, 3)] = 0.0;
+        let mut f_k = OMatrix::<f64, S, S>::zeros();
+
+        //if self.cfg.profile.is_static() {
+        for i in 0..3 {
+            f_k[(i, i)] = 1.0;
+        }
+        //}
 
         let mut q_k = OMatrix::<f64, S, S>::zeros();
         q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
@@ -441,20 +454,23 @@ where
             return Err(Error::MatrixDimension);
         }
 
-        let mut f_k = OMatrix::<f64, S, S>::identity();
-        f_k[(3, 3)] = 0.0; // TODO only for static positioning
+        let mut f_k = OMatrix::<f64, S, S>::zeros();
+
+        //if self.cfg.profile.is_static() {
+        for i in 0..3 {
+            f_k[(i, i)] = 1.0;
+        }
+        //}
 
         let mut q_k = OMatrix::<f64, S, S>::zeros();
         q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
 
-        let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
+        let mut estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
 
-        pending
-            .update_static_vec::<U4>(t, self.frame, &estimate.x)
-            .map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
-                Error::StateUpdate
-            })?;
+        pending.update(t, self.frame, &estimate.x).map_err(|e| {
+            error!("{} - state update failed with physical error: {}", t, e);
+            Error::StateUpdate
+        })?;
 
         let gt_g_inv = (g_k.transpose() * g_k)
             .try_inverse()

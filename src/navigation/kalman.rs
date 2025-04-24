@@ -32,7 +32,7 @@ where
     }
 
     /// Create new [KfEstimate]
-    pub fn new(x: DVector<f64>, p: DMatrix<f64>) -> Self {
+    pub fn from_dynamic(x: DVector<f64>, p: DMatrix<f64>) -> Self {
         assert_eq!(
             p.nrows(),
             S::USIZE,
@@ -59,6 +59,11 @@ where
             p: p_stored,
             x: x_stored,
         }
+    }
+
+    /// Create new [KfEstimate]
+    pub fn from_static(x: OVector<f64, S>, p: OMatrix<f64, S, S>) -> Self {
+        Self { p, x }
     }
 }
 
@@ -135,7 +140,11 @@ where
             "internal error: invalid dimensions!"
         );
 
-        assert_eq!(g_k.ncols(), 4, "internal error: invalid G dimensions!");
+        assert_eq!(
+            g_k.ncols(),
+            S::USIZE,
+            "internal error: invalid G dimensions!"
+        );
 
         assert_eq!(
             g_k.nrows(),

@@ -185,7 +185,7 @@ impl Config {
 
         s.max_tropo_bias = 15.0;
         s.solver.max_gdop = 3.0;
-        s.solver.postfit_denoising = Some(1000.0);
+        s.solver.postfit_denoising = 1000.0;
 
         match method {
             Method::PPP => {
@@ -210,7 +210,7 @@ impl Config {
 
         s.max_tropo_bias = 15.0;
         s.solver.max_gdop = 5.0;
-        s.solver.postfit_denoising = Some(1000.0);
+        s.solver.postfit_denoising = 1000.0;
 
         match method {
             Method::PPP => {

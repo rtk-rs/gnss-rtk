@@ -9,8 +9,8 @@ const fn default_max_gdop() -> f64 {
     5.0
 }
 
-const fn default_postfit_denoising() -> Option<f64> {
-    Some(1000.0)
+const fn default_postfit_denoising() -> f64 {
+    1000.0
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -63,7 +63,7 @@ pub struct SolverOpts {
     /// of more processing time. The configuration is the denoising factor.
     /// 1000 for x1000 improvement attempt.
     #[cfg_attr(feature = "serde", serde(default = "default_postfit_denoising"))]
-    pub postfit_denoising: Option<f64>,
+    pub postfit_denoising: f64,
 }
 
 impl Default for SolverOpts {

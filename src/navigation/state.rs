@@ -1,4 +1,4 @@
-use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, U4};
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName, OVector, U4};
 
 use anise::{
     astro::PhysicsResult,
@@ -70,6 +70,13 @@ where
         Self::from_orbit(&orbit)
     }
 
+    /// Create a new [State] with updated [Epoch]
+    pub fn with_epoch(&self, t: Epoch) -> Self {
+        let mut s = self.clone();
+        s.t = t;
+        s
+    }
+
     // /// Create new [State] from ECEF coordinates.
     // pub fn from_ecef_m(pos_m: Vector3, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
     //     let pos_vel = Vector6::new(
@@ -105,7 +112,7 @@ where
 
         let mut x = OVector::<f64, D>::zeros();
 
-        for i in 0..=2 {
+        for i in 0..3 {
             x[i] = pos_vel_m[i];
         }
 
@@ -140,29 +147,14 @@ where
     }
 
     /// [State] update
-    pub fn update_dyn_vec<U: DimName>(
-        &mut self,
-        t: Epoch,
-        frame: Frame,
-        dx: &DVector<f64>,
-    ) -> PhysicsResult<()> {
-        assert!(
-            dx.nrows() >= U4::USIZE,
-            "internal error: invalid state dimensions!"
-        );
-
+    pub fn update(&mut self, t: Epoch, frame: Frame, dx: &OVector<f64, D>) -> PhysicsResult<()> {
         let dt = (t - self.t).to_seconds();
         if dt > 0.0 {
             self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt;
-
-            self.velocity_m_s = Vector3::new(
-                (self.x[0] + dx[0] - self.x[0]) / dt,
-                (self.x[1] + dx[1] - self.x[1]) / dt,
-                (self.x[2] + dx[2] - self.x[2]) / dt,
-            );
+            self.velocity_m_s = Vector3::new(dx[0] / dt, dx[1] / dt, dx[2] / dt);
         }
 
-        for i in 0..U::USIZE {
+        for i in 0..4 {
             if i == 3 {
                 self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
             } else {
@@ -179,56 +171,17 @@ where
         Ok(())
     }
 
-    /// [State] update
-    pub fn update_static_vec<U: DimName>(
-        &mut self,
-        t: Epoch,
-        frame: Frame,
-        dx: &OVector<f64, D>,
-    ) -> PhysicsResult<()> {
-        assert!(
-            dx.nrows() >= U4::USIZE,
-            "internal error: invalid state dimensions!"
-        );
+    /// Temporal update
+    pub fn postfit_update(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
+        self.x[0] = dx[0];
+        self.x[1] = dx[1];
+        self.x[2] = dx[2];
 
-        let dt = (t - self.t).to_seconds();
-        if dt > 0.0 {
-            self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt;
-
-            self.velocity_m_s = Vector3::new(
-                (self.x[0] + dx[0] - self.x[0]) / dt,
-                (self.x[1] + dx[1] - self.x[1]) / dt,
-                (self.x[2] + dx[2] - self.x[2]) / dt,
-            );
-        }
-
-        for i in 0..U::USIZE {
-            if i == 3 {
-                self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
-            } else {
-                self.x[i] += dx[i];
-            }
-        }
-
-        self.t = t;
-
-        // update attitude
         let new_orbit = self.to_orbit(frame);
         self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
         Ok(())
     }
-
-    // /// Temporal update
-    // pub fn postfit_update(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
-    //     self.pos_m = (dx[0], dx[1], dx[2]);
-    //     self.vel_m_s = (dx[3], dx[4], dx[5]);
-
-    //     let new_orbit = self.to_orbit(frame);
-    //     self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
-
-    //     Ok(())
-    // }
 }
 
 impl State<U4> {
