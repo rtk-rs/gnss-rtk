@@ -1,8 +1,6 @@
 use crate::error::Error;
 use nalgebra::{
-    allocator::Allocator,
-    constraint::{SameNumberOfRows, ShapeConstraint},
-    DefaultAllocator, DimName, OMatrix, OVector,
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, OVector,
 };
 
 #[derive(Clone)]
@@ -12,10 +10,10 @@ where
     DefaultAllocator: nalgebra::allocator::Allocator<S, S>,
     DefaultAllocator: nalgebra::allocator::Allocator<S>,
 {
-    /// P Matrix
+    /// P [OMatrix]
     pub p: OMatrix<f64, S, S>,
 
-    /// x Vector
+    /// x [OVector]
     pub x: OVector<f64, S>,
 }
 
@@ -34,8 +32,33 @@ where
     }
 
     /// Create new [KfEstimate]
-    pub fn new(x: OVector<f64, S>, p: OMatrix<f64, S, S>) -> Self {
-        Self { p, x }
+    pub fn new(x: DVector<f64>, p: DMatrix<f64>) -> Self {
+        assert_eq!(
+            p.nrows(),
+            S::USIZE,
+            "internal error: invalid initialization dimensions!"
+        );
+        assert_eq!(
+            p.ncols(),
+            S::USIZE,
+            "internal error: invalid initialization dimensions!"
+        );
+
+        let mut x_stored = OVector::<f64, S>::zeros();
+        let mut p_stored = OMatrix::<f64, S, S>::zeros();
+
+        for i in 0..S::USIZE {
+            x_stored[i] = x[i];
+
+            for j in 0..S::USIZE {
+                p_stored[(i, j)] = p[(i, j)];
+            }
+        }
+
+        Self {
+            p: p_stored,
+            x: x_stored,
+        }
     }
 }
 
@@ -96,25 +119,41 @@ where
     /// ## Input
     /// - f_k: Dynamics [OMatrix]
     /// - g_k: G [OMatrix]
-    /// - w_k: W [OMatrix]
+    /// - w_k: W [OVector]
     /// - q_k: Q [OMatrix]
     /// - y_k: Measurement [OVector]
-    pub fn run<N: DimName>(
+    pub fn run(
         &mut self,
         f_k: OMatrix<f64, S, S>,
-        g_k: OMatrix<f64, N, S>,
-        w_k: OMatrix<f64, N, S>,
+        g_k: &DMatrix<f64>,
+        w_k: DMatrix<f64>,
         q_k: OMatrix<f64, S, S>,
-        y_k: OVector<f64, N>,
-    ) -> Result<KfEstimate<S>, Error>
-    where
-        DefaultAllocator: Allocator<N> + Allocator<N, S> + Allocator<S, N>,
-        ShapeConstraint: SameNumberOfRows<S, N>,
-        <ShapeConstraint as SameNumberOfRows<S, N>>::Representative: DimName,
-    {
+        y_k: DVector<f64>,
+    ) -> Result<KfEstimate<S>, Error> {
         if !self.initialized {
             panic!("internal error: filter not initialized!");
         }
+
+        assert_eq!(
+            w_k.nrows(),
+            w_k.ncols(),
+            "internal error: w is not squared matrix!"
+        );
+
+        assert_eq!(
+            w_k.nrows(),
+            y_k.nrows(),
+            "internal error: invalid dimensions!"
+        );
+
+        assert_eq!(g_k.ncols(), 4, "internal error: invalid G dimensions!");
+        assert_eq!(
+            g_k.nrows(),
+            y_k.nrows(),
+            "internal error: invalid G dimensions!"
+        );
+
+        let w_k = w_k.transpose() * w_k;
 
         let gt = g_k.transpose();
         let gt_g = gt.clone() * g_k;

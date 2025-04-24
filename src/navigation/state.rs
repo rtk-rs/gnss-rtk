@@ -1,4 +1,4 @@
-use nalgebra::{OVector, U7};
+use nalgebra::{DVector, OVector, U4, U7};
 
 use anise::{
     astro::PhysicsResult,
@@ -170,7 +170,48 @@ impl State {
     }
 
     /// Temporal update
-    pub fn update(&mut self, t: Epoch, frame: Frame, dx: Vector4) -> PhysicsResult<()> {
+    pub fn update_4x1(
+        &mut self,
+        t: Epoch,
+        frame: Frame,
+        dx: &OVector<f64, U4>,
+    ) -> PhysicsResult<()> {
+        let new_pos_m = (
+            self.pos_m.0 + dx[0],
+            self.pos_m.1 + dx[1],
+            self.pos_m.2 + dx[2],
+        );
+
+        let new_clock_dt = dx[3] / SPEED_OF_LIGHT_M_S * Unit::Second;
+
+        let dt_s = (t - self.t).to_seconds();
+
+        if dt_s > 0.0 {
+            self.vel_m_s = (
+                (new_pos_m.0 - self.pos_m.0) / dt_s,
+                (new_pos_m.1 - self.pos_m.1) / dt_s,
+                (new_pos_m.2 - self.pos_m.2) / dt_s,
+            );
+
+            self.clock_drift_s_s = (new_clock_dt - self.clock_dt).to_seconds() / dt_s;
+        }
+
+        self.t = t;
+        self.pos_m = new_pos_m;
+
+        // update attitude
+        let new_orbit = self.to_orbit(frame);
+        self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
+
+        self.clock_dt = new_clock_dt;
+
+        Ok(())
+    }
+
+    /// Temporal update
+    pub fn update(&mut self, t: Epoch, frame: Frame, dx: &DVector<f64>) -> PhysicsResult<()> {
+        assert_eq!(dx.ncols(), 4, "internal error: invalid updated dimensions!");
+
         let new_pos_m = (
             self.pos_m.0 + dx[0],
             self.pos_m.1 + dx[1],

@@ -13,7 +13,8 @@ mod kalman;
 pub(crate) mod state;
 
 use nalgebra::{
-    DVector, DefaultAllocator, DimName, Matrix4, Matrix4xX, MatrixXx4, OVector, Vector4, U4,
+    DMatrix, DVector, DefaultAllocator, DimName, Matrix4, Matrix4xX, MatrixXx4, OVector, Vector4,
+    U4,
 };
 
 use crate::{
@@ -232,16 +233,16 @@ impl Navigation {
         }
 
         let mut y_k = DVector::<f64>::from_row_slice(&y_k);
-        let mut g_k = MatrixXx4::<f64>::zeros(y_len);
+        let mut g_k = DMatrix::<f64>::zeros(y_len, 4);
 
-        let r_k = MatrixXx4::<f64>::identity(y_len); // TODO
-        let w_k = MatrixXx4::<f64>::identity(y_len); // TODO
+        let r_k = DMatrix::<f64>::identity(y_len, y_len); // TODO
+        let w_k = DMatrix::<f64>::identity(y_len, y_len); // TODO
 
-        let mut x_k = Vector4::zeros();
-        let mut p_k = Matrix4::zeros();
+        let mut x_k = DVector::<f64>::zeros(4);
+        let mut p_k = DMatrix::<f64>::zeros(4, 4);
 
-        let mut gt_w_g_inv = Matrix4::zeros();
-        let mut gt_g_inv = Matrix4::zeros();
+        let mut gt_g_inv = DMatrix::zeros(4, 4);
+        let mut gt_w_g_inv = DMatrix::<f64>::zeros(y_len, y_len);
 
         // run
         for _ in 0..nb_iter {
@@ -267,16 +268,17 @@ impl Navigation {
             let gt = g_k.transpose();
 
             let gt_g = gt.clone() * g_k.clone();
-            let gt_w_g = gt_g * w_k.clone();
+            let gt_w_g = gt_g.clone() * w_k.clone();
 
             gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
             let gt_w_b = gt * w_k.clone() * y_k.clone();
 
             x_k = gt_w_g_inv.clone() * gt_w_b;
+
             p_k = gt_w_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
-            pending.update(t, self.frame, x_k).map_err(|e| {
+            pending.update(t, self.frame, &x_k).map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate
             })?;
@@ -316,7 +318,7 @@ impl Navigation {
         self.state_validation(t, &pending)?;
 
         // arm kalman
-        let initial_state = KfEstimate::new(x_k, p_k);
+        let initial_state = KfEstimate::<U4>::new(x_k, p_k);
 
         // TODO only for static positioning
         let f_diag = Vector4::new(1.0, 1.0, 1.0, 1.0);
@@ -394,7 +396,7 @@ impl Navigation {
         }
 
         let mut y_k = DVector::<f64>::from_row_slice(&y_k);
-        let mut g_k = MatrixXx4::<f64>::zeros(y_len);
+        let mut g_k = DMatrix::<f64>::zeros(y_len, 4);
 
         let r_k = MatrixXx4::<f64>::identity(y_len); // TODO
         let w_k = Matrix4xX::<f64>::identity(y_len); // TODO
@@ -426,15 +428,24 @@ impl Navigation {
         let q_k = Matrix4::from_diagonal(&q_diag);
 
         let g_k = g_k.to_owned();
-        let (dx, ht_h_inv) = self.kalman.run(f_k, g_k, q_k, y_k)?;
 
-        pending.update(t, self.frame, dx).map_err(|e| {
-            error!("{} - state update failed with physical error: {}", t, e);
-            Error::StateUpdate
-        })?;
+        let w_k = DMatrix::identity(y_len, y_len);
+
+        let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
+
+        pending
+            .update_4x1(t, self.frame, &estimate.x)
+            .map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
+
+        let gt_g_inv = (g_k.transpose() * g_k)
+            .try_inverse()
+            .ok_or(Error::MatrixInversion)?;
 
         // update
-        self.dop = DilutionOfPrecision::new(&pending, ht_h_inv);
+        self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
         // validation
         self.state_validation(t, &pending);
