@@ -16,6 +16,7 @@ use crate::{
     orbit::OrbitSource,
     pool::Pool,
     prelude::{Epoch, Error},
+    rtk::RTKBase,
     time::{AbsoluteTime, Time},
 };
 
@@ -24,7 +25,8 @@ use crate::{
 /// - O: [OrbitSource], custom [Orbit] provider.
 /// - B: custom [Bias] model.
 /// - T: [Time] source for correct absolute time
-pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
+/// - RTK: [RTKBase] implementation, used in differential technique only.
+pub struct Solver<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> {
     /// Solver [Config]uration preset
     pub cfg: Config,
     /// [Almanac]
@@ -33,10 +35,14 @@ pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     earth_cef: Frame,
     /// [OrbitSource]
     orbit_source: O,
+    /// [RTKBase] reference
+    rtk_base: RTK,
     /// [Bias] model implementation
     bias: B,
     /// Pool
     pool: Pool,
+    /// True if RTK navigation was selected
+    uses_rtk: bool,
     /// To invalidate first solution
     first_solution: bool,
     /// [Navigation] solver
@@ -47,16 +53,17 @@ pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     absolute_time: AbsoluteTime<T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
-    /// Creates a new Position, Velocity, Time (PVT) [Solver] with possible
-    /// apriori knowledge. When set to None, the [Solver] will have to
-    /// determine a first initial guess itself.
+impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> Solver<O, B, T, RTK> {
+    /// Creates a new [Solver] for either direct or differential navigation,
+    /// with possible apriori knowledge.
     ///
     /// ## Input
     /// - almanac: provided valid [Almanac]
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
     /// - orbit_source: custom [OrbitSource] implementation.
+    /// - uses_rtk: whether the [RTKBase] implementation should be considered or not.
+    /// - rtk_base: possible external [RTKBase] implementation (for any remote reference).
     /// - bias: [Bias] model implementation
     /// - state_ecef_m: provide initial state as ECEF 3D coordinates,
     /// otherwise we will have to figure them.
@@ -66,84 +73,32 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         cfg: Config,
         orbit_source: O,
         time_source: T,
-        bias: B,
-        state_ecef_m: Option<(f64, f64, f64)>,
-    ) -> Result<Self, Error> {
-        Ok(Self::new_almanac_frame(
-            cfg,
-            almanac,
-            earth_cef,
-            orbit_source,
-            time_source,
-            bias,
-            state_ecef_m,
-        ))
-    }
-
-    /// Creates a new Position [Solver] without apriori knowledge.
-    /// The solver will have to initiliaze iteself.
-    ///
-    /// ## Input
-    /// - almanac: provided valid [Almanac]
-    /// - earth_cef: [Frame] that must be an ECEF
-    /// - cfg: solver [Config]uration
-    /// - orbit_source: custom [OrbitSource] implementation.
-    /// - bias: [Bias] model implementation
-    pub fn new_survey(
-        almanac: Almanac,
-        earth_cef: Frame,
-        cfg: Config,
-        orbit_source: O,
-        time_source: T,
-        bias: B,
-    ) -> Result<Self, Error> {
-        Self::new(
-            almanac,
-            earth_cef,
-            cfg,
-            orbit_source,
-            time_source,
-            bias,
-            None,
-        )
-    }
-
-    /// Creates a new Position, Velocity, Time (PVT) [Solver] with your own [Almanac] and [Frame] definitions.
-    ///
-    /// ## Input
-    /// - cfg: solver [Config]uration
-    /// - almanac: [Almanac] definition
-    /// - frame: [Frame] which must be an ECEF for valid results
-    /// - orbit_source: custom [OrbitSource] implementation.
-    /// - bias: [Bias] model implementation
-    /// - state_ecef_m: if you have accurate knowledge of the initial position,
-    /// you may define it here. Otherwise, we recommend you tie this to None.
-    pub fn new_almanac_frame(
-        cfg: Config,
-        almanac: Almanac,
-        earth_cef: Frame,
-        orbit_source: O,
-        time_source: T,
+        uses_rtk: bool,
+        rtk_base: RTK,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
         // Analyze preset
         if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
-            warn!("occultation filter is not meaningful in SPP navigation");
+            warn!("SV occultation filter is not meaningful in SPP navigation");
         }
 
         if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
-            warn!("RF cable delay compensation is either incomplete or not entirely enabled");
+            panic!("RF cable delay compensation is incorrectly defined!");
         }
 
         if !cfg.int_delay.is_empty() && !cfg.modeling.cable_delay {
-            warn!("RF cable delay compensation is not fully supported yet.");
+            panic!("RF cable delay compensation is not fully supported yet.");
         }
 
         let initial_ecef_m = match state_ecef_m {
             Some((x0, y0, z0)) => Some(Vector3::new(x0, y0, z0)),
             _ => None,
         };
+
+        if uses_rtk {
+            panic!("RTK navigation is not supported yet!");
+        }
 
         let navigation = Navigation::new(&cfg, earth_cef);
 
@@ -152,7 +107,9 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             almanac,
             earth_cef,
             navigation,
+            rtk_base,
             orbit_source,
+            uses_rtk,
             initial_ecef_m,
             cfg: cfg.clone(),
             first_solution: true,
@@ -161,15 +118,15 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         }
     }
 
-    /// PVT (Position, Velocity, Time) solution solving attempt.
+    /// [PVTSolution] solving attempt.
     ///
     /// ## Input
     /// - t: [Epoch] of observation
     /// - pool: proposed [Candidate]s
     ///
     /// ## Output
-    /// - ([Epoch], [PVTSolution]): epoch is simply copied, and resolved solution.
-    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
+    /// - [PVTSolution].
+    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<PVTSolution, Error> {
         let ts = self.cfg.timescale;
         let min_required = self.min_sv_required();
 
@@ -280,6 +237,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
 
         // Publish solution
         let solution = PVTSolution::new(
+            t,
             &self.navigation.state,
             &self.navigation.dop,
             &self.navigation.sv,
@@ -289,7 +247,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             self.first_solution = false;
             Err(Error::InvalidatedFirstSolution)
         } else {
-            Ok((t, solution))
+            Ok(solution)
         }
     }
 

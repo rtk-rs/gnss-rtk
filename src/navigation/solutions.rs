@@ -1,7 +1,7 @@
 //! PVT Solution
 use crate::{
     navigation::{DilutionOfPrecision, SVContribution, State},
-    prelude::TimeScale,
+    prelude::{Epoch, TimeScale},
 };
 
 use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
@@ -14,6 +14,8 @@ use serde::Serialize;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
+    /// [Epoch] of succesful solving
+    pub epoch: Epoch,
     /// Position in meters ECEF.
     pub pos_m: (f64, f64, f64),
     /// Velocity in m.s⁻¹ ECEF
@@ -42,6 +44,7 @@ pub struct PVTSolution {
 
 impl PVTSolution {
     pub(crate) fn new<D: DimName>(
+        epoch: Epoch,
         state: &State<D>,
         dop: &DilutionOfPrecision,
         contributions: &[SVContribution],
@@ -54,6 +57,7 @@ impl PVTSolution {
         let (clock_offset_s, clock_drift_s_s) = state.clock_profile_s();
 
         Self {
+            epoch,
             gdop: dop.gdop,
             tdop: dop.tdop,
             vdop: dop.vdop,
