@@ -5,7 +5,7 @@ use crate::{
     bias::IonosphereBias,
     constants::{EARTH_GRAVITATION, SPEED_OF_LIGHT_M_S},
     navigation::SVContribution,
-    prelude::{Bias, BiasRuntime, Candidate, Config, Epoch, Error, Method, Signal, Vector3},
+    prelude::{Bias, Candidate, Config, Epoch, Error, Method, Signal, Vector3},
     time::{AbsoluteTime, Time},
 };
 

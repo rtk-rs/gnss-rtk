@@ -176,6 +176,8 @@ where
             "internal error: invalid G dimensions!"
         );
 
+        let gt = g_k.transpose();
+
         let p_inv = self
             .predicted
             .p
@@ -183,17 +185,15 @@ where
             .try_inverse()
             .ok_or(Error::MatrixInversion)?;
 
-        let p_inv_x = p_inv.clone() * self.predicted.x.clone();
-
-        let gt = g_k.transpose();
-        let gt_w = gt.clone() * w_k;
-        let gt_w_y = gt_w.clone() * y_k;
-        let gt_w_g = gt_w.clone() * g_k.clone();
-
-        let p_k = gt_w_g + p_inv;
+        let p_k = gt.clone() * w_k.clone();
+        let p_k = p_k * g_k;
+        let p_k = p_k + p_inv;
         let p_k = p_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
-        let x_k = gt_w_y + p_inv_x;
+        let p_inv_x = p_inv.clone() * self.predicted.x.clone();
+        let x_k = gt * w_k;
+        let x_k = x_k * y_k;
+        let x_k = x_k + p_inv_x;
         let x_k = p_k * x_k;
 
         // prediction
@@ -201,7 +201,6 @@ where
         let p_k1 = f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
 
         debug!("new prediction x={} p={}", x_k1, p_k1);
-
         self.predicted = KfEstimate { x: x_k1, p: p_k1 };
 
         Ok(KfEstimate { x: x_k, p: p_k })

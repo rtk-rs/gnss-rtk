@@ -12,9 +12,7 @@ mod postfit;
 
 pub(crate) mod state;
 
-use nalgebra::{
-    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, MatrixXx4, OMatrix, U4,
-};
+use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, U4};
 
 use crate::{
     navigation::{
@@ -24,7 +22,10 @@ use crate::{
         postfit::PostfitKf,
         state::{correction::StateCorrection, State},
     },
-    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal, SV},
+    prelude::{
+        Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal,
+        SPEED_OF_LIGHT_M_S, SV,
+    },
     time::{AbsoluteTime, Time},
 };
 
@@ -150,35 +151,35 @@ where
             self.kf_run(t, candidates, size, bias, absolute_time)?;
         }
 
-        // if self.cfg.solver.postfit_denoising > 0.0 {
-        //     if let Some(postfit) = &mut self.postfit {
-        //         let prev_epoch = self
-        //             .prev_epoch
-        //             .expect("internal error: undetermined past epoch");
+        if self.cfg.solver.postfit_denoising > 0.0 {
+            if let Some(postfit) = &mut self.postfit {
+                let prev_epoch = self
+                    .prev_epoch
+                    .expect("internal error: undetermined past epoch");
 
-        //         let dt = t - prev_epoch;
-        //         let dx = postfit.run(&self.state, dt)?;
+                let dt = t - prev_epoch;
+                let dx = postfit.run(&self.state, dt)?;
 
-        //         // update state
-        //         self.state
-        //             .postfit_update_mut(self.frame, dx.x)
-        //             .map_err(|e| {
-        //                 error!(
-        //                     "{} - postfit state update failed with physical error: {}",
-        //                     t, e
-        //                 );
-        //                 Error::StateUpdate
-        //             })?;
-        //     } else {
-        //         self.postfit = Some(PostfitKf::new(
-        //             &self.state,
-        //             1.0 / self.cfg.solver.postfit_denoising,
-        //             1.0 / self.cfg.solver.postfit_denoising,
-        //             1.0,
-        //             1.0,
-        //         ));
-        //     }
-        // }
+                // update state
+                self.state
+                    .postfit_update_mut(self.frame, dx.x)
+                    .map_err(|e| {
+                        error!(
+                            "{} - postfit state update failed with physical error: {}",
+                            t, e
+                        );
+                        Error::StateUpdate
+                    })?;
+            } else {
+                self.postfit = Some(PostfitKf::new(
+                    &self.state,
+                    1.0 / self.cfg.solver.postfit_denoising,
+                    1.0 / self.cfg.solver.postfit_denoising,
+                    1.0,
+                    1.0,
+                ));
+            }
+        }
 
         self.prev_epoch = Some(t);
         self.initialized = true;
@@ -278,7 +279,7 @@ where
             }
 
             // TODO: r_k tuning
-            let r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
+            let mut r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
 
             let w_k = r_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
@@ -345,14 +346,25 @@ where
 
         let mut f_k = OMatrix::<f64, S, S>::zeros();
 
-        //if self.cfg.profile.is_static() {
+        // if self.cfg.profile.is_static() {
         for i in 0..3 {
             f_k[(i, i)] = 1.0;
         }
-        //}
+        // }
 
+        // TODO: q_k tuning
         let mut q_k = OMatrix::<f64, S, S>::zeros();
-        q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
+
+        for i in 0..S::USIZE {
+            if i == 3 {
+                q_k[(i, i)] = (1E-6_f64 * SPEED_OF_LIGHT_M_S).powi(2);
+            }
+            if i == 2 {
+                q_k[(i, i)] = 5.0; // z bias
+            } else {
+                q_k[(i, i)] = 2.5;
+            }
+        }
 
         let initial_estimate = KfEstimate::from_dynamic(x_k, p_k);
         self.kalman.initialize(f_k, q_k, initial_estimate);
@@ -427,7 +439,7 @@ where
         let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
 
         // TODO: r_k tuning
-        let r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
+        let mut r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
 
         let w_k = r_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
@@ -452,26 +464,35 @@ where
 
         let mut f_k = OMatrix::<f64, S, S>::zeros();
 
-        //if self.cfg.profile.is_static() {
+        // if self.cfg.profile.is_static() {
         for i in 0..3 {
             f_k[(i, i)] = 1.0;
         }
-        //}
+        // }
 
+        // TODO: q_k tuning
         let mut q_k = OMatrix::<f64, S, S>::zeros();
-        q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
+
+        for i in 0..S::USIZE {
+            if i == 3 {
+                q_k[(i, i)] = (1E-6_f64 * SPEED_OF_LIGHT_M_S).powi(2);
+            }
+            if i == 2 {
+                q_k[(i, i)] = 5.0; // z bias
+            } else {
+                q_k[(i, i)] = 2.5;
+            }
+        }
 
         let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
 
         let correction = estimate.to_state_correction();
         debug!("state correction: dx={}", correction.dx);
 
-        pending
-            .correct_mut(self.frame, t, correction)
-            .map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
-                Error::StateUpdate
-            })?;
+        pending.update_mut(self.frame, t, correction).map_err(|e| {
+            error!("{} - state update failed with physical error: {}", t, e);
+            Error::StateUpdate
+        })?;
 
         let gt_g_inv = (g_k.transpose() * g_k)
             .try_inverse()
@@ -480,7 +501,6 @@ where
         // update
         self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
-        // validation
         self.state_validation()?;
 
         self.state = pending;
