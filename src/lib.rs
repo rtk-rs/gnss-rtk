@@ -19,10 +19,12 @@ mod navigation;
 mod orbit;
 mod pool;
 mod smoothing;
-mod solver;
 mod time;
 
 pub(crate) mod constants;
+pub(crate) mod ppp;
+pub(crate) mod rtk;
+pub(crate) mod solver;
 // pub(crate) mod tides;
 
 // mod tracker;
@@ -45,8 +47,9 @@ pub mod prelude {
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,
-        solver::Solver,
-        time::{Time, TimeOffset},
+        ppp::PPPSolver,
+        rtk::{RTKBase, RTKSolver},
+        time::{NullTime, Time, TimeOffset},
     };
 
     // gnss types
@@ -63,5 +66,5 @@ pub mod prelude {
     pub use hifitime::{Duration, Epoch, TimeScale};
 
     // nalgebra
-    pub use nalgebra::Vector3;
+    pub use nalgebra::{Vector3, Vector4, Vector6};
 }

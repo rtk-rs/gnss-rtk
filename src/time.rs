@@ -155,28 +155,33 @@ impl TimeOffset {
     }
 }
 
-/// The [Time] trait is required to obtain valid absolute temporal
-/// solutions, in complex (multi constellation) sccenarios.
-/// If you don't implement it, you can only obtain valid GPST solutions.
+/// [Time] is implemented by applications where precise absolute [Time] needs to be resolved at
+/// all times, and in all scenarios. Correct implementation of this trait allows
+/// correction of the temporal solution to match the desired [TimeScale] behavior accurately.
+/// It also allows to provide measurements in all described [TimeScale]s and maintain temporal and geometric accuracy.
 pub trait Time {
-    /// Update the |GPST-UTC| [TimeOffset]
+    /// Update the |[TimeScale::GPST] - [TimeScale::UTC]| [TimeOffset]
     fn gpst_utc_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
 
-    /// Update the |GST-GPST| [TimeOffset]
+    /// Update the |[TimeScale::GST] - [TimeScale::GPST]| [TimeOffset]
     fn gst_gpst_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
 
-    /// Update the |GST-UTC| [TimeOffset]
+    /// Update the |[TimeScale::GST] - [TimeScale::UTC]| [TimeOffset]
     fn gst_utc_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
 
-    /// Update the |BDT-GPST| [TimeOffset]
+    /// Update the |[TimeScale::BDT] - [TimeScale::GPST]| [TimeOffset]
     fn bdt_gpst_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
 
-    /// Update the |BDT-GST| [TimeOffset]
+    /// Update the |[TimeScale::BDT] - [TimeScale::GST]| [TimeOffset]
     fn bdt_gst_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
 
-    /// Update the |BDT-UTC| [TimeOffset]
+    /// Update the |[TimeScale::BDT] - [TimeScale::UTC]| [TimeOffset]
     fn bdt_utc_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
 }
+
+/// [NullTime] is used by applications that do not require precise absolute temporal solutions,
+/// or cannot fullfil its requirements.
+pub struct NullTime {}
 
 pub(crate) struct AbsoluteTime<T: Time> {
     /// Updater

@@ -2,10 +2,12 @@ use crate::{
     ambiguity::Solver as AmbiguitySolver,
     cfg::{Config, Method},
     constants::{EARTH_GRAVITATION, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
-    navigation::apriori::Apriori,
+    navigation::state::State,
     pool::Pool,
-    prelude::{Almanac, Vector3, SUN_J2000},
+    prelude::{Almanac, Frame, Vector3, SUN_J2000},
 };
+
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 use log::{debug, error, info};
 
@@ -13,8 +15,17 @@ use hifitime::Unit;
 
 impl Pool {
     /// Apply Post fit criterias
-    pub fn post_fit(&mut self, almanac: &Almanac, cfg: &Config, apriori: &Apriori) {
-        self.post_fit_attitudes(almanac, cfg, apriori);
+    pub fn post_fit<D: DimName>(
+        &mut self,
+        almanac: &Almanac,
+        frame: Frame,
+        cfg: &Config,
+        state: &State<D>,
+    ) where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    {
+        self.post_fit_attitudes(almanac, frame, cfg, state);
         self.post_fit_velocities(cfg.modeling.relativistic_clock_bias);
 
         if let Some(max_occultation) = cfg.max_sv_occultation_percent {
@@ -31,13 +42,23 @@ impl Pool {
     }
 
     /// Apply Attitudes Post fit
-    fn post_fit_attitudes(&mut self, almanac: &Almanac, cfg: &Config, apriori: &Apriori) {
-        let rx_orbit = apriori.to_orbit();
+    fn post_fit_attitudes<D: DimName>(
+        &mut self,
+        almanac: &Almanac,
+        frame: Frame,
+        cfg: &Config,
+        state: &State<D>,
+    ) where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    {
+        let rx_orbit = state.to_orbit(frame);
+
         self.inner
             .retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, rx_orbit) {
                 Ok(_) => true,
                 Err(e) => {
-                    error!("{}({}) - orbital fixup: {}", apriori.t, cd.sv, e);
+                    error!("{}({}) - orbital fixup: {}", state.t, cd.sv, e);
                     false
                 },
             });

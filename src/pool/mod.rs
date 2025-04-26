@@ -4,8 +4,7 @@ use std::collections::HashMap;
 
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
-    averager::Averager,
-    constants::{EARTH_ANGULAR_VEL_RAD, SPEED_OF_LIGHT_M_S},
+    constants::EARTH_ANGULAR_VEL_RAD,
     prelude::{Candidate, Config, Duration, Epoch, Frame, Orbit, OrbitSource, SV},
     smoothing::Smoother,
 };
@@ -65,11 +64,6 @@ impl Pool {
     /// Prepare for new epoch
     pub fn new_epoch(&mut self, candidates: &[Candidate]) {
         self.inner = candidates.to_vec();
-    }
-
-    /// Conclude ongoing epoch.
-    pub fn end_of_epoch(&mut self) {
-        self.past = self.inner.clone();
     }
 
     pub fn retain<F>(&mut self, f: F)

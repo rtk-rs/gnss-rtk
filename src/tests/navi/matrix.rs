@@ -3,10 +3,12 @@ use std::str::FromStr;
 use anise::{constants::frames::EARTH_J2000, math::Vector6};
 use hifitime::Duration;
 
+use nalgebra::U4;
+
 use crate::{
     cfg::Modeling,
     constants::{EARTH_GRAVITATION, SPEED_OF_LIGHT_M_S},
-    navigation::{apriori::Apriori, Navigation},
+    navigation::{apriori::Apriori, Navigation, state::State},
     prelude::{
         Almanac, Candidate, Carrier, ClockCorrection, Config, Epoch, Error, Method, Observation,
         Orbit, Vector3,
@@ -49,22 +51,6 @@ fn pvt_failures() {
     let null_time = NullTime {};
     let absolute_time = AbsoluteTime::new(null_time);
 
-    match Navigation::new(
-        t,
-        &cfg,
-        apriori.clone(),
-        &candidates,
-        1,
-        &null_bias,
-        &absolute_time,
-    ) {
-        Err(e) => match e {
-            Error::MatrixMinimalDimension => {},
-            e => panic!("failed with invalid error: {}", e),
-        },
-        _ => panic!("should have failed 1x4"),
-    }
-
     let candidates = vec![
         Candidate::new(
             G01,
@@ -77,22 +63,6 @@ fn pvt_failures() {
             vec![Observation::pseudo_range(Carrier::L1, 2.0, None)],
         ),
     ];
-
-    match Navigation::new(
-        t,
-        &cfg,
-        apriori.clone(),
-        &candidates,
-        2,
-        &null_bias,
-        &absolute_time,
-    ) {
-        Err(e) => match e {
-            Error::MatrixMinimalDimension => {},
-            e => panic!("failed with invalid error: {}", e),
-        },
-        _ => panic!("should have failed 2x4"),
-    }
 
     let candidates = vec![
         Candidate::new(
@@ -111,22 +81,6 @@ fn pvt_failures() {
             vec![Observation::pseudo_range(Carrier::L1, 3.0, None)],
         ),
     ];
-
-    match Navigation::new(
-        t,
-        &cfg,
-        apriori.clone(),
-        &candidates,
-        3,
-        &null_bias,
-        &absolute_time,
-    ) {
-        Err(e) => match e {
-            Error::MatrixMinimalDimension => {},
-            e => panic!("failed with invalid error: {}", e),
-        },
-        _ => panic!("should have failed 3x4"),
-    }
 
     let candidates = vec![
         Candidate::new(
@@ -150,22 +104,6 @@ fn pvt_failures() {
             vec![Observation::pseudo_range(Carrier::L1, 4.0, None)],
         ),
     ];
-
-    match Navigation::new(
-        t,
-        &cfg,
-        apriori.clone(),
-        &candidates,
-        4,
-        &null_bias,
-        &absolute_time,
-    ) {
-        Ok(_) => panic!("Matrix formation should not be feasible (unresolved states!)"),
-        Err(e) => match e {
-            Error::MatrixMinimalDimension => {},
-            e => panic!("failed with invalid error: {}", e),
-        },
-    }
 }
 
 #[test]
@@ -198,6 +136,9 @@ fn cpp_matrix() {
         t0_gpst,
         frame,
     );
+
+    let initial_state = State::from_orbit(&r0_orbit)
+        .unwrap();
 
     let mut candidates = vec![
         Candidate::new(
@@ -239,7 +180,7 @@ fn cpp_matrix() {
     let null_time = NullTime {};
     let absolute_time = AbsoluteTime::new(null_time);
 
-    let apriori = Apriori::from_ecef_m(coords_ecef_m, t0_gpst, frame).unwrap();
+    let apriori = Apriori::from_ecef_m(coords_ecef_m, t0_gpst, frame);
 
     let sv_coords_m = vec![
         (15600.0, 7540.0, 20140.0),
@@ -260,15 +201,9 @@ fn cpp_matrix() {
     }
 
     let mut nav = Navigation::new(
-        t0_gpst,
         &cfg,
-        apriori.clone(),
-        &candidates,
-        4,
-        &null_bias,
-        &absolute_time,
-    )
-    .unwrap();
+        frame,
+    );
 
     let r_i = vec![
         candidates[0].code_if_combination().unwrap().value,
@@ -307,41 +242,21 @@ fn cpp_matrix() {
         .sqrt(),
     ];
 
-    for i in 0..4 {
-        // let (dx_m, dy_m, dz_m) = (
-        //     (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
-        //     (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
-        //     (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
-        // );
+    // let (dx_m, dy_m, dz_m) = (
+    //     (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
+    //     (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
+    //     (REFERENCE_COORDS_ECEF_M.2 - sv_coords_m[i].2) / rho[i],
+    // );
 
-        // assert_eq!(nav.b[i], r_i[i] - rho[i], "b (noclock) test failed [{}]", i);
+    // assert_eq!(nav.b[i], r_i[i] - rho[i], "b (noclock) test failed [{}]", i);
 
-        nav.iterate(t0_gpst, &candidates, 4, &null_bias, &absolute_time)
-            .unwrap();
-    }
-
-    assert_eq!(nav.iter, 4);
+    nav.solving(t0_gpst, &initial_state, &candidates, 4, &null_bias, &absolute_time)
+        .unwrap();
 
     // Clock definitions
     let mut cfg = Config::default().with_modeling(Modeling::no_modeling());
 
     cfg.modeling.sv_clock_bias = true;
-
-    match Navigation::new(
-        t0_gpst,
-        &cfg,
-        apriori.clone(),
-        &candidates,
-        4,
-        &null_bias,
-        &absolute_time,
-    ) {
-        Ok(_) => panic!("Should have failed (noclock!)"),
-        Err(e) => match e {
-            Error::MatrixMinimalDimension => {},
-            e => panic!("Failed with invalid error: {}", e),
-        },
-    }
 
     for (nth, cd) in candidates.iter_mut().enumerate() {
         let nanos = (nth + 100) as i128;
@@ -364,17 +279,10 @@ fn cpp_matrix() {
     }
 
     let mut nav = Navigation::new(
-        t0_gpst,
         &cfg,
-        apriori.clone(),
-        &candidates,
-        4,
-        &null_bias,
-        &absolute_time,
-    )
-    .unwrap();
+        frame,
+    );
 
-    for i in 0..4 {
         // let (dx_m, dy_m, dz_m) = (
         //     (REFERENCE_COORDS_ECEF_M.0 - sv_coords_m[i].0) / rho[i],
         //     (REFERENCE_COORDS_ECEF_M.1 - sv_coords_m[i].1) / rho[i],
@@ -384,22 +292,15 @@ fn cpp_matrix() {
         // let dt_s = ((i + 100) as f64) * 1E-9;
         // assert_eq!(nav.b[i], r_i[i] - rho[i] + SPEED_OF_LIGHT_M_S * dt_s);
 
-        nav.iterate(t0_gpst, &candidates, 4, &null_bias, &absolute_time)
+        nav.solving(t0_gpst, &initial_state, &candidates, 4, &null_bias, &absolute_time)
             .unwrap();
-    }
 
     cfg.modeling.relativistic_path_range = true;
 
     let mut nav = Navigation::new(
-        t0_gpst,
         &cfg,
-        apriori.clone(),
-        &candidates,
-        4,
-        &null_bias,
-        &absolute_time,
-    )
-    .unwrap();
+        frame,
+    );
 
     for i in 0..4 {
         let r_sat =
@@ -421,7 +322,7 @@ fn cpp_matrix() {
         // let err = (nav.b[i] - b_model).abs();
         // assert!(err < 1E-6);
 
-        nav.iterate(t0_gpst, &candidates, 4, &null_bias, &absolute_time)
+        nav.solving(t0_gpst, &initial_state, &candidates, 4, &null_bias, &absolute_time)
             .unwrap();
     }
 }

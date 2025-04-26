@@ -1,16 +1,18 @@
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 
 use anise::{
     math::Vector3,
-    prelude::{Almanac, Duration, Frame},
+    prelude::{Almanac, Frame},
 };
+
+use nalgebra::U4;
 
 use crate::{
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
     cfg::{Config, Method},
-    navigation::{apriori::Apriori, postfit::PostfitKf, state::State, Navigation, PVTSolution},
+    navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
     prelude::{Epoch, Error},
@@ -22,6 +24,7 @@ use crate::{
 /// - O: [OrbitSource], custom [Orbit] provider.
 /// - B: custom [Bias] model.
 /// - T: [Time] source for correct absolute time
+/// - RTK: [RTKBase] implementation, used in differential technique only.
 pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     /// Solver [Config]uration preset
     pub cfg: Config,
@@ -33,29 +36,30 @@ pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     orbit_source: O,
     /// [Bias] model implementation
     bias: B,
-    /// Previous resolved [State].
-    past_state: Option<State>,
-    /// Possible initial (very first) preset
-    initial_ecef_m: Option<Vector3>,
     /// Pool
     pool: Pool,
-    /// Possible [PostfitKf]
-    postfit_kf: Option<PostfitKf>,
+    /// To invalidate first solution
+    first_solution: bool,
+    /// [Navigation] solver
+    navigation: Navigation<U4>,
+    /// Possible initial position
+    initial_ecef_m: Option<Vector3>,
     /// [AbsoluteTime] source
     absolute_time: AbsoluteTime<T>,
 }
 
 impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
-    /// Creates a new Position, Velocity, Time [Solver] without
-    /// apriori knowledge of the initial position.
+    /// Creates a new [Solver] for either direct or differential navigation,
+    /// with possible apriori knowledge.
+    ///
     /// ## Input
     /// - almanac: provided valid [Almanac]
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
     /// - orbit_source: custom [OrbitSource] implementation.
     /// - bias: [Bias] model implementation
-    /// - state_ecef_m: if you have accurate knowledge of the initial position,
-    /// you may define it here. Otherwise, we recommend you tie this to None.
+    /// - state_ecef_m: provide initial state as ECEF 3D coordinates,
+    /// otherwise we will have to figure them.
     pub fn new(
         almanac: Almanac,
         earth_cef: Frame,
@@ -64,74 +68,18 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         time_source: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
-    ) -> Result<Self, Error> {
-        Ok(Self::new_almanac_frame(
-            cfg,
-            almanac,
-            earth_cef,
-            orbit_source,
-            time_source,
-            bias,
-            state_ecef_m,
-        ))
-    }
-
-    /// Creates a new Position [Solver] without apriori knowledge.
-    /// The solver will have to initiliaze iteself.
-    /// ## Input
-    /// - almanac: provided valid [Almanac]
-    /// - earth_cef: [Frame] that must be an ECEF
-    /// - cfg: solver [Config]uration
-    /// - orbit_source: custom [OrbitSource] implementation.
-    /// - bias: [Bias] model implementation
-    pub fn new_survey(
-        almanac: Almanac,
-        earth_cef: Frame,
-        cfg: Config,
-        orbit_source: O,
-        time_source: T,
-        bias: B,
-    ) -> Result<Self, Error> {
-        Self::new(
-            almanac,
-            earth_cef,
-            cfg,
-            orbit_source,
-            time_source,
-            bias,
-            None,
-        )
-    }
-
-    /// Creates a new Position, Velocity, Time [Solver] with your own [Almanac] and [Frame] definitions.
-    /// ## Input
-    /// - cfg: solver [Config]uration
-    /// - almanac: [Almanac] definition
-    /// - frame: [Frame] which must be an ECEF for valid results
-    /// - orbit_source: custom [OrbitSource] implementation.
-    /// - bias: [Bias] model implementation
-    /// - state_ecef_m: if you have accurate knowledge of the initial position,
-    /// you may define it here. Otherwise, we recommend you tie this to None.
-    pub fn new_almanac_frame(
-        cfg: Config,
-        almanac: Almanac,
-        earth_cef: Frame,
-        orbit_source: O,
-        time_source: T,
-        bias: B,
-        state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
         // Analyze preset
         if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
-            warn!("occultation filter is not meaningful in SPP navigation");
+            warn!("SV occultation filter is not meaningful in SPP navigation");
         }
 
         if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
-            warn!("RF cable delay compensation is either incomplete or not entirely enabled");
+            panic!("RF cable delay compensation is incorrectly defined!");
         }
 
         if !cfg.int_delay.is_empty() && !cfg.modeling.cable_delay {
-            warn!("RF cable delay compensation is not fully supported yet.");
+            panic!("RF cable delay compensation is not fully supported yet.");
         }
 
         let initial_ecef_m = match state_ecef_m {
@@ -139,25 +87,30 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             _ => None,
         };
 
+        let navigation = Navigation::new(&cfg, earth_cef);
+
         Self {
             bias,
             almanac,
             earth_cef,
+            navigation,
             orbit_source,
             initial_ecef_m,
-            past_state: None,
-            postfit_kf: None,
             cfg: cfg.clone(),
+            first_solution: true,
             absolute_time: AbsoluteTime::new(time_source),
             pool: Pool::allocate(cfg.code_smoothing, earth_cef),
         }
     }
 
-    /// [PVTSolution] resolution attempt.
-    /// ## Inputs
-    /// - t: desired [Epoch]
-    /// - pool: list of [Candidate]
-    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<(Epoch, PVTSolution), Error> {
+    /// [PVTSolution] solving attempt.
+    /// ## Input
+    /// - t: [Epoch] of observation
+    /// - pool: proposed [Candidate]s
+    ///
+    /// ## Output
+    /// - [PVTSolution].
+    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<PVTSolution, Error> {
         let ts = self.cfg.timescale;
         let min_required = self.min_sv_required();
 
@@ -172,7 +125,6 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         self.pool.pre_fit(&self.cfg, &self.absolute_time);
 
         if self.pool.len() < min_required {
-            // TODO: catch and reset self
             return Err(Error::NotEnoughPreFitCandidates);
         }
 
@@ -204,147 +156,98 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         let orbit_source = &mut self.orbit_source;
         self.pool.orbital_states(&self.cfg, orbit_source);
 
-        // Obtain apriori
-        let apriori = match self.past_state {
-            Some(state) => Apriori::from_state(t, &state).unwrap_or_else(|e| {
-                panic!(
-                    "Internal error. Solver reinit procedure failed due to physical error: {}",
-                    e
-                )
-            }),
-            None => match self.initial_ecef_m {
+        // current state
+        let state = if self.navigation.initialized {
+            self.navigation.state.with_epoch(t)
+        } else {
+            match self.initial_ecef_m {
                 Some(x0_y0_z0_m) => {
-                    debug!("{}: initializing with external preset {}", t, x0_y0_z0_m);
+                    let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef);
 
-                    Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef).unwrap_or_else(|e| {
-                        panic!(
-                            "Solver initialization failure - {}. Invalid user preset?",
-                            e
-                        )
-                    })
+                    let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+                        panic!("Solver initial preset is physically incorrect: {}", e);
+                    });
+
+                    debug!("{} - initial state: {}", t, state);
+
+                    self.navigation.state = state;
+
+                    state
                 },
                 None => {
                     let solver = Bancroft::new(&pool)?;
                     let solution = solver.resolve()?;
                     let x0_y0_z0_m = Vector3::new(solution[0], solution[1], solution[2]);
 
-                    debug!("{}: initial solution: {}", t, x0_y0_z0_m);
+                    let apriori = Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef);
 
-                    Apriori::from_ecef_m(x0_y0_z0_m, t, self.earth_cef).unwrap_or_else(|e| {
-                        panic!("Solver failed to initialize itself. Phyiscal error :{}", e)
-                    })
+                    let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+                        panic!("Solver failed to initialize itself. Physical error: {}", e);
+                    });
+
+                    debug!("{} - initial state: {}", t, state);
+                    self.navigation.state = state;
+                    state
                 },
-            },
+            }
         };
 
-        self.pool.post_fit(&self.almanac, &self.cfg, &apriori);
+        self.pool
+            .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state);
 
         let pool_size = self.pool.len();
 
         if pool_size < min_required {
-            // TODO: catch & reset self
-            // self.pool.end_of_epoch();
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
-        // Build nav filter
-        let mut nav = match Navigation::new(
+        // Solving attempt
+        match self.navigation.solving(
             t,
-            &self.cfg,
-            apriori,
+            &state,
             &self.pool.candidates(),
             pool_size,
             &self.bias,
             &self.absolute_time,
         ) {
-            Ok(nav) => nav,
+            Ok((_)) => {
+                info!("{} - iteration completed", t);
+            },
             Err(e) => {
-                error!("matrix formation error: {}", e);
+                error!("{} - iteration failure: {}", t, e);
                 return Err(e);
             },
-        };
-
-        // discard non contributing data
-        let contributing = nav.sv.iter().map(|contrib| contrib.sv).collect::<Vec<_>>();
-        self.pool.retain(|cd| contributing.contains(&cd.sv));
-
-        let pool_size = self.pool.len();
-
-        // iterate nav filter
-        loop {
-            match nav.iterate(
-                t,
-                &self.pool.candidates(),
-                pool_size,
-                &self.bias,
-                &self.absolute_time,
-            ) {
-                Ok(converged) => {
-                    if converged {
-                        break;
-                    } else {
-                        debug!(
-                            "iter={} | {:?} dt={}",
-                            nav.iter, nav.state.pos_m, nav.state.clock_dt
-                        );
-                    }
-                },
-                Err(e) => {
-                    error!("{} - filter iter={}: {}", t, nav.iter, e);
-                    return Err(e);
-                },
-            }
         }
 
-        if let Some(denoising) = &self.cfg.solver.postfit_denoising {
-            if let Some(postfit_kf) = &mut self.postfit_kf {
-                let dt_30s = Duration::from_seconds(30.0); // TODO
-                let dx = postfit_kf.run(dt_30s, &nav.state)?;
+        // Publish solution
+        let solution = PVTSolution::new(
+            t,
+            &self.navigation.state,
+            &self.navigation.dop,
+            &self.navigation.sv,
+        );
 
-                nav.state
-                    .temporal_postfit_update(dx)
-                    .or(Err(Error::PostFitUpdate))?;
-            } else {
-                self.postfit_kf = Some(PostfitKf::new(
-                    &nav.state,
-                    1.0 / denoising,
-                    1.0 / denoising,
-                    1.0,
-                    1.0,
-                ));
-            }
+        if self.first_solution {
+            self.first_solution = false;
+            Err(Error::InvalidatedFirstSolution)
+        } else {
+            Ok(solution)
         }
+    }
 
-        if let Some(past_state) = self.past_state {
-            nav.state
-                .velocity_update(past_state.t, past_state.pos_m, past_state.clock_dt);
-        }
-
-        // Validated solution
-        let solution = PVTSolution::new(&nav.state, &nav.dop, &nav.sv);
-        self.past_state = Some(nav.state.clone());
-
-        Ok((t, solution))
+    /// Reset this [Solver]
+    pub fn reset(&mut self) {
+        self.navigation.reset();
     }
 
     fn min_sv_required(&self) -> usize {
-        if self.past_state.is_none() {
-            if self.initial_ecef_m.is_none() {
-                4
-            } else {
-                if self.cfg.fixed_altitude.is_some() {
-                    3
-                } else {
-                    4
-                }
-            }
-        } else {
-            if self.cfg.fixed_altitude.is_some() {
-                3
-            } else {
-                4
-            }
+        let mut min_sv = 4;
+
+        if self.navigation.initialized && self.cfg.fixed_altitude.is_some() {
+            min_sv -= 1;
         }
+
+        min_sv
     }
 }
 

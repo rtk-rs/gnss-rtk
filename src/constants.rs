@@ -1,5 +1,3 @@
-pub struct Constants;
-
 use anise::constants::SPEED_OF_LIGHT_KM_S;
 
 /// Earth angular velocity, in WGS84 frame rad/s

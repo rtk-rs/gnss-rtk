@@ -1,70 +1,208 @@
-use crate::error::Error;
-use nalgebra::{DefaultAllocator, DimName, OMatrix, OVector};
+use crate::{error::Error, navigation::state::correction::StateCorrection};
 
-#[derive(Debug, Clone)]
-pub struct Kalman<S>
+use nalgebra::{
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, OVector,
+};
+
+use log::debug;
+
+#[derive(Clone)]
+pub struct KfEstimate<S>
 where
     S: DimName,
     DefaultAllocator: nalgebra::allocator::Allocator<S, S>,
     DefaultAllocator: nalgebra::allocator::Allocator<S>,
 {
-    p_k: OMatrix<f64, S, S>,
-    x_k: OVector<f64, S>,
-    q_mat: OMatrix<f64, S, S>,
+    /// P [OMatrix]
+    pub p: OMatrix<f64, S, S>,
+
+    /// x [OVector]
+    pub x: OVector<f64, S>,
+}
+
+impl<S> KfEstimate<S>
+where
+    S: DimName,
+    DefaultAllocator: Allocator<S> + Allocator<S, S>,
+    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
+{
+    /// Create a zero [KfEstimate]
+    pub fn zero() -> Self {
+        let x = OVector::<f64, S>::zeros();
+        let p = OMatrix::<f64, S, S>::zeros();
+        Self { p, x }
+    }
+
+    /// Converts [KfEstimate] to [StateCorrection]
+    pub fn to_state_correction(&self) -> StateCorrection<S> {
+        StateCorrection { dx: self.x }
+    }
+
+    /// Create new [KfEstimate]
+    pub fn from_dynamic(x: DVector<f64>, p: DMatrix<f64>) -> Self {
+        assert_eq!(
+            p.nrows(),
+            S::USIZE,
+            "internal error: invalid initialization dimensions!"
+        );
+        assert_eq!(
+            p.ncols(),
+            S::USIZE,
+            "internal error: invalid initialization dimensions!"
+        );
+
+        let mut x_stored = OVector::<f64, S>::zeros();
+        let mut p_stored = OMatrix::<f64, S, S>::zeros();
+
+        for i in 0..S::USIZE {
+            x_stored[i] = x[i];
+
+            for j in 0..S::USIZE {
+                p_stored[(i, j)] = p[(i, j)];
+            }
+        }
+
+        Self {
+            p: p_stored,
+            x: x_stored,
+        }
+    }
+
+    /// Create new [KfEstimate]
+    pub fn from_static(x: OVector<f64, S>, p: OMatrix<f64, S, S>) -> Self {
+        Self { p, x }
+    }
+}
+
+#[derive(Clone)]
+pub struct Kalman<S>
+where
+    S: DimName,
+    DefaultAllocator: Allocator<S> + Allocator<S, S>,
+    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
+{
+    /// True if this [Kalman] filter has been initialized
+    pub initialized: bool,
+
+    /// Prediction as [KfEstimate].
+    pub predicted: KfEstimate<S>,
 }
 
 impl<S> Kalman<S>
 where
     S: DimName,
-    DefaultAllocator: nalgebra::allocator::Allocator<S, S>,
-    DefaultAllocator: nalgebra::allocator::Allocator<S>,
+    DefaultAllocator: Allocator<S> + Allocator<S, S>,
+    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
 {
-    /// Create a new [Kalman] filter with null initial state
-    pub fn new(q_mat: OMatrix<f64, S, S>) -> Self {
-        let x_k = OVector::<f64, S>::zeros();
-        let p_k = OMatrix::<f64, S, S>::zeros();
-        Self::new_initialized(x_k, p_k, q_mat)
-    }
-
-    /// Create a new [Kalman] filter with initial state x_k, z_k
-    pub fn new_initialized(
-        x_0: OVector<f64, S>,
-        p_0: OMatrix<f64, S, S>,
-        q_mat: OMatrix<f64, S, S>,
-    ) -> Self {
+    /// Create a new [Kalman] filter
+    pub fn new() -> Self {
         Self {
-            p_k: p_0,
-            x_k: x_0,
-            q_mat,
+            initialized: false,
+            predicted: KfEstimate::zero(),
         }
     }
 
+    /// Initialize this [Kalman]filter
+    pub fn initialize(
+        &mut self,
+        f_k: OMatrix<f64, S, S>,
+        q_k: OMatrix<f64, S, S>,
+        estimate: KfEstimate<S>,
+    ) {
+        // prediction
+        let x_k = f_k.clone() * estimate.x.clone();
+        let p_k = f_k.clone() * estimate.p.clone() * f_k.transpose() + q_k;
+
+        self.predicted = KfEstimate { x: x_k, p: p_k };
+
+        debug!(
+            "initial prediction: x={} p={}",
+            self.predicted.x, self.predicted.p
+        );
+
+        self.initialized = true;
+    }
+
+    /// Reset this [Kalman] filter
+    pub fn reset(&mut self) {
+        self.initialized = false;
+        self.predicted = KfEstimate::zero();
+    }
+
+    /// Run this [Kalman] filter, returning new [KfEstimate].
+    ///
+    /// ## Input
+    /// - f_k: Dynamics [OMatrix]
+    /// - g_k: G [OMatrix]
+    /// - w_k: W [OVector]
+    /// - q_k: Q [OMatrix]
+    /// - y_k: Measurement [OVector]
     pub fn run(
         &mut self,
-        z_k: OVector<f64, S>,
-        f_mat: OMatrix<f64, S, S>,
-        h_mat: OMatrix<f64, S, S>,
-        r_mat: OMatrix<f64, S, S>,
-    ) -> Result<OVector<f64, S>, Error> {
-        let f_mat_t = f_mat.transpose();
+        f_k: OMatrix<f64, S, S>,
+        g_k: &DMatrix<f64>,
+        w_k: DMatrix<f64>,
+        q_k: OMatrix<f64, S, S>,
+        y_k: DVector<f64>,
+    ) -> Result<KfEstimate<S>, Error> {
+        if !self.initialized {
+            panic!("internal error: filter not initialized!");
+        }
 
-        let xk_k_1 = f_mat.clone() * self.x_k.clone();
-        let pk_k_1 = f_mat.clone() * self.p_k.clone() * f_mat_t + self.q_mat.clone();
+        assert_eq!(
+            w_k.nrows(),
+            w_k.ncols(),
+            "internal error: w is not squared matrix!"
+        );
 
-        let h_mat_t = h_mat.transpose();
-        let h_p_ht = h_mat.clone() * pk_k_1.clone() * h_mat_t.clone();
-        let h_p_ht_r = h_p_ht + r_mat;
+        assert_eq!(
+            w_k.nrows(),
+            y_k.nrows(),
+            "internal error: invalid dimensions!"
+        );
 
-        let k_mat = pk_k_1.clone()
-            * h_mat_t.clone()
-            * h_p_ht_r.try_inverse().ok_or(Error::MatrixInversion)?;
+        assert_eq!(
+            g_k.ncols(),
+            S::USIZE,
+            "internal error: invalid G dimensions!"
+        );
 
-        let x_k = xk_k_1.clone() + k_mat.clone() * (z_k - h_mat.clone() * xk_k_1);
-        let p_k = (OMatrix::<f64, S, S>::identity() - k_mat * h_mat) * pk_k_1;
+        assert_eq!(
+            g_k.nrows(),
+            y_k.nrows(),
+            "internal error: invalid G dimensions!"
+        );
 
-        self.x_k = x_k;
-        self.p_k = p_k;
+        let gt = g_k.transpose();
 
-        Ok(self.x_k.clone())
+        let p_inv = self
+            .predicted
+            .p
+            .clone()
+            .try_inverse()
+            .ok_or(Error::MatrixInversion)?;
+
+        let p_k = gt.clone() * w_k.clone();
+        let p_k = p_k * g_k;
+        let p_k = p_k + p_inv;
+        let p_k = p_k.try_inverse().ok_or(Error::MatrixInversion)?;
+
+        let p_inv_x = p_inv.clone() * self.predicted.x.clone();
+        let x_k = gt * w_k;
+        let x_k = x_k * y_k;
+        let x_k = x_k + p_inv_x;
+        let x_k = p_k * x_k;
+
+        // prediction
+        let x_k1 = f_k.clone() * x_k.clone();
+        let p_k1 = f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
+
+        debug!("new prediction x={} p={}", x_k1, p_k1);
+        self.predicted = KfEstimate { x: x_k1, p: p_k1 };
+
+        Ok(KfEstimate { x: x_k, p: p_k })
     }
 }

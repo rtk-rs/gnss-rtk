@@ -1,8 +1,10 @@
 //! PVT Solution
 use crate::{
     navigation::{DilutionOfPrecision, SVContribution, State},
-    prelude::{Duration, TimeScale},
+    prelude::{Epoch, TimeScale},
 };
+
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -12,6 +14,8 @@ use serde::Serialize;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
+    /// [Epoch] of succesful solving
+    pub epoch: Epoch,
     /// Position in meters ECEF.
     pub pos_m: (f64, f64, f64),
     /// Velocity in m.s⁻¹ ECEF
@@ -19,11 +23,11 @@ pub struct PVTSolution {
     /// Latitude, longitude and altitude above mean sea level,
     /// in degrees and meters.
     pub lat_long_alt_deg_deg_m: (f64, f64, f64),
-    /// Timescale
+    /// [TimeScale] of clock_offset [Duration] expression.
     pub timescale: TimeScale,
     /// Clock offset (s)
-    pub clock_offset: Duration,
-    /// Clock drift (s.s⁻¹)
+    pub clock_offset_s: f64,
+    /// Clock drift (s.s⁻¹) within [TimeScale]
     pub clock_drift_s_s: f64,
     /// Space Vehicles that helped form this solution
     /// and data associated to each individual SV
@@ -39,27 +43,36 @@ pub struct PVTSolution {
 }
 
 impl PVTSolution {
-    pub(crate) fn new(
-        state: &State,
+    pub(crate) fn new<D: DimName>(
+        epoch: Epoch,
+        state: &State<D>,
         dop: &DilutionOfPrecision,
         contributions: &[SVContribution],
-    ) -> Self {
+    ) -> Self
+    where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    {
+        let pos_vel_ecef_m = state.position_velocity_ecef_m();
+        let (clock_offset_s, clock_drift_s_s) = state.clock_profile_s();
+
         Self {
+            epoch,
             gdop: dop.gdop,
             tdop: dop.tdop,
             vdop: dop.vdop,
             hdop: dop.hdop,
-            pos_m: state.pos_m,
-            vel_m_s: state.vel_m_s,
             sv: contributions.to_vec(),
             timescale: state.t.time_scale,
-            clock_offset: state.clock_dt,
-            clock_drift_s_s: state.clock_drift_s_s,
+            clock_offset_s: clock_offset_s,
+            clock_drift_s_s: clock_drift_s_s,
             lat_long_alt_deg_deg_m: (
                 state.lat_long_alt_deg_deg_km.0,
                 state.lat_long_alt_deg_deg_km.1,
                 state.lat_long_alt_deg_deg_km.2 * 1.0E3,
             ),
+            pos_m: (pos_vel_ecef_m[0], pos_vel_ecef_m[1], pos_vel_ecef_m[2]),
+            vel_m_s: (pos_vel_ecef_m[3], pos_vel_ecef_m[4], pos_vel_ecef_m[5]),
         }
     }
 }
