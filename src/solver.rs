@@ -210,7 +210,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             &self.bias,
             &self.absolute_time,
         ) {
-            Ok((_)) => {
+            Ok(_) => {
                 info!("{} - iteration completed", t);
             },
             Err(e) => {

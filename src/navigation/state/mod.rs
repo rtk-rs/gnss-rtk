@@ -81,29 +81,6 @@ where
         s
     }
 
-    // /// Create new [State] from ECEF coordinates.
-    // pub fn from_ecef_m(pos_m: Vector3, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
-    //     let pos_vel = Vector6::new(
-    //         pos_m[0] / 1.0E3,
-    //         pos_m[1] / 1.0E3,
-    //         pos_m[2] / 1.0E3,
-    //         0.0,
-    //         0.0,
-    //         0.0,
-    //     );
-
-    //     let orbit = Orbit::from_cartesian_pos_vel(pos_vel, t, frame);
-
-    //     Self::from_orbit(&orbit)
-    // }
-
-    // /// Create new [State] from ECEF pos+vel
-    // pub fn from_pos_vel_ecef_m(pos_vel_m: Vector6, t: Epoch, frame: Frame) -> PhysicsResult<Self> {
-    //     let pos_vel_km = pos_vel_m / 1.0E3;
-    //     let orbit = Orbit::from_cartesian_pos_vel(pos_vel_km, t, frame);
-    //     Self::from_orbit(&orbit)
-    // }
-
     /// Create new [State] from [Orbit]al solution.
     pub fn from_orbit(orbit: &Orbit) -> PhysicsResult<Self> {
         assert!(
