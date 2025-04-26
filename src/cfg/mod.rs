@@ -290,7 +290,7 @@ mod test {
 
     #[test]
     fn generate_static_ppp_preset() {
-        let mut cfg = Config::static_preset(Method::PPP);
+        let cfg = Config::static_preset(Method::PPP);
         let string = serde_json::to_string_pretty(&cfg).unwrap();
         let mut fd = std::fs::File::create("static_ppp.json").unwrap();
         write!(fd, "{}", string).unwrap();
