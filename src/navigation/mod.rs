@@ -281,6 +281,10 @@ where
             // TODO: r_k tuning
             let mut r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
 
+            for i in 0..g_k.nrows() {
+                r_k[(i, i)] = 5.0; // TODO
+            }
+
             let w_k = r_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
             // run
@@ -346,11 +350,11 @@ where
 
         let mut f_k = OMatrix::<f64, S, S>::zeros();
 
-        // if self.cfg.profile.is_static() {
-        for i in 0..3 {
-            f_k[(i, i)] = 1.0;
+        if self.cfg.profile.is_static() {
+            for i in 0..3 {
+                f_k[(i, i)] = 1.0;
+            }
         }
-        // }
 
         // TODO: q_k tuning
         let mut q_k = OMatrix::<f64, S, S>::zeros();
@@ -358,8 +362,7 @@ where
         for i in 0..S::USIZE {
             if i == 3 {
                 q_k[(i, i)] = (1E-6_f64 * SPEED_OF_LIGHT_M_S).powi(2);
-            }
-            if i == 2 {
+            } else if i == 2 {
                 q_k[(i, i)] = 5.0; // z bias
             } else {
                 q_k[(i, i)] = 2.5;
@@ -441,6 +444,10 @@ where
         // TODO: r_k tuning
         let mut r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
 
+        for i in 0..g_k.nrows() {
+            r_k[(i, i)] = 5.0; // TODO
+        }
+
         let w_k = r_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
         // form g_k
@@ -464,11 +471,11 @@ where
 
         let mut f_k = OMatrix::<f64, S, S>::zeros();
 
-        // if self.cfg.profile.is_static() {
-        for i in 0..3 {
-            f_k[(i, i)] = 1.0;
+        if self.cfg.profile.is_static() {
+            for i in 0..3 {
+                f_k[(i, i)] = 1.0;
+            }
         }
-        // }
 
         // TODO: q_k tuning
         let mut q_k = OMatrix::<f64, S, S>::zeros();
@@ -476,8 +483,7 @@ where
         for i in 0..S::USIZE {
             if i == 3 {
                 q_k[(i, i)] = (1E-6_f64 * SPEED_OF_LIGHT_M_S).powi(2);
-            }
-            if i == 2 {
+            } else if i == 2 {
                 q_k[(i, i)] = 5.0; // z bias
             } else {
                 q_k[(i, i)] = 2.5;
