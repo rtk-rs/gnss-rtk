@@ -67,9 +67,9 @@ impl PostfitKf {
 
         let mut kalman = Kalman::new();
 
-        let initial_state = KfEstimate::from_static(x_0, p_0);
+        let initial_estimate = KfEstimate::from_static(x_0, p_0);
 
-        kalman.initialize(initial_state);
+        kalman.initialize(f_k, q_k, initial_estimate);
 
         Self {
             f_k,

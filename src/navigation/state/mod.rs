@@ -1,12 +1,20 @@
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName, OVector, U4};
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName, OVector};
 
 use anise::{
     astro::PhysicsResult,
-    math::{Vector3, Vector4, Vector6},
+    math::{Vector3, Vector6},
     prelude::{Epoch, Frame},
 };
 
-use crate::{constants::SPEED_OF_LIGHT_M_S, navigation::Apriori, prelude::Orbit};
+use crate::{
+    constants::SPEED_OF_LIGHT_M_S,
+    navigation::{Apriori, KfEstimate},
+    prelude::Orbit,
+};
+
+pub mod correction;
+
+use correction::StateCorrection;
 
 #[derive(Clone, Copy)]
 pub struct State<D: DimName>
@@ -28,7 +36,7 @@ where
 
 impl<D: DimName> Default for State<D>
 where
-    DefaultAllocator: Allocator<D>,
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
 {
     fn default() -> Self {
@@ -44,7 +52,7 @@ where
 
 impl<D: DimName> std::fmt::Display for State<D>
 where
-    DefaultAllocator: Allocator<D>,
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,7 +69,7 @@ where
 
 impl<D: DimName> State<D>
 where
-    DefaultAllocator: Allocator<D>,
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
 {
     /// Create new [State] initialized from [Apriori]
@@ -146,33 +154,67 @@ where
         Orbit::from_cartesian_pos_vel(pos_vel_km_s, self.t, frame)
     }
 
-    /// [State] update
-    pub fn update(&mut self, t: Epoch, frame: Frame, dx: &OVector<f64, D>) -> PhysicsResult<()> {
-        let dt = (t - self.t).to_seconds();
+    /// Apply [StateCorrection] with mutable access.
+    pub fn correct_mut(
+        &mut self,
+        frame: Frame,
+        pending_t: Epoch,
+        correction: StateCorrection<D>,
+    ) -> PhysicsResult<()> {
+        let dt = (pending_t - self.t).to_seconds();
+
         if dt > 0.0 {
-            self.clock_drift_s_s = (dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt;
-            self.velocity_m_s = Vector3::new(dx[0] / dt, dx[1] / dt, dx[2] / dt);
+            self.clock_drift_s_s = (correction.dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt;
+
+            self.velocity_m_s = Vector3::new(
+                correction.dx[0] / dt,
+                correction.dx[1] / dt,
+                correction.dx[2] / dt,
+            );
         }
 
-        for i in 0..4 {
+        for i in 0..D::USIZE {
             if i == 3 {
-                self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
+                self.x[i] = correction.dx[i] / SPEED_OF_LIGHT_M_S;
             } else {
-                self.x[i] += dx[i];
+                self.x[i] += correction.dx[i];
             }
         }
-
-        self.t = t;
 
         // update attitude
         let new_orbit = self.to_orbit(frame);
         self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
+        self.t = pending_t;
+
+        Ok(())
+    }
+
+    /// Update [State] using latest [KfEstimate].
+    pub fn update_mut(
+        &mut self,
+        frame: Frame,
+        pending_t: Epoch,
+        estimate: KfEstimate<D>,
+    ) -> PhysicsResult<()> {
+        for i in 0..D::USIZE {
+            if i == 3 {
+                self.x[i] = estimate.x[i] / SPEED_OF_LIGHT_M_S;
+            } else {
+                self.x[i] = estimate.x[i];
+            }
+        }
+
+        let new_orbit = self.to_orbit(frame);
+        self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
+
+        self.t = pending_t;
+
         Ok(())
     }
 
     /// Temporal update
-    pub fn postfit_update(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
+    pub fn postfit_update_mut(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
         self.x[0] = dx[0];
         self.x[1] = dx[1];
         self.x[2] = dx[2];
@@ -182,11 +224,9 @@ where
 
         Ok(())
     }
-}
 
-impl State<U4> {
     /// Compute residual between this [State] and other [State]
-    pub fn residual(&self, rhs: &State<U4>) -> Vector4 {
+    pub fn residual(&self, rhs: &State<D>) -> OVector<f64, D> {
         self.x - rhs.x
     }
 }

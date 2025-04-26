@@ -139,16 +139,14 @@ impl Candidate {
             }
         }
 
-        let rtm = BiasRuntime {
-            t,
-            sv_position_m: (sv_x_m, sv_y_m, sv_z_m),
-            sv_elevation_azimuth_deg_deg: self
-                .attitude()
-                .expect("internal error: state not fully defined"),
-            rx_position_m: Vector3::new(x0_m, y0_m, z0_m),
-            rx_lat_long_alt_deg_deg_km,
-            frequency_hz,
-        };
+        let rtm = self
+            .to_bias_runtime(
+                t,
+                frequency_hz,
+                Vector3::new(x0_m, y0_m, z0_m),
+                rx_lat_long_alt_deg_deg_km,
+            )
+            .expect("internal error: unresolved attitude (bias runtime)");
 
         if cfg.modeling.iono_delay && cfg.method == Method::SPP {
             let iono_bias_m = bias.ionosphere_bias_m(&rtm);

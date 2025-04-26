@@ -12,15 +12,19 @@ use crate::prelude::NullTime;
 // pub(crate) mod star;
 // pub use star::StarNRTK;
 
-/// Any RTK reference site needs to implement the [RTKBase] trait.
+/// Any [RTKBase] provides remote data by implementing the [RemoteSource] trait.
 pub trait RTKBase {
+    /// Provide a meaningful name of individual reference stations.
+    /// This is useful when connecting to several at once.
+    fn name(&self) -> String;
+
     /// Provide remote synchronous [Observation] of this [SV] if you can.
     /// If you fail to provide and fulfill the navigation technique requirements,
     /// the [SV] will be dropped for this [Epoch]. In other words, it will not contribute to the process.
     /// The [Observation] should be synchronous, ideally you should use an interpolation scheme.
     /// For high sampling rates, taking the closest neighbouring point in time will do, but that only stands
     /// if your [RTKBase] remained static in the meantime !
-    fn remote_observation(&mut self, t: Epoch, sv: SV) -> Option<Observation>;
+    fn observe(&mut self, t: Epoch, sv: SV) -> Option<Observation>;
 
     /// Any [RTKBase] should be able to desribe its absolute position, at all times,
     /// with highest accuracy. These coordinates (in meters, ECEF), should correspond to the precise
@@ -29,27 +33,15 @@ pub trait RTKBase {
     fn reference_position_ecef_m(&self, t: Epoch) -> Option<(f64, f64, f64)>;
 }
 
-/// [NullBase] is simply used to deploy the Navigation [Solver] in absolute direct navigation.
-pub struct NullBase {}
-
-impl RTKBase for NullBase {
-    fn remote_observation(&mut self, t: Epoch, sv: SV) -> Option<Observation> {
-        None
-    }
-
-    fn reference_position_ecef_m(&self, t: Epoch) -> Option<(f64, f64, f64)> {
-        None
-    }
-}
-
-/// [RTKSolver] is used in differential absolute navigation scenarios, to resolve
-/// the position of a single rover, connected to a single reference site.
+/// [RTKSolver] is used for differential navigation, to resolve
+/// the position of a single rover connected to a single reference site.
 /// The objective is to resolve [PVTSolution]s with high accuracy.
-pub struct RTKSolver<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> {
-    solver: Solver<O, B, T, RTK>,
+pub struct RTKSolver<O: OrbitSource, B: Bias, T: Time> {
+    /// Internal [Solver]
+    solver: Solver<O, B, T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> RTKSolver<O, B, T, RTK> {
+impl<O: OrbitSource, B: Bias, T: Time> RTKSolver<O, B, T> {
     /// Creates a new [RTKSolver] for direct differential navigation,
     /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
     /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.
@@ -75,7 +67,6 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> RTKSolver<O, B, T, RTK> {
         cfg: Config,
         orbit_source: O,
         time_source: T,
-        rtk_base: RTK,
         bias: B,
         initial_position_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
@@ -85,8 +76,6 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> RTKSolver<O, B, T, RTK> {
             cfg,
             orbit_source,
             time_source,
-            true,
-            rtk_base,
             bias,
             initial_position_ecef_m,
         );
@@ -116,7 +105,6 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> RTKSolver<O, B, T, RTK> {
         cfg: Config,
         orbit_source: O,
         time_source: T,
-        rtk_base: RTK,
         bias: B,
     ) -> Self {
         Self::new(
@@ -125,17 +113,17 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> RTKSolver<O, B, T, RTK> {
             cfg,
             orbit_source,
             time_source,
-            rtk_base,
             bias,
             None,
         )
     }
 
     /// [PVTSolution] solving attempt, at specified [Epoch] and using local [Candidate]s (rover's proposal).
-    pub fn resolve(
+    pub fn resolve<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
         candidates: &[Candidate],
+        rtk_bases: &[RTK],
     ) -> Result<PVTSolution, Error> {
         let solution = self.solver.resolve(epoch, candidates)?;
         Ok(solution)

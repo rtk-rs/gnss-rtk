@@ -16,7 +16,6 @@ use crate::{
     orbit::OrbitSource,
     pool::Pool,
     prelude::{Epoch, Error},
-    rtk::RTKBase,
     time::{AbsoluteTime, Time},
 };
 
@@ -26,7 +25,7 @@ use crate::{
 /// - B: custom [Bias] model.
 /// - T: [Time] source for correct absolute time
 /// - RTK: [RTKBase] implementation, used in differential technique only.
-pub struct Solver<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> {
+pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     /// Solver [Config]uration preset
     pub cfg: Config,
     /// [Almanac]
@@ -35,14 +34,10 @@ pub struct Solver<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> {
     earth_cef: Frame,
     /// [OrbitSource]
     orbit_source: O,
-    /// [RTKBase] reference
-    rtk_base: RTK,
     /// [Bias] model implementation
     bias: B,
     /// Pool
     pool: Pool,
-    /// True if RTK navigation was selected
-    uses_rtk: bool,
     /// To invalidate first solution
     first_solution: bool,
     /// [Navigation] solver
@@ -53,7 +48,7 @@ pub struct Solver<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> {
     absolute_time: AbsoluteTime<T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> Solver<O, B, T, RTK> {
+impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
     /// Creates a new [Solver] for either direct or differential navigation,
     /// with possible apriori knowledge.
     ///
@@ -62,8 +57,6 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> Solver<O, B, T, RTK> {
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
     /// - orbit_source: custom [OrbitSource] implementation.
-    /// - uses_rtk: whether the [RTKBase] implementation should be considered or not.
-    /// - rtk_base: possible external [RTKBase] implementation (for any remote reference).
     /// - bias: [Bias] model implementation
     /// - state_ecef_m: provide initial state as ECEF 3D coordinates,
     /// otherwise we will have to figure them.
@@ -73,8 +66,6 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> Solver<O, B, T, RTK> {
         cfg: Config,
         orbit_source: O,
         time_source: T,
-        uses_rtk: bool,
-        rtk_base: RTK,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
@@ -96,10 +87,6 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> Solver<O, B, T, RTK> {
             _ => None,
         };
 
-        if uses_rtk {
-            panic!("RTK navigation is not supported yet!");
-        }
-
         let navigation = Navigation::new(&cfg, earth_cef);
 
         Self {
@@ -107,9 +94,7 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> Solver<O, B, T, RTK> {
             almanac,
             earth_cef,
             navigation,
-            rtk_base,
             orbit_source,
-            uses_rtk,
             initial_ecef_m,
             cfg: cfg.clone(),
             first_solution: true,
@@ -119,7 +104,6 @@ impl<O: OrbitSource, B: Bias, T: Time, RTK: RTKBase> Solver<O, B, T, RTK> {
     }
 
     /// [PVTSolution] solving attempt.
-    ///
     /// ## Input
     /// - t: [Epoch] of observation
     /// - pool: proposed [Candidate]s

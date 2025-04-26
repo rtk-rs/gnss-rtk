@@ -2,19 +2,18 @@ use crate::{
     prelude::{
         Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource, PVTSolution, Time,
     },
-    rtk::NullBase,
     solver::Solver,
 };
 
 #[cfg(doc)]
 use crate::prelude::NullTime;
 
-/// [PPPSolver] is used in direction absolute navigation scenarios, without
+/// [PPPSolver] is used for direct absolute navigation, without
 /// access to any remote reference sites. The objective is to resolve [PVTSolution]s
 /// with high accuracy.
 pub struct PPPSolver<O: OrbitSource, B: Bias, T: Time> {
     /// Internal [Solver]
-    solver: Solver<O, B, T, NullBase>,
+    solver: Solver<O, B, T>,
 }
 
 impl<O: OrbitSource, B: Bias, T: Time> PPPSolver<O, B, T> {
@@ -45,16 +44,12 @@ impl<O: OrbitSource, B: Bias, T: Time> PPPSolver<O, B, T> {
         bias: B,
         initial_position_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
-        let null_base = NullBase {};
-
         let solver = Solver::new(
             almanac,
             earth_cef,
             cfg,
             orbit_source,
             time_source,
-            false,
-            null_base,
             bias,
             initial_position_ecef_m,
         );

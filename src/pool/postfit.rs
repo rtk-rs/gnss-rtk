@@ -22,7 +22,7 @@ impl Pool {
         cfg: &Config,
         state: &State<D>,
     ) where
-        DefaultAllocator: Allocator<D>,
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
     {
         self.post_fit_attitudes(almanac, frame, cfg, state);
@@ -49,7 +49,7 @@ impl Pool {
         cfg: &Config,
         state: &State<D>,
     ) where
-        DefaultAllocator: Allocator<D>,
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
     {
         let rx_orbit = state.to_orbit(frame);

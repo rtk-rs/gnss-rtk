@@ -13,8 +13,7 @@ mod postfit;
 pub(crate) mod state;
 
 use nalgebra::{
-    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, MatrixXx4, OMatrix, OVector,
-    U4,
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, MatrixXx4, OMatrix, U4,
 };
 
 use crate::{
@@ -23,12 +22,9 @@ use crate::{
         dop::DilutionOfPrecision,
         kalman::{Kalman, KfEstimate},
         postfit::PostfitKf,
-        state::State,
+        state::{correction::StateCorrection, State},
     },
-    prelude::{
-        Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal,
-        SPEED_OF_LIGHT_M_S, SV,
-    },
+    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal, SV},
     time::{AbsoluteTime, Time},
 };
 
@@ -82,7 +78,7 @@ where
     /// True if this filter has been initialized
     pub initialized: bool,
 
-    /// Navigation [State]
+    /// Current [State]
     pub state: State<S>,
 
     /// Previous Epoch. Null on first attempt.
@@ -124,7 +120,7 @@ where
         }
     }
 
-    /// Reset [Navigation] filter
+    /// Reset [Navigation] filter.
     pub fn reset(&mut self) {
         self.sv.clear();
         self.kalman.reset();
@@ -154,33 +150,35 @@ where
             self.kf_run(t, candidates, size, bias, absolute_time)?;
         }
 
-        if self.cfg.solver.postfit_denoising > 0.0 {
-            if let Some(postfit) = &mut self.postfit {
-                let prev_epoch = self
-                    .prev_epoch
-                    .expect("internal error: undetermined past epoch");
+        // if self.cfg.solver.postfit_denoising > 0.0 {
+        //     if let Some(postfit) = &mut self.postfit {
+        //         let prev_epoch = self
+        //             .prev_epoch
+        //             .expect("internal error: undetermined past epoch");
 
-                let dt = t - prev_epoch;
-                let dx = postfit.run(&self.state, dt)?;
+        //         let dt = t - prev_epoch;
+        //         let dx = postfit.run(&self.state, dt)?;
 
-                // update state
-                self.state.postfit_update(self.frame, dx.x).map_err(|e| {
-                    error!(
-                        "{} - postfit state update failed with physical error: {}",
-                        t, e
-                    );
-                    Error::StateUpdate
-                })?;
-            } else {
-                self.postfit = Some(PostfitKf::new(
-                    &self.state,
-                    1.0 / self.cfg.solver.postfit_denoising,
-                    1.0 / self.cfg.solver.postfit_denoising,
-                    1.0,
-                    1.0,
-                ));
-            }
-        }
+        //         // update state
+        //         self.state
+        //             .postfit_update_mut(self.frame, dx.x)
+        //             .map_err(|e| {
+        //                 error!(
+        //                     "{} - postfit state update failed with physical error: {}",
+        //                     t, e
+        //                 );
+        //                 Error::StateUpdate
+        //             })?;
+        //     } else {
+        //         self.postfit = Some(PostfitKf::new(
+        //             &self.state,
+        //             1.0 / self.cfg.solver.postfit_denoising,
+        //             1.0 / self.cfg.solver.postfit_denoising,
+        //             1.0,
+        //             1.0,
+        //         ));
+        //     }
+        // }
 
         self.prev_epoch = Some(t);
         self.initialized = true;
@@ -208,7 +206,6 @@ where
         let mut indexes = Vec::<usize>::with_capacity(size);
 
         let mut y_k = Vec::<f64>::with_capacity(size);
-        let mut sv = Vec::with_capacity(size);
 
         // measurement
         for i in 0..size {
@@ -237,7 +234,7 @@ where
                         );
                     }
 
-                    sv.push(contrib);
+                    self.sv.push(contrib);
                 },
                 Err(e) => {
                     error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
@@ -253,10 +250,8 @@ where
         let mut y_k = DVector::<f64>::from_row_slice(&y_k);
         let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
 
-        let r_k = DMatrix::<f64>::identity(y_len, y_len); // TODO
-
         let mut x_k = DVector::<f64>::zeros(S::USIZE);
-        let mut x_k_update = OVector::<f64, S>::zeros();
+        let mut correction = StateCorrection::default();
 
         let mut p_k = DMatrix::<f64>::zeros(S::USIZE, S::USIZE);
 
@@ -264,7 +259,7 @@ where
         for _ in 0..nb_iter {
             // form g_k
             for (i, index) in indexes.iter().enumerate() {
-                let dr_i = sv[*index].relativistic_path_range_m;
+                let dr_i = self.sv[i].relativistic_path_range_m;
 
                 let position_m = pending.position_ecef_m();
 
@@ -282,8 +277,10 @@ where
                 return Err(Error::MatrixDimension);
             }
 
-            // TODO
-            let w_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
+            // TODO: r_k tuning
+            let r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
+
+            let w_k = r_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
             // run
             let gt = g_k.transpose();
@@ -298,13 +295,15 @@ where
             p_k = gt_w_g_inv.clone();
 
             for i in 0..S::USIZE {
-                x_k_update[i] = x_k[i];
+                correction.dx[i] = x_k[i];
             }
 
-            pending.update(t, self.frame, &x_k_update).map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
-                Error::StateUpdate
-            })?;
+            pending
+                .correct_mut(self.frame, t, correction)
+                .map_err(|e| {
+                    error!("{} - state update failed with physical error: {}", t, e);
+                    Error::StateUpdate
+                })?;
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
@@ -344,9 +343,6 @@ where
         // validation
         self.state_validation()?;
 
-        // arm kalman
-        let initial_state = KfEstimate::<S>::from_dynamic(x_k, p_k);
-
         let mut f_k = OMatrix::<f64, S, S>::zeros();
 
         //if self.cfg.profile.is_static() {
@@ -358,11 +354,10 @@ where
         let mut q_k = OMatrix::<f64, S, S>::zeros();
         q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
 
-        self.kalman.initialize(initial_state);
+        let initial_estimate = KfEstimate::from_dynamic(x_k, p_k);
+        self.kalman.initialize(f_k, q_k, initial_estimate);
 
         self.state = pending;
-        self.prev_epoch = Some(t);
-
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
@@ -386,7 +381,6 @@ where
         let mut indexes = Vec::<usize>::with_capacity(size);
 
         let mut y_k = Vec::<f64>::with_capacity(size);
-        let mut sv = Vec::with_capacity(size);
 
         // measurement
         for i in 0..size {
@@ -416,7 +410,7 @@ where
                         );
                     }
 
-                    sv.push(contrib);
+                    self.sv.push(contrib);
                 },
                 Err(e) => {
                     error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
@@ -432,12 +426,14 @@ where
         let y_k = DVector::<f64>::from_row_slice(&y_k);
         let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
 
-        let r_k = MatrixXx4::<f64>::identity(y_len); // TODO
-        let w_k = DMatrix::identity(y_len, y_len);
+        // TODO: r_k tuning
+        let r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
+
+        let w_k = r_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
         // form g_k
         for (i, index) in indexes.iter().enumerate() {
-            let dr_i = sv[*index].relativistic_path_range_m;
+            let dr_i = self.sv[i].relativistic_path_range_m;
 
             let position_m = pending.position_ecef_m();
 
@@ -449,8 +445,8 @@ where
             g_k[(i, 3)] = 1.0;
         }
 
-        // verify correctness
         if g_k.nrows() != y_len {
+            // incorrect dimensions
             return Err(Error::MatrixDimension);
         }
 
@@ -465,12 +461,17 @@ where
         let mut q_k = OMatrix::<f64, S, S>::zeros();
         q_k[(3, 3)] = 1E-3_f64.powi(2); // TODO clock uncertainty
 
-        let mut estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
+        let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
 
-        pending.update(t, self.frame, &estimate.x).map_err(|e| {
-            error!("{} - state update failed with physical error: {}", t, e);
-            Error::StateUpdate
-        })?;
+        let correction = estimate.to_state_correction();
+        debug!("state correction: dx={}", correction.dx);
+
+        pending
+            .correct_mut(self.frame, t, correction)
+            .map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
 
         let gt_g_inv = (g_k.transpose() * g_k)
             .try_inverse()
@@ -483,10 +484,9 @@ where
         self.state_validation()?;
 
         self.state = pending;
-        self.prev_epoch = Some(t);
-
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+
         Ok(())
     }
 

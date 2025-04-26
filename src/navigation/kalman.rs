@@ -1,7 +1,10 @@
-use crate::error::Error;
+use crate::{error::Error, navigation::state::correction::StateCorrection};
+
 use nalgebra::{
     allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, OVector,
 };
+
+use log::debug;
 
 #[derive(Clone)]
 pub struct KfEstimate<S>
@@ -29,6 +32,11 @@ where
         let x = OVector::<f64, S>::zeros();
         let p = OMatrix::<f64, S, S>::zeros();
         Self { p, x }
+    }
+
+    /// Converts [KfEstimate] to [StateCorrection]
+    pub fn to_state_correction(&self) -> StateCorrection<S> {
+        StateCorrection { dx: self.x }
     }
 
     /// Create new [KfEstimate]
@@ -78,8 +86,8 @@ where
     /// True if this [Kalman] filter has been initialized
     pub initialized: bool,
 
-    /// Last [KfEstimate]
-    state: KfEstimate<S>,
+    /// Prediction as [KfEstimate].
+    pub predicted: KfEstimate<S>,
 }
 
 impl<S> Kalman<S>
@@ -93,19 +101,35 @@ where
     pub fn new() -> Self {
         Self {
             initialized: false,
-            state: KfEstimate::zero(),
+            predicted: KfEstimate::zero(),
         }
     }
 
     /// Initialize this [Kalman]filter
-    pub fn initialize(&mut self, state: KfEstimate<S>) {
-        self.state = state;
+    pub fn initialize(
+        &mut self,
+        f_k: OMatrix<f64, S, S>,
+        q_k: OMatrix<f64, S, S>,
+        estimate: KfEstimate<S>,
+    ) {
+        // prediction
+        let x_k = f_k.clone() * estimate.x.clone();
+        let p_k = f_k.clone() * estimate.p.clone() * f_k.transpose() + q_k;
+
+        self.predicted = KfEstimate { x: x_k, p: p_k };
+
+        debug!(
+            "initial prediction: x={} p={}",
+            self.predicted.x, self.predicted.p
+        );
+
         self.initialized = true;
     }
 
     /// Reset this [Kalman] filter
     pub fn reset(&mut self) {
         self.initialized = false;
+        self.predicted = KfEstimate::zero();
     }
 
     /// Run this [Kalman] filter, returning new [KfEstimate].
@@ -152,13 +176,14 @@ where
             "internal error: invalid G dimensions!"
         );
 
-        // prediction
-        let x_k1 = f_k.clone() * self.state.x.clone();
-        let p_k1 = f_k.clone() * self.state.p.clone() * f_k.transpose() + q_k;
+        let p_inv = self
+            .predicted
+            .p
+            .clone()
+            .try_inverse()
+            .ok_or(Error::MatrixInversion)?;
 
-        let p_inv = p_k1.clone().try_inverse().ok_or(Error::MatrixInversion)?;
-
-        let p_inv_x = p_inv.clone() * x_k1.clone();
+        let p_inv_x = p_inv.clone() * self.predicted.x.clone();
 
         let gt = g_k.transpose();
         let gt_w = gt.clone() * w_k;
@@ -170,6 +195,14 @@ where
 
         let x_k = gt_w_y + p_inv_x;
         let x_k = p_k * x_k;
+
+        // prediction
+        let x_k1 = f_k.clone() * x_k.clone();
+        let p_k1 = f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
+
+        debug!("new prediction x={} p={}", x_k1, p_k1);
+
+        self.predicted = KfEstimate { x: x_k1, p: p_k1 };
 
         Ok(KfEstimate { x: x_k, p: p_k })
     }

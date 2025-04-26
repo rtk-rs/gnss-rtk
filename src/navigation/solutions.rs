@@ -50,7 +50,7 @@ impl PVTSolution {
         contributions: &[SVContribution],
     ) -> Self
     where
-        DefaultAllocator: Allocator<D>,
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
     {
         let pos_vel_ecef_m = state.position_velocity_ecef_m();
