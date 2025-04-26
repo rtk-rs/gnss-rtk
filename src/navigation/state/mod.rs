@@ -160,43 +160,7 @@ where
         let dt = (pending_t - self.t).to_seconds();
 
         if dt > 0.0 {
-            self.clock_drift_s_s = correction.dx[3] / dt / SPEED_OF_LIGHT_M_S;
-
-            self.velocity_m_s = Vector3::new(
-                correction.dx[0] / dt,
-                correction.dx[1] / dt,
-                correction.dx[2] / dt,
-            );
-        }
-
-        for i in 0..D::USIZE {
-            if i == 3 {
-                self.x[i] = correction.dx[i] / SPEED_OF_LIGHT_M_S;
-            } else {
-                self.x[i] += correction.dx[i];
-            }
-        }
-
-        // update attitude
-        let new_orbit = self.to_orbit(frame);
-        self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
-
-        self.t = pending_t;
-
-        Ok(())
-    }
-
-    /// Apply [StateCorrection] with mutable access.
-    pub fn update_mut(
-        &mut self,
-        frame: Frame,
-        pending_t: Epoch,
-        correction: StateCorrection<D>,
-    ) -> PhysicsResult<()> {
-        let dt = (pending_t - self.t).to_seconds();
-
-        if dt > 0.0 {
-            self.clock_drift_s_s = correction.dx[3] / dt / SPEED_OF_LIGHT_M_S;
+            self.clock_drift_s_s = correction.dx[3] / SPEED_OF_LIGHT_M_S / dt;
 
             self.velocity_m_s = Vector3::new(
                 correction.dx[0] / dt,

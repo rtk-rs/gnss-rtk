@@ -495,10 +495,12 @@ where
         let correction = estimate.to_state_correction();
         debug!("state correction: dx={}", correction.dx);
 
-        pending.update_mut(self.frame, t, correction).map_err(|e| {
-            error!("{} - state update failed with physical error: {}", t, e);
-            Error::StateUpdate
-        })?;
+        pending
+            .correct_mut(self.frame, t, correction)
+            .map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
 
         let gt_g_inv = (g_k.transpose() * g_k)
             .try_inverse()
