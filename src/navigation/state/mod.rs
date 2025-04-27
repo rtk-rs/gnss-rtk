@@ -144,7 +144,7 @@ where
         let dt = (pending_t - self.t).to_seconds();
 
         if dt > 0.0 {
-            self.clock_drift_s_s = correction.dx[3] / SPEED_OF_LIGHT_M_S / dt;
+            self.clock_drift_s_s = (correction.dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt;
 
             self.velocity_m_s = Vector3::new(
                 correction.dx[0] / dt,
@@ -182,8 +182,8 @@ where
         Ok(())
     }
 
-    /// Compute residual between this [State] and other [State]
-    pub fn residual(&self, rhs: &State<D>) -> OVector<f64, D> {
-        self.x - rhs.x
-    }
+    // /// Compute residual between this [State] and other [State]
+    // pub(crate) fn residual(&self, rhs: &State<D>) -> OVector<f64, D> {
+    //     self.x - rhs.x
+    // }
 }

@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    prelude::{Constellation, Epoch, TimeScale},
+    prelude::{Constellation, Epoch, Polynomial, TimeScale},
 };
 
 use hifitime::Unit;
@@ -8,143 +8,112 @@ use hifitime::Unit;
 /// [TimeOffset]s as provided by the [Time] trait.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TimeOffset {
-    /// Reference time
-    pub t_ref: (u32, u64),
+    /// Reference [Epoch]]
+    pub ref_epoch: Epoch,
     /// LHS [TimeScale]
     pub(crate) lhs: TimeScale,
     /// RHS [TimeScale]
     pub(crate) rhs: TimeScale,
     /// Polynomial terms, for interpolation
-    pub polynomials: (f64, f64, f64),
+    pub polynomial: Polynomial,
 }
 
 impl TimeOffset {
-    /// Returns time correction in seconds
-    pub(crate) fn time_correction_seconds(&self, t: Epoch) -> Result<f64, Error> {
-        let (t_week, t_nanos) = t.to_time_of_week();
+    /// Define a new |GPST-UTC| [TimeOffset] with reference [Epoch] that must be expressed in [TimeScale::GPST].
+    pub fn from_gpst_utc_epoch(t_ref: Epoch, polynomial: Polynomial) -> Self {
+        assert_eq!(t_ref.time_scale, TimeScale::GPST);
 
-        // if t_week > self.t_ref.0 +1 || self.t_ref.0 > t_week +1 {
-        //     panic!("t_week : {} t_ref: {}", t_week, self.t_ref.0);
-        //     return Err(Error::OutdatedTimeCorrection);
-        // }
-
-        let dt_s = (t_nanos as f64 - self.t_ref.1 as f64) / 1.0E9;
-
-        let (a0, a1, a2) = self.polynomials;
-        let dt_s = a0 + a1 * dt_s + a2 * dt_s.powi(2);
-        Ok(dt_s)
-    }
-
-    /// Define a new |GPST-UTC| [TimeOffset] from [Epoch]
-    pub fn from_gpst_utc_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
-        Self::from_epoch(t_ref, polynomials)
-            .with_lhs(TimeScale::GPST)
-            .with_rhs(TimeScale::UTC)
+        Self::from_epoch(t_ref, polynomial).with_rhs(TimeScale::UTC)
     }
 
     /// Define a new |GPST-UTC| [TimeOffset] from week counter
-    pub fn from_gpst_utc_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
-        Self::from_time_of_week(t_ref, polynomials)
-            .with_lhs(TimeScale::GPST)
-            .with_rhs(TimeScale::UTC)
+    pub fn from_gpst_utc_time_of_week(t_ref: (u32, u64), polynomial: Polynomial) -> Self {
+        Self::from_time_of_week(t_ref, TimeScale::GPST, polynomial).with_rhs(TimeScale::UTC)
     }
 
-    /// Define a new |GST-GPST| [TimeOffset] from [Epoch]
-    pub fn from_gst_gpst_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
-        Self::from_epoch(t_ref, polynomials)
-            .with_lhs(TimeScale::GST)
-            .with_rhs(TimeScale::GPST)
+    /// Define a new |GST-GPST| [TimeOffset] with reference [Epoch] that must be expressed in [TimeScale::GST].
+    pub fn from_gst_gpst_epoch(t_ref: Epoch, polynomial: Polynomial) -> Self {
+        assert_eq!(t_ref.time_scale, TimeScale::GST);
+
+        Self::from_epoch(t_ref, polynomial).with_rhs(TimeScale::GPST)
     }
 
     /// Define a new |GST-GPST| [TimeOffset] from week counter
-    pub fn from_gst_gpst_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
-        Self::from_time_of_week(t_ref, polynomials)
-            .with_lhs(TimeScale::GST)
-            .with_rhs(TimeScale::GPST)
+    pub fn from_gst_gpst_time_of_week(t_ref: (u32, u64), polynomial: Polynomial) -> Self {
+        Self::from_time_of_week(t_ref, TimeScale::GST, polynomial).with_rhs(TimeScale::GPST)
     }
 
-    /// Define a new |GST-UTC| [TimeOffset] from [Epoch]
-    pub fn from_gst_utc_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
-        Self::from_epoch(t_ref, polynomials)
-            .with_lhs(TimeScale::GST)
-            .with_rhs(TimeScale::UTC)
+    /// Define a new |GST-UTC| [TimeOffset] with reference [Epoch] that must be expressed in [TimeScale::GST].
+    pub fn from_gst_utc_epoch(t_ref: Epoch, polynomial: Polynomial) -> Self {
+        assert_eq!(t_ref.time_scale, TimeScale::GST);
+
+        Self::from_epoch(t_ref, polynomial).with_rhs(TimeScale::UTC)
     }
 
     /// Define a new |GST-UTC| [TimeOffset] from week counter
-    pub fn from_gst_utc_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
-        Self::from_time_of_week(t_ref, polynomials)
-            .with_lhs(TimeScale::GST)
-            .with_rhs(TimeScale::UTC)
+    pub fn from_gst_utc_time_of_week(t_ref: (u32, u64), polynomial: Polynomial) -> Self {
+        Self::from_time_of_week(t_ref, TimeScale::GST, polynomial).with_rhs(TimeScale::UTC)
     }
 
-    /// Define a new |BDT-GPST| [TimeOffset] from [Epoch]
-    pub fn from_bdt_gpst_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
-        Self::from_epoch(t_ref, polynomials)
-            .with_lhs(TimeScale::BDT)
-            .with_rhs(TimeScale::GPST)
+    /// Define a new |BDT-GPST| [TimeOffset] with reference [Epoch] that must be expressed in [TimeScale::BDT].
+    pub fn from_bdt_gpst_epoch(t_ref: Epoch, polynomial: Polynomial) -> Self {
+        assert_eq!(t_ref.time_scale, TimeScale::BDT);
+
+        Self::from_epoch(t_ref, polynomial).with_rhs(TimeScale::GPST)
     }
 
     /// Define a new |BDT-GPST| [TimeOffset] from week counter
-    pub fn from_bdt_gpst_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
-        Self::from_time_of_week(t_ref, polynomials)
-            .with_lhs(TimeScale::BDT)
-            .with_rhs(TimeScale::GPST)
+    pub fn from_bdt_gpst_time_of_week(t_ref: (u32, u64), polynomial: Polynomial) -> Self {
+        Self::from_time_of_week(t_ref, TimeScale::BDT, polynomial).with_rhs(TimeScale::GPST)
     }
 
-    /// Define a new |BDT-GST| [TimeOffset] from [Epoch]
-    pub fn from_bdt_gst_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
-        Self::from_epoch(t_ref, polynomials)
-            .with_lhs(TimeScale::BDT)
-            .with_rhs(TimeScale::GST)
+    /// Define a new |BDT-GST| [TimeOffset] with reference [Epoch] that must be expressed in [TimeScale::BDT].
+    pub fn from_bdt_gst_epoch(t_ref: Epoch, polynomial: Polynomial) -> Self {
+        assert_eq!(t_ref.time_scale, TimeScale::BDT);
+
+        Self::from_epoch(t_ref, polynomial).with_rhs(TimeScale::GST)
     }
 
     /// Define a new |BDT-GST| [TimeOffset] from week counter
-    pub fn from_bdt_gst_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
-        Self::from_time_of_week(t_ref, polynomials)
-            .with_lhs(TimeScale::BDT)
-            .with_rhs(TimeScale::GST)
+    pub fn from_bdt_gst_time_of_week(t_ref: (u32, u64), polynomial: Polynomial) -> Self {
+        Self::from_time_of_week(t_ref, TimeScale::BDT, polynomial).with_rhs(TimeScale::GST)
     }
 
-    /// Define a new |BDT-UTC| [TimeOffset] from [Epoch]
-    pub fn from_bdt_utc_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
-        Self::from_epoch(t_ref, polynomials)
-            .with_lhs(TimeScale::BDT)
-            .with_rhs(TimeScale::UTC)
+    /// Define a new |BDT-UTC| [TimeOffset] with reference [Epoch] that must be expressed in [TimeScale::BDT].
+    pub fn from_bdt_utc_epoch(t_ref: Epoch, polynomial: Polynomial) -> Self {
+        assert_eq!(t_ref.time_scale, TimeScale::BDT);
+
+        Self::from_epoch(t_ref, polynomial).with_rhs(TimeScale::UTC)
     }
 
     /// Define a new |BDT-UTC| [TimeOffset] from week counter
-    pub fn from_bdt_utc_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
-        Self::from_time_of_week(t_ref, polynomials)
-            .with_lhs(TimeScale::BDT)
-            .with_rhs(TimeScale::UTC)
+    pub fn from_bdt_utc_time_of_week(t_ref: (u32, u64), polynomial: Polynomial) -> Self {
+        Self::from_time_of_week(t_ref, TimeScale::BDT, polynomial).with_rhs(TimeScale::UTC)
     }
 
     /// Define a new [TimeOffset].
-    fn from_epoch(t_ref: Epoch, polynomials: (f64, f64, f64)) -> Self {
-        let t_ref = t_ref.to_time_of_week();
+    fn from_epoch(ref_epoch: Epoch, polynomial: Polynomial) -> Self {
         Self {
-            t_ref,
-            polynomials,
-            lhs: Default::default(),
+            ref_epoch,
+            polynomial,
+            lhs: ref_epoch.time_scale,
             rhs: Default::default(),
         }
     }
 
-    /// Define a new [TimeOffset].
-    fn from_time_of_week(t_ref: (u32, u64), polynomials: (f64, f64, f64)) -> Self {
+    /// Define a new [TimeOffset] from reference time expressed as Time of Week
+    /// ## Input
+    /// - week counter (u32)
+    /// - seconds within week (u64)
+    /// - timescale: [TimeScale]
+    /// - published [Polynomial]
+    fn from_time_of_week(t_ref: (u32, u64), timescale: TimeScale, polynomial: Polynomial) -> Self {
         Self {
-            t_ref,
-            polynomials,
+            polynomial,
+            ref_epoch: Epoch::from_time_of_week(t_ref.0, t_ref.1 * 1_000_000_000, timescale),
             lhs: Default::default(),
             rhs: Default::default(),
         }
-    }
-
-    /// Define [TimeOffset] with desired LHS (TimeScale]
-    pub(crate) fn with_lhs(&self, ts: TimeScale) -> Self {
-        let mut s = self.clone();
-        s.lhs = ts;
-        s
     }
 
     /// Define [TimeOffset] with desired LHS (TimeScale]
@@ -157,8 +126,8 @@ impl TimeOffset {
 
 /// [Time] is implemented by applications where precise absolute [Time] needs to be resolved at
 /// all times, and in all scenarios. Correct implementation of this trait allows
-/// correction of the temporal solution to match the desired [TimeScale] behavior accurately.
-/// It also allows to provide measurements in all described [TimeScale]s and maintain temporal and geometric accuracy.
+/// - to express temporal solution in the desired [TimeScale] very precisely (following the [TimeScale] behavior)
+/// - measurements can be expressed in any supported [TimeScale] and the temporal solution will remain correct.
 pub trait Time {
     /// Update the |[TimeScale::GPST] - [TimeScale::UTC]| [TimeOffset]
     fn gpst_utc_time_offset(&mut self, now: Epoch) -> Option<TimeOffset>;
@@ -263,31 +232,19 @@ impl<T: Time> AbsoluteTime<T> {
             .filter(|t| t.lhs == lhs && t.rhs == rhs)
             .reduce(|k, _| k)
         {
-            // Correction is directly available
-            time_offset.time_correction_seconds(t)
+            // Forward correction
+            let dt_s = (t.to_time_scale(time_offset.lhs) - time_offset.ref_epoch).to_seconds();
+            Ok(dt_s)
         } else if let Some(time_offset) = self
             .time_offsets
             .iter()
             .filter(|t| t.lhs == rhs && t.rhs == lhs)
             .reduce(|k, _| k)
         {
-            // Swapped correction is directly available
-            let nanos = time_offset.time_correction_seconds(t)?;
-            Ok(-nanos)
+            // Forward correction
+            let dt_s = (t.to_time_scale(time_offset.lhs) - time_offset.ref_epoch).to_seconds();
+            Ok(dt_s)
         } else {
-            // // Cross-mixed corrections
-            // for t1_offset in self.time_offsets.iter() {
-            //     if t1_offset.lhs == lhs {
-            //         for t2_offset in self.time_offsets.iter() {
-            //             if t1_offset.rhs == t2_offset.rhs && t2_offset.lhs == rhs {
-            //                 // |GST-BDT| = |GST-GPST| ; |BDT-GPST|
-            //                 let mut correction = t1_offset.time_correction_nanos(t)?;
-            //                 correction -= t2_offset.time_correction_nanos(t)?;
-            //                 return Ok(correction);
-            //             }
-            //         }
-            //     }
-            // }
             Err(Error::UnknownTimeCorection)
         }
     }

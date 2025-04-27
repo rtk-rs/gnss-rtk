@@ -22,6 +22,8 @@ impl Candidate {
     /// - rx_lat_long_alt_ddeg_km: state as geodetic lat, long both
     /// in decimal degrees, and altitude above mean sea level (km)
     /// - bias: [Bias] model
+    /// ## Returns
+    /// - b_i contribution, r_i contribution, dr: relativistic path range
     pub(crate) fn vector_contribution<B: Bias, T: Time>(
         &self,
         t: Epoch,
@@ -31,7 +33,7 @@ impl Candidate {
         contribution: &mut SVContribution,
         bias: &B,
         absolute_time: &AbsoluteTime<T>,
-    ) -> Result<(f64, f64), Error> {
+    ) -> Result<(f64, f64, f64), Error> {
         let mu = EARTH_GRAVITATION;
 
         let mut dr = 0.0;
@@ -173,7 +175,7 @@ impl Candidate {
             }
         }
 
-        Ok((range_m - rho - bias_m, dr))
+        Ok((range_m - rho - bias_m, 1.0, dr))
     }
 
     /// Geometric matrix contribution.

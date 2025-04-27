@@ -96,4 +96,10 @@ impl<O: OrbitSource, B: Bias, T: Time> PPPSolver<O, B, T> {
         let solution = self.solver.resolve(epoch, candidates)?;
         Ok(solution)
     }
+
+    /// Reset [PPPSolver]. This is usually not needed, even on data gaps.
+    /// For the simple reason that a correctly tuned filter will correctly adapt.
+    pub fn reset(&mut self) {
+        self.solver.reset();
+    }
 }

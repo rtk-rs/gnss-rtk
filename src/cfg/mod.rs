@@ -5,13 +5,17 @@ use serde::{Deserialize, Serialize};
 
 mod method;
 mod modeling;
-mod profile;
 mod solver;
+mod user;
 
 pub use crate::{
     carrier::Signal,
     cfg::solver::SolverOpts,
-    cfg::{method::Method, modeling::Modeling, profile::Profile},
+    cfg::{
+        method::Method,
+        modeling::Modeling,
+        user::{Profile, User},
+    },
     prelude::TimeScale,
 };
 
@@ -44,8 +48,8 @@ const fn default_code_smoothing() -> usize {
     0
 }
 
-const fn default_user_clock_sigma_s() -> f64 {
-    1E-3_f64
+const fn default_eclipse_rate_percent() -> f64 {
+    10.0
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -78,13 +82,7 @@ pub struct Config {
 
     /// [Profile] defines the type of application.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub profile: Profile,
-
-    /// User / receiver clock prediction perturbation (instantaneous bias) in seconds.
-    /// We use 10ms for very bad quality clocks, 100ms for low quality clocks.
-    /// For general purpose lab clocks, we set 1us.
-    #[cfg_attr(feature = "serde", serde(default = "default_user_clock_sigma_s"))]
-    pub user_clock_sigma: f64,
+    pub user: User,
 
     /// Select a prefered signal.
     /// When defined, this signal will strictly be used in the navigation process.
@@ -132,9 +130,13 @@ pub struct Config {
     pub externalref_delay: Option<f64>,
 
     /// Maximal Earth / Sun occultation tolerated for each satellite.
-    /// For example, 20.0% means that we consider satellites illuminated by 80%.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub max_sv_occultation_percent: Option<f64>,
+    /// For example, 20.0% means that we require satellites to be 80% illmuinated.
+    /// 10.0% is our default value.
+    #[cfg_attr(
+        feature = "serde",
+        serde(alias = "max_eclipse_rate", default = "default_eclipse_rate_percent")
+    )]
+    pub max_eclipse_rate_percent: f64,
 
     /// Minimal SV elevation angle for an SV to contribute to the solution.
     /// Use this as a simple quality criteria.
@@ -177,16 +179,14 @@ impl Default for Config {
         Self {
             timescale: default_timescale(),
             method: Method::default(),
-            profile: Profile::default(),
+            user: User::default(),
             solver: SolverOpts::default(),
             int_delay: Default::default(),
             modeling: Modeling::default(),
-            user_clock_sigma: default_user_clock_sigma_s(),
             fixed_altitude: None,
             prefered_signal: None,
             arp_enu: None,
             externalref_delay: None,
-            max_sv_occultation_percent: None,
             min_snr: None, // TODO
             min_sv_azim: None,
             max_sv_azim: None,
@@ -194,6 +194,7 @@ impl Default for Config {
             max_iono_bias: max_iono_bias(),
             max_tropo_bias: max_tropo_bias(),
             code_smoothing: default_code_smoothing(),
+            max_eclipse_rate_percent: default_eclipse_rate_percent(),
         }
     }
 }
@@ -203,27 +204,11 @@ impl Config {
     /// You can then customize [Self] as you will.
     pub fn static_preset(method: Method) -> Self {
         let mut s = Self::default();
-
         s.method = method;
-        s.profile = Profile::Static;
-
-        // consider that static applications usually have better clock quality
-        s.user_clock_sigma = default_user_clock_sigma_s() / 100.0;
 
         // consider that static applications can afford stringent criterias
         s.solver.max_gdop = 3.0;
         s.max_tropo_bias = 15.0;
-
-        match method {
-            Method::PPP => {
-                s.max_sv_occultation_percent = Some(10.0);
-            },
-            Method::CPP => {
-                s.max_sv_occultation_percent = Some(10.0);
-            },
-            _ => {},
-        }
-
         s
     }
 
@@ -233,21 +218,10 @@ impl Config {
         let mut s = Self::default();
 
         s.method = method;
-        s.profile = profile;
+        s.user.profile = profile;
 
-        s.max_tropo_bias = 15.0;
         s.solver.max_gdop = 5.0;
-
-        match method {
-            Method::PPP => {
-                s.max_sv_occultation_percent = Some(10.0);
-            },
-            Method::CPP => {
-                s.max_sv_occultation_percent = Some(10.0);
-            },
-            _ => {},
-        }
-
+        s.max_tropo_bias = 15.0;
         s
     }
 

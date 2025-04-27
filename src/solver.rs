@@ -70,10 +70,6 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
         // Analyze preset
-        if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
-            warn!("SV occultation filter is not meaningful in SPP navigation");
-        }
-
         if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
             panic!("RF cable delay compensation is incorrectly defined!");
         }
@@ -237,7 +233,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         }
     }
 
-    /// Reset this [Solver]
+    /// Reset this [Solver].
     pub fn reset(&mut self) {
         self.navigation.reset();
     }

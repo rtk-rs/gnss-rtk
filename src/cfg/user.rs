@@ -3,13 +3,17 @@ use crate::cfg::Error;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// Rover, receiver or user [Profile], which is application dependent.
+/// Default perturbation to clock prediction (in seconds)
+const fn default_clock_sigma() -> f64 {
+    1E-3_f64
+}
+
+/// Receiver [Profile], which is application dependent.
+/// [Profile::Static] is our default value: any roaming application needs to customize its profile.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Profile {
-    /// Receiver held in static.
-    /// Typically used in Geodetic surveys (GNSS stations Referencing)
-    /// and laboratories applications.
+    /// Typically used in geodetic marker surveys and laboratries applications.
     #[default]
     #[cfg_attr(feature = "serde", serde(alias = "static", alias = "Static"))]
     Static,
@@ -58,6 +62,41 @@ impl std::fmt::Display for Profile {
             Self::Car => write!(f, "car"),
             Self::Airplane => write!(f, "airplane"),
             Self::Rocket => write!(f, "rocket"),
+        }
+    }
+}
+
+/// [User] profile definition. High accuracy requires correct use
+/// of these settings.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct User {
+    /// Custom user [Profile] which is application dependent
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub profile: Profile,
+
+    /// Receiver clock prediction perturbation (instantaneous bias) in seconds.
+    /// Standard values are:
+    /// - 10ms for very bad clocks
+    /// - 1ms for low quality clocks (this is our default value)
+    /// - 1us for good quality laboratory clocks
+    /// - lower for ultra high quality clocks
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            alias = "clock",
+            alias = "clock_sigma",
+            default = "default_clock_sigma"
+        )
+    )]
+    pub clock_sigma_s: f64,
+}
+
+impl Default for User {
+    fn default() -> Self {
+        Self {
+            profile: Profile::default(),
+            clock_sigma_s: default_clock_sigma(),
         }
     }
 }
