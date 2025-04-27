@@ -24,24 +24,28 @@ pub enum Error {
     InvalidUserProfile,
 }
 
-fn default_timescale() -> TimeScale {
+const fn default_timescale() -> TimeScale {
     TimeScale::GPST
 }
 
-fn max_tropo_bias() -> f64 {
+const fn max_tropo_bias() -> f64 {
     30.0
 }
 
-fn max_iono_bias() -> f64 {
+const fn max_iono_bias() -> f64 {
     10.0
 }
 
-fn min_sv_elev() -> Option<f64> {
+const fn min_sv_elev() -> Option<f64> {
     Some(10.0)
 }
 
-fn default_code_smoothing() -> usize {
+const fn default_code_smoothing() -> usize {
     0
+}
+
+const fn default_user_clock_sigma_s() -> f64 {
+    1E-3_f64
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -67,12 +71,21 @@ pub struct Config {
     /// [TimeScale::GPST] is the default value.
     #[cfg_attr(feature = "serde", serde(default = "default_timescale"))]
     pub timescale: TimeScale,
+
     /// Navigation [Method] (technique) to be used.
     #[cfg_attr(feature = "serde", serde(default))]
     pub method: Method,
+
     /// [Profile] defines the type of application.
     #[cfg_attr(feature = "serde", serde(default))]
     pub profile: Profile,
+
+    /// User / receiver clock prediction perturbation (instantaneous bias) in seconds.
+    /// We use 10ms for very bad quality clocks, 100ms for low quality clocks.
+    /// For general purpose lab clocks, we set 1us.
+    #[cfg_attr(feature = "serde", serde(default = "default_user_clock_sigma_s"))]
+    pub user_clock_sigma: f64,
+
     /// Select a prefered signal.
     /// When defined, this signal will strictly be used in the navigation process.
     /// When undefined, the algorithm will prefer the best SNR available, and the
@@ -82,12 +95,11 @@ pub struct Config {
     /// bias compensation,
     #[cfg_attr(feature = "serde", serde(default))]
     pub prefered_signal: Option<Signal>,
-    /// Possible remote reference site coordinates, in ECEF [m].
-    /// Must be defined in case RTK navigation is selected.
-    pub remote_site: Option<(f64, f64, f64)>,
+
     /// Fixed altitude: reduces the need of 4 to 3 SV to obtain 3D solutions.
     #[cfg_attr(feature = "serde", serde(default))]
     pub fixed_altitude: Option<f64>,
+
     /// Pseudo Range code smoothing (window length).
     /// Use phase observatoins to smooth and reduce error in the pseudo range code.
     /// This has no effect if phase observations are missing.
@@ -95,17 +107,21 @@ pub struct Config {
     /// When parametrizing, think in terms of window duration versus Ionospheric activity.
     #[cfg_attr(feature = "serde", serde(default = "default_code_smoothing"))]
     pub code_smoothing: usize,
+
     /// Internal delays to compensate for (total summation, in [s]).
     /// Compensation is only effective if [Modeling.cable_delay]
     /// is also turned on.
     #[cfg_attr(feature = "serde", serde(default))]
     pub int_delay: Vec<InternalDelay>,
+
     /// Antenna Reference Point (ARP) expressed as ENU offset [m]
     #[cfg_attr(feature = "serde", serde(default))]
     pub arp_enu: Option<(f64, f64, f64)>,
+
     /// Solver customization
     #[cfg_attr(feature = "serde", serde(default))]
     pub solver: SolverOpts,
+
     /// Time Reference Delay. According to BIPM ""GPS Receivers Accurate Time Comparison""
     /// this is the time delay between the receiver external reference clock
     /// and the internal sampling clock. This is typically needed in
@@ -114,35 +130,43 @@ pub struct Config {
     /// is also turned on.
     #[cfg_attr(feature = "serde", serde(default))]
     pub externalref_delay: Option<f64>,
+
     /// Maximal Earth / Sun occultation tolerated for each satellite.
     /// For example, 20.0% means that we consider satellites illuminated by 80%.
     #[cfg_attr(feature = "serde", serde(default))]
     pub max_sv_occultation_percent: Option<f64>,
+
     /// Minimal SV elevation angle for an SV to contribute to the solution.
     /// Use this as a simple quality criteria.
     #[cfg_attr(feature = "serde", serde(default = "min_sv_elev"))]
     pub min_sv_elev: Option<f64>,
+
     /// Minimal SV Azimuth angle for an SV to contribute to the solution.
     /// SV below that angle will not be considered.
     /// Use this is in special navigation scenarios.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_sv_azim: Option<f64>,
+
     /// Maximal SV Azimuth angle for an SV to contribute to the solution.
     /// SV below that angle will not be considered.
     /// Use this is in special navigation scenarios.
     #[cfg_attr(feature = "serde", serde(default))]
     pub max_sv_azim: Option<f64>,
+
     /// Minimal SNR for an SV to contribute to the solution.
     #[cfg_attr(feature = "serde", serde(default))]
     pub min_snr: Option<f64>,
+
     /// Maximal tropo bias that we tolerate (in [m]).
     /// Has no effect if modeling.tropo_delay is disabled.
     #[cfg_attr(feature = "serde", serde(default = "max_tropo_bias"))]
     pub max_tropo_bias: f64,
+
     /// Maximal iono bias that we tolerate (in [m]).
     /// Has no effect if modeling.iono_delay is disabled.
     #[cfg_attr(feature = "serde", serde(default = "max_iono_bias"))]
     pub max_iono_bias: f64,
+
     /// Atmospherical and Physical [Modeling] used to improve the accuracy of solution.
     #[cfg_attr(feature = "serde", serde(default))]
     pub modeling: Modeling,
@@ -157,7 +181,7 @@ impl Default for Config {
             solver: SolverOpts::default(),
             int_delay: Default::default(),
             modeling: Modeling::default(),
-            remote_site: None,
+            user_clock_sigma: default_user_clock_sigma_s(),
             fixed_altitude: None,
             prefered_signal: None,
             arp_enu: None,
@@ -183,8 +207,12 @@ impl Config {
         s.method = method;
         s.profile = Profile::Static;
 
-        s.max_tropo_bias = 15.0;
+        // consider that static applications usually have better clock quality
+        s.user_clock_sigma = default_user_clock_sigma_s() / 100.0;
+
+        // consider that static applications can afford stringent criterias
         s.solver.max_gdop = 3.0;
+        s.max_tropo_bias = 15.0;
 
         match method {
             Method::PPP => {
@@ -226,33 +254,14 @@ impl Config {
     /// Returns [Config] for static RTK positioning, with desired [Method],
     /// Remote site coordinates expressed in meters ECEF.
     /// You can then customize [Self] as you will.
-    pub fn static_rtk_preset(method: Method, remote_site_ecef_m: (f64, f64, f64)) -> Self {
-        let mut s = Self::default();
-        s.profile = Profile::Static;
-        s.method = method;
-        s.remote_site = Some(remote_site_ecef_m);
-        s.min_sv_elev = Some(15.0);
-        s.max_tropo_bias = 15.0;
-        s.max_iono_bias = max_iono_bias();
-        s
+    pub fn static_rtk_preset(method: Method) -> Self {
+        Self::static_preset(method) // strictly identical
     }
 
     /// Returns [Config] for dynamic RTK positioning, with desired [Method],
-    /// rover [Profile] and reference Remote Site coordinates expressed
-    /// as meters ECEF. You can then customize [Self] as you will.
-    pub fn dynamic_rtk_preset(
-        profile: Profile,
-        method: Method,
-        remote_site_ecef_m: (f64, f64, f64),
-    ) -> Self {
-        let mut s = Self::default();
-        s.profile = profile;
-        s.method = method;
-        s.remote_site = Some(remote_site_ecef_m);
-        s.min_sv_elev = Some(15.0);
-        s.max_tropo_bias = max_tropo_bias();
-        s.max_iono_bias = max_iono_bias();
-        s
+    /// rover [Profile].
+    pub fn dynamic_rtk_preset(profile: Profile, method: Method) -> Self {
+        Self::dynamic_preset(profile, method) // stricty identical
     }
 
     /// Returns new [Config] with desired navigation [Method]

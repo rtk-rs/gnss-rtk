@@ -225,6 +225,10 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             &self.navigation.sv,
         );
 
+        if !self.cfg.solver.closed_loop {
+            self.navigation.state = state;
+        }
+
         if self.first_solution {
             self.first_solution = false;
             Err(Error::InvalidatedFirstSolution)

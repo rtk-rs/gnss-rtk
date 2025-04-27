@@ -356,12 +356,11 @@ where
             }
         }
 
-        // TODO: q_k tuning
         let mut q_k = OMatrix::<f64, S, S>::zeros();
 
         for i in 0..S::USIZE {
             if i == 3 {
-                q_k[(i, i)] = (1E-6_f64 * SPEED_OF_LIGHT_M_S).powi(2);
+                q_k[(i, i)] = (self.cfg.user_clock_sigma * SPEED_OF_LIGHT_M_S).powi(2);
             } else if i == 2 {
                 q_k[(i, i)] = 5.0; // z bias
             } else {
@@ -477,12 +476,11 @@ where
             }
         }
 
-        // TODO: q_k tuning
         let mut q_k = OMatrix::<f64, S, S>::zeros();
 
         for i in 0..S::USIZE {
             if i == 3 {
-                q_k[(i, i)] = (1E-6_f64 * SPEED_OF_LIGHT_M_S).powi(2);
+                q_k[(i, i)] = (self.cfg.user_clock_sigma * SPEED_OF_LIGHT_M_S).powi(2);
             } else if i == 2 {
                 q_k[(i, i)] = 5.0; // z bias
             } else {
