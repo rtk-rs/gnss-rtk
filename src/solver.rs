@@ -169,13 +169,11 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
                     });
 
                     debug!("{} - initial state: {}", t, state);
-
                     self.navigation.state = state;
-
                     state
                 },
                 None => {
-                    let solver = Bancroft::new(&pool)?;
+                    let solver = Bancroft::new(self.pool.candidates())?;
                     let solution = solver.resolve()?;
                     let x0_y0_z0_m = Vector3::new(solution[0], solution[1], solution[2]);
 

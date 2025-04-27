@@ -38,11 +38,13 @@ impl Bancroft {
         let m = Self::m_matrix();
         let mut a = Vector4::<f64>::default();
         let mut b = Matrix4::<f64>::default();
+
         if cd.len() < 4 {
             return Err(Error::NotEnoughInitializationCandidates);
         }
 
         let mut j = 0;
+
         for i in 0..cd.len() {
             if let Some(orbit) = cd[i].orbit {
                 let state = orbit.to_cartesian_pos_vel() * 1.0E3;
