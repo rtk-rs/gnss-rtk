@@ -6,9 +6,6 @@ use crate::{
     solver::Solver,
 };
 
-#[cfg(doc)]
-use crate::prelude::NullTime;
-
 /// [PPPSolver] is used for direct absolute navigation, without
 /// access to any remote reference sites. The objective is to resolve [PVTSolution]s
 /// with high accuracy.

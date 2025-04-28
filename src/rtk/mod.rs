@@ -6,9 +6,6 @@ use crate::{
     solver::Solver,
 };
 
-#[cfg(doc)]
-use crate::prelude::NullTime;
-
 // pub(crate) mod star;
 // pub use star::StarNRTK;
 
@@ -54,10 +51,8 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> RTKSolver<O, B, T> {
     /// - cfg: solver [Config]uration
     /// - orbit_source: external [OrbitSource] implementation, oftentimes referred to
     /// as "orbit provider".
-    /// - time_source: external [Time] implementation, for applications that require
-    /// correct temporal solutions at all times. If you cannot fulffil its requirements
-    /// or do not care about the accuracy of the absolute temporal solution, you can simply
-    /// tie our [NullTime] structure here.
+    /// - time_source: external [AbsoluteTime] implementation, for applications that require
+    /// correct temporal solutions at all times.
     /// - rtk_base: single reference that implements the [RTKBase] trait.
     /// - bias: external [Bias] model implementation, to improve overall accuracy.
     /// - initial_position_ecef_m: possible initial position, as ECEF coordinates in meters.
