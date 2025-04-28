@@ -4,8 +4,6 @@ use nalgebra::{
     allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, OVector,
 };
 
-use log::debug;
-
 #[derive(Clone)]
 pub struct KfEstimate<S>
 where
@@ -118,11 +116,6 @@ where
 
         self.predicted = KfEstimate { x: x_k, p: p_k };
 
-        debug!(
-            "initial prediction: x={} p={}",
-            self.predicted.x, self.predicted.p
-        );
-
         self.initialized = true;
     }
 
@@ -200,7 +193,6 @@ where
         let x_k1 = f_k.clone() * x_k.clone();
         let p_k1 = f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
 
-        debug!("new prediction x={} p={}", x_k1, p_k1);
         self.predicted = KfEstimate { x: x_k1, p: p_k1 };
 
         Ok(KfEstimate { x: x_k, p: p_k })

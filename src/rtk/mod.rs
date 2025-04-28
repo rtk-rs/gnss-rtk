@@ -1,13 +1,10 @@
 use crate::{
     prelude::{
-        Almanac, Bias, Candidate, Config, Epoch, Error, Frame, Observation, OrbitSource,
-        PVTSolution, Time, SV,
+        AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, Observation,
+        OrbitSource, PVTSolution, SV,
     },
     solver::Solver,
 };
-
-#[cfg(doc)]
-use crate::prelude::NullTime;
 
 // pub(crate) mod star;
 // pub use star::StarNRTK;
@@ -36,12 +33,12 @@ pub trait RTKBase {
 /// [RTKSolver] is used for differential navigation, to resolve
 /// the position of a single rover connected to a single reference site.
 /// The objective is to resolve [PVTSolution]s with high accuracy.
-pub struct RTKSolver<O: OrbitSource, B: Bias, T: Time> {
+pub struct RTKSolver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     /// Internal [Solver]
     solver: Solver<O, B, T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: Time> RTKSolver<O, B, T> {
+impl<O: OrbitSource, B: Bias, T: AbsoluteTime> RTKSolver<O, B, T> {
     /// Creates a new [RTKSolver] for direct differential navigation,
     /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
     /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.
@@ -54,10 +51,8 @@ impl<O: OrbitSource, B: Bias, T: Time> RTKSolver<O, B, T> {
     /// - cfg: solver [Config]uration
     /// - orbit_source: external [OrbitSource] implementation, oftentimes referred to
     /// as "orbit provider".
-    /// - time_source: external [Time] implementation, for applications that require
-    /// correct temporal solutions at all times. If you cannot fulffil its requirements
-    /// or do not care about the accuracy of the absolute temporal solution, you can simply
-    /// tie our [NullTime] structure here.
+    /// - time_source: external [AbsoluteTime] implementation, for applications that require
+    /// correct temporal solutions at all times.
     /// - rtk_base: single reference that implements the [RTKBase] trait.
     /// - bias: external [Bias] model implementation, to improve overall accuracy.
     /// - initial_position_ecef_m: possible initial position, as ECEF coordinates in meters.

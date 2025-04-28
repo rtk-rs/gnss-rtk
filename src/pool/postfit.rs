@@ -27,10 +27,7 @@ impl Pool {
     {
         self.post_fit_attitudes(almanac, frame, cfg, state);
         self.post_fit_velocities(cfg.modeling.relativistic_clock_bias);
-
-        if let Some(max_occultation) = cfg.max_sv_occultation_percent {
-            self.post_fit_eclipse(almanac, max_occultation);
-        }
+        self.post_fit_eclipse(almanac, cfg.max_eclipse_rate_percent);
 
         if cfg.code_smoothing > 0 || cfg.method == Method::PPP {
             self.post_fit_ambiguity_solving();

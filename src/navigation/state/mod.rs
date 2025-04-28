@@ -113,7 +113,14 @@ where
 
     /// Returns position and velocity in ECEF meters as [Vector6]
     pub fn position_velocity_ecef_m(&self) -> Vector6 {
-        Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0)
+        Vector6::new(
+            self.x[0],
+            self.x[1],
+            self.x[2],
+            self.velocity_m_s[0],
+            self.velocity_m_s[1],
+            self.velocity_m_s[2],
+        )
     }
 
     /// Returns estimated clock (offset, drift) in seconds and s.s⁻¹.
@@ -137,7 +144,7 @@ where
         let dt = (pending_t - self.t).to_seconds();
 
         if dt > 0.0 {
-            self.clock_drift_s_s = correction.dx[3] / SPEED_OF_LIGHT_M_S / dt;
+            self.clock_drift_s_s = (correction.dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt;
 
             self.velocity_m_s = Vector3::new(
                 correction.dx[0] / dt,
@@ -175,8 +182,8 @@ where
         Ok(())
     }
 
-    /// Compute residual between this [State] and other [State]
-    pub fn residual(&self, rhs: &State<D>) -> OVector<f64, D> {
-        self.x - rhs.x
-    }
+    // /// Compute residual between this [State] and other [State]
+    // pub(crate) fn residual(&self, rhs: &State<D>) -> OVector<f64, D> {
+    //     self.x - rhs.x
+    // }
 }

@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 use anise::{
     math::Vector3,
@@ -11,21 +11,20 @@ use crate::{
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
-    cfg::{Config, Method},
+    cfg::Config,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
     prelude::{Epoch, Error},
-    time::{AbsoluteTime, Time},
+    time::AbsoluteTime,
 };
 
 /// [Solver] to resolve [PVTSolution]s.
 /// ## Generics:
 /// - O: [OrbitSource], custom [Orbit] provider.
 /// - B: custom [Bias] model.
-/// - T: [Time] source for correct absolute time
-/// - RTK: [RTKBase] implementation, used in differential technique only.
-pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
+/// - T: [AbsoluteTime] source for correct absolute time
+pub struct Solver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     /// Solver [Config]uration preset
     pub cfg: Config,
     /// [Almanac]
@@ -44,11 +43,11 @@ pub struct Solver<O: OrbitSource, B: Bias, T: Time> {
     navigation: Navigation<U4>,
     /// Possible initial position
     initial_ecef_m: Option<Vector3>,
-    /// [AbsoluteTime] source
-    absolute_time: AbsoluteTime<T>,
+    /// [AbsoluteTime] implementation
+    absolute_time: T,
 }
 
-impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
+impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
     /// Creates a new [Solver] for either direct or differential navigation,
     /// with possible apriori knowledge.
     ///
@@ -57,6 +56,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
     /// - orbit_source: custom [OrbitSource] implementation.
+    /// - absolute_time: external [AbsoluteTime] implementation.
     /// - bias: [Bias] model implementation
     /// - state_ecef_m: provide initial state as ECEF 3D coordinates,
     /// otherwise we will have to figure them.
@@ -65,15 +65,11 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         earth_cef: Frame,
         cfg: Config,
         orbit_source: O,
-        time_source: T,
+        absolute_time: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
         // Analyze preset
-        if cfg.method == Method::SPP && cfg.max_sv_occultation_percent.is_some() {
-            warn!("SV occultation filter is not meaningful in SPP navigation");
-        }
-
         if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
             panic!("RF cable delay compensation is incorrectly defined!");
         }
@@ -95,10 +91,10 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             earth_cef,
             navigation,
             orbit_source,
+            absolute_time,
             initial_ecef_m,
             cfg: cfg.clone(),
             first_solution: true,
-            absolute_time: AbsoluteTime::new(time_source),
             pool: Pool::allocate(cfg.code_smoothing, earth_cef),
         }
     }
@@ -119,8 +115,6 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             return Err(Error::NotEnoughCandidates);
         }
 
-        self.absolute_time.update(t);
-
         self.pool.new_epoch(pool);
         self.pool.pre_fit(&self.cfg, &self.absolute_time);
 
@@ -131,26 +125,14 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         let t = if t.time_scale == self.cfg.timescale {
             t
         } else {
-            match self
-                .absolute_time
-                .epoch_time_correction(t, self.cfg.timescale)
-            {
-                Ok(new_t) => {
-                    let correction = t - new_t;
-                    debug!(
-                        "{} - |{} - {}| {} sampling instant correction",
-                        t, t.time_scale, ts, correction
-                    );
-                    new_t
-                },
-                Err(e) => {
-                    error!(
-                        "{} - failed to apply |{} - {}| correction: {}",
-                        t, t.time_scale, ts, e
-                    );
-                    return Err(e);
-                },
-            }
+            let corrected = self.absolute_time.epoch_correction(t, self.cfg.timescale);
+
+            debug!(
+                "{} - |{}-{}| corrected sampling: {}",
+                t, t.time_scale, ts, corrected
+            );
+
+            corrected
         };
 
         let orbit_source = &mut self.orbit_source;
@@ -200,14 +182,10 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         }
 
         // Solving attempt
-        match self.navigation.solving(
-            t,
-            &state,
-            &self.pool.candidates(),
-            pool_size,
-            &self.bias,
-            &self.absolute_time,
-        ) {
+        match self
+            .navigation
+            .solving(t, &state, &self.pool.candidates(), pool_size, &self.bias)
+        {
             Ok(_) => {
                 info!("{} - iteration completed", t);
             },
@@ -225,6 +203,10 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
             &self.navigation.sv,
         );
 
+        if self.cfg.solver.open_loop {
+            self.navigation.state = state;
+        }
+
         if self.first_solution {
             self.first_solution = false;
             Err(Error::InvalidatedFirstSolution)
@@ -233,7 +215,7 @@ impl<O: OrbitSource, B: Bias, T: Time> Solver<O, B, T> {
         }
     }
 
-    /// Reset this [Solver]
+    /// Reset this [Solver].
     pub fn reset(&mut self) {
         self.navigation.reset();
     }

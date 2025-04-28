@@ -26,7 +26,6 @@ use crate::{
         Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal,
         SPEED_OF_LIGHT_M_S, SV,
     },
-    time::{AbsoluteTime, Time},
 };
 
 pub use solutions::PVTSolution;
@@ -136,19 +135,18 @@ where
     }
 
     /// Iterates mutable [Navigation] filter.
-    pub fn solving<B: Bias, T: Time>(
+    pub fn solving<B: Bias>(
         &mut self,
         t: Epoch,
         past_state: &State<S>,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
+            self.kf_initialization(t, past_state, candidates, size, bias)?;
         } else {
-            self.kf_run(t, candidates, size, bias, absolute_time)?;
+            self.kf_run(t, candidates, size, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -171,10 +169,18 @@ where
                         Error::StateUpdate
                     })?;
             } else {
+                let sigma_state_pos_std_dev_m = 1.0 / self.cfg.solver.postfit_denoising;
+
+                let mut sigma_state_vel_std_dev_m = 1.0 / self.cfg.solver.postfit_denoising;
+
+                if self.cfg.user.profile.is_static() {
+                    sigma_state_vel_std_dev_m /= 100.0;
+                }
+
                 self.postfit = Some(PostfitKf::new(
                     &self.state,
-                    1.0 / self.cfg.solver.postfit_denoising,
-                    1.0 / self.cfg.solver.postfit_denoising,
+                    sigma_state_pos_std_dev_m,
+                    sigma_state_vel_std_dev_m,
                     1.0,
                     1.0,
                 ));
@@ -188,14 +194,13 @@ where
     }
 
     /// Filter first iteration.
-    pub fn kf_initialization<B: Bias, T: Time>(
+    pub fn kf_initialization<B: Bias>(
         &mut self,
         t: Epoch,
         state: &State<S>,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
 
@@ -207,6 +212,7 @@ where
         let mut indexes = Vec::<usize>::with_capacity(size);
 
         let mut y_k = Vec::<f64>::with_capacity(size);
+        let mut r_k = Vec::<f64>::with_capacity(size);
 
         // measurement
         for i in 0..size {
@@ -222,10 +228,10 @@ where
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
-                absolute_time,
             ) {
-                Ok((y_i, dr_i)) => {
+                Ok((y_i, r_i, dr_i)) => {
                     y_k.push(y_i);
+                    r_k.push(r_i);
                     indexes.push(i);
 
                     if self.cfg.modeling.relativistic_path_range {
@@ -250,6 +256,12 @@ where
 
         let mut y_k = DVector::<f64>::from_row_slice(&y_k);
         let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
+
+        let mut w_k = DMatrix::<f64>::identity(y_len, y_len);
+
+        for i in 0..y_len {
+            w_k[(i, i)] = 1.0 / r_k[i];
+        }
 
         let mut x_k = DVector::<f64>::zeros(S::USIZE);
         let mut correction = StateCorrection::default();
@@ -277,15 +289,6 @@ where
             if g_k.nrows() != y_len {
                 return Err(Error::MatrixDimension);
             }
-
-            // TODO: r_k tuning
-            let mut r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
-
-            for i in 0..g_k.nrows() {
-                r_k[(i, i)] = 5.0; // TODO
-            }
-
-            let w_k = r_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
             // run
             let gt = g_k.transpose();
@@ -330,10 +333,10 @@ where
                     pending.lat_long_alt_deg_deg_km,
                     &mut unused,
                     bias,
-                    absolute_time,
                 ) {
-                    Ok((y_i, _)) => {
+                    Ok((y_i, r_i, _)) => {
                         y_k[i] = y_i;
+                        w_k[(i, i)] = 1.0 / r_i;
                     },
                     Err(e) => {
                         error!(
@@ -350,22 +353,23 @@ where
 
         let mut f_k = OMatrix::<f64, S, S>::zeros();
 
-        if self.cfg.profile.is_static() {
+        if self.cfg.user.profile.is_static() {
             for i in 0..3 {
                 f_k[(i, i)] = 1.0;
             }
         }
 
-        // TODO: q_k tuning
         let mut q_k = OMatrix::<f64, S, S>::zeros();
+
+        const Z_BIAS_METERS: f64 = 5.0; // [m]
 
         for i in 0..S::USIZE {
             if i == 3 {
-                q_k[(i, i)] = (1E-6_f64 * SPEED_OF_LIGHT_M_S).powi(2);
+                q_k[(i, i)] = (self.cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
             } else if i == 2 {
-                q_k[(i, i)] = 5.0; // z bias
+                q_k[(i, i)] = Z_BIAS_METERS;
             } else {
-                q_k[(i, i)] = 2.5;
+                q_k[(i, i)] = Z_BIAS_METERS / 2.0;
             }
         }
 
@@ -380,13 +384,12 @@ where
     }
 
     /// [Kalman] filter run
-    pub fn kf_run<B: Bias, T: Time>(
+    pub fn kf_run<B: Bias>(
         &mut self,
         t: Epoch,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
 
@@ -396,6 +399,7 @@ where
         let mut indexes = Vec::<usize>::with_capacity(size);
 
         let mut y_k = Vec::<f64>::with_capacity(size);
+        let mut r_k = Vec::<f64>::with_capacity(size);
 
         // measurement
         for i in 0..size {
@@ -412,10 +416,11 @@ where
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
-                absolute_time,
             ) {
-                Ok((y_i, dr_i)) => {
+                Ok((y_i, r_i, dr_i)) => {
                     y_k.push(y_i);
+                    r_k.push(r_i);
+
                     indexes.push(i);
 
                     if self.cfg.modeling.relativistic_path_range {
@@ -441,14 +446,11 @@ where
         let y_k = DVector::<f64>::from_row_slice(&y_k);
         let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
 
-        // TODO: r_k tuning
-        let mut r_k = DMatrix::<f64>::identity(g_k.nrows(), g_k.nrows());
+        let mut w_k = DMatrix::<f64>::identity(y_len, y_len);
 
-        for i in 0..g_k.nrows() {
-            r_k[(i, i)] = 5.0; // TODO
+        for i in 0..y_len {
+            w_k[(i, i)] = 1.0 / r_k[i];
         }
-
-        let w_k = r_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
         // form g_k
         for (i, index) in indexes.iter().enumerate() {
@@ -471,22 +473,23 @@ where
 
         let mut f_k = OMatrix::<f64, S, S>::zeros();
 
-        if self.cfg.profile.is_static() {
+        if self.cfg.user.profile.is_static() {
             for i in 0..3 {
                 f_k[(i, i)] = 1.0;
             }
         }
 
-        // TODO: q_k tuning
         let mut q_k = OMatrix::<f64, S, S>::zeros();
+
+        const Z_BIAS_METERS: f64 = 5.0; // [m]
 
         for i in 0..S::USIZE {
             if i == 3 {
-                q_k[(i, i)] = (1E-6_f64 * SPEED_OF_LIGHT_M_S).powi(2);
+                q_k[(i, i)] = (self.cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
             } else if i == 2 {
-                q_k[(i, i)] = 5.0; // z bias
+                q_k[(i, i)] = Z_BIAS_METERS;
             } else {
-                q_k[(i, i)] = 2.5;
+                q_k[(i, i)] = Z_BIAS_METERS / 2.0;
             }
         }
 
@@ -509,11 +512,11 @@ where
         // update
         self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
-        self.state_validation()?;
-
-        self.state = pending;
-        debug!("{} - new state {}", t, self.state);
+        debug!("{} - new state {}", t, pending);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+
+        self.state_validation()?;
+        self.state = pending;
 
         Ok(())
     }

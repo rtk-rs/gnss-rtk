@@ -1,22 +1,20 @@
 use crate::{
     prelude::{
-        Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource, PVTSolution, Time,
+        AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
+        PVTSolution,
     },
     solver::Solver,
 };
 
-#[cfg(doc)]
-use crate::prelude::NullTime;
-
 /// [PPPSolver] is used for direct absolute navigation, without
 /// access to any remote reference sites. The objective is to resolve [PVTSolution]s
 /// with high accuracy.
-pub struct PPPSolver<O: OrbitSource, B: Bias, T: Time> {
+pub struct PPPSolver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     /// Internal [Solver]
     solver: Solver<O, B, T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: Time> PPPSolver<O, B, T> {
+impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPPSolver<O, B, T> {
     /// Creates a new [PPPSolver] for direct absolute navigation,
     /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
     /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.
@@ -95,5 +93,11 @@ impl<O: OrbitSource, B: Bias, T: Time> PPPSolver<O, B, T> {
     ) -> Result<PVTSolution, Error> {
         let solution = self.solver.resolve(epoch, candidates)?;
         Ok(solution)
+    }
+
+    /// Reset [PPPSolver]. This is usually not needed, even on data gaps.
+    /// For the simple reason that a correctly tuned filter will correctly adapt.
+    pub fn reset(&mut self) {
+        self.solver.reset();
     }
 }

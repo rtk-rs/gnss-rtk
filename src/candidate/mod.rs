@@ -46,6 +46,8 @@ pub struct Candidate {
     pub(crate) elevation_deg: Option<f64>,
     /// azimuth at reception time
     pub(crate) azimuth_deg: Option<f64>,
+    /// Possible time system correction
+    pub(crate) system_correction: Option<Duration>,
 }
 
 impl Candidate {
@@ -65,6 +67,7 @@ impl Candidate {
             t,
             t_tx: t,
             observations,
+            system_correction: None,
             tgd: Default::default(),
             dt_tx: Default::default(),
             orbit: Default::default(),

@@ -1,12 +1,14 @@
 use crate::prelude::{Epoch, Frame, Orbit, SV};
 
-/// OrbitalStateProvider must be implemented
-/// and provide SV state at specified `t` for the solving process can proceed.
+/// Applications need to implement the [OrbitSource] to propose [SV] that
+/// will contribute to the solutions.
 pub trait OrbitSource {
-    /// Provide Antenna Phase Center state as [Orbit] at requested [Epoch] for requested [SV]
-    /// and expressed in required [Frame]. If you happen to use other [Frame]s,
-    /// you can apply [Frame] conversion (rotations) by means of an [Almanac].
-    /// If None is returned for too long, this [Epoch] will eventually get dropped out
-    /// and we will proceed to the next.
-    fn next_at(&mut self, t: Epoch, sv: SV, fr: Frame) -> Option<Orbit>;
+    /// Provide Antenna Phase Center state at requested [Epoch] and [SV],
+    /// which you need to express as ANISE [Orbit] in the selected [Frame].  
+    /// If you don't have such information, simply return [None] and this [SV]
+    /// will not contribute to the next solution.  
+    ///
+    /// Because GNSS-RTK is synchronous and we're currently processing this [Epoch],
+    /// any past [Epoch] will never be proposed here.
+    fn next_at(&mut self, epoch: Epoch, sv: SV, fr: Frame) -> Option<Orbit>;
 }

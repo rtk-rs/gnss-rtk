@@ -1,19 +1,19 @@
 use crate::{
     pool::Pool,
     prelude::{Config, Method, TimeScale},
-    time::{AbsoluteTime, Time},
+    time::AbsoluteTime,
 };
 
 use log::{debug, error};
 
 impl Pool {
     /// Apply Pre fit criterias
-    pub fn pre_fit<T: Time>(&mut self, cfg: &Config, absolute_time: &AbsoluteTime<T>) {
+    pub fn pre_fit<T: AbsoluteTime>(&mut self, cfg: &Config, absolute_time: &T) {
         if let Some(min_snr) = cfg.min_snr {
             self.pre_fit_min_snr(min_snr);
         }
 
-        self.time_corrections(cfg.timescale, &absolute_time);
+        self.time_corrections(cfg.timescale, absolute_time);
         self.pre_fit_navi_compatible(&cfg.method);
     }
 
@@ -67,27 +67,13 @@ impl Pool {
         });
     }
 
-    fn time_corrections<T: Time>(&mut self, target: TimeScale, absolute_time: &AbsoluteTime<T>) {
-        self.retain_mut(|cd| {
-            if cd.t.time_scale == target {
-                true
-            } else {
-                if let Ok(t) = absolute_time.epoch_time_correction(cd.t, target) {
-                    let correction = t - cd.t;
-                    debug!(
-                        "{} - {}: |{}-{}| {} correction",
-                        cd.t, cd.sv, cd.t.time_scale, target, correction
-                    );
-                    cd.t = t;
-                    true
-                } else {
-                    error!(
-                        "{} - {} is dropped: unknown |{}-{}| correction",
-                        cd.t, cd.sv, cd.t.time_scale, target
-                    );
-                    false
-                }
+    fn time_corrections<T: AbsoluteTime>(&mut self, target: TimeScale, absolute_time: &T) {
+        for cd in self.inner.iter_mut() {
+            if cd.t.time_scale != target {
+                let corrected = absolute_time.epoch_correction(cd.t, target);
+                cd.system_correction = Some(cd.t - corrected);
+                cd.t = corrected;
             }
-        });
+        }
     }
 }
