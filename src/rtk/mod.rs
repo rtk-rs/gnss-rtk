@@ -1,7 +1,7 @@
 use crate::{
     prelude::{
-        Almanac, Bias, Candidate, Config, Epoch, Error, Frame, Observation, OrbitSource,
-        PVTSolution, Time, SV,
+        AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, Observation,
+        OrbitSource, PVTSolution, SV,
     },
     solver::Solver,
 };
@@ -36,12 +36,12 @@ pub trait RTKBase {
 /// [RTKSolver] is used for differential navigation, to resolve
 /// the position of a single rover connected to a single reference site.
 /// The objective is to resolve [PVTSolution]s with high accuracy.
-pub struct RTKSolver<O: OrbitSource, B: Bias, T: Time> {
+pub struct RTKSolver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     /// Internal [Solver]
     solver: Solver<O, B, T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: Time> RTKSolver<O, B, T> {
+impl<O: OrbitSource, B: Bias, T: AbsoluteTime> RTKSolver<O, B, T> {
     /// Creates a new [RTKSolver] for direct differential navigation,
     /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
     /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.

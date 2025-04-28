@@ -49,7 +49,7 @@ pub mod prelude {
         orbit::OrbitSource,
         ppp::PPPSolver,
         rtk::{RTKBase, RTKSolver},
-        time::{NullTime, Time, TimeOffset},
+        time::AbsoluteTime,
     };
 
     // gnss types
@@ -63,7 +63,7 @@ pub mod prelude {
     };
 
     // hifitime types
-    pub use hifitime::{Duration, Epoch, Polynomial, TimeScale};
+    pub use hifitime::{Duration, Epoch, TimeScale};
 
     // nalgebra
     pub use nalgebra::{Vector3, Vector4, Vector6};

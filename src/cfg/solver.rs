@@ -11,8 +11,8 @@ const fn default_postfit_denoising() -> f64 {
     1000.0
 }
 
-const fn default_closed_loop() -> bool {
-    true
+const fn default_open_loop() -> bool {
+    false
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -21,10 +21,10 @@ pub struct SolverOpts {
     /// GDOP threshold to invalidate ongoing GDOP
     #[cfg_attr(feature = "serde", serde(default = "default_max_gdop"))]
     pub max_gdop: f64,
-    /// GNSS-RTK allows operating the filter in open-loop (in rare/exotic/test cases?),
+    /// GNSS-RTK allows the user to open the navigation filter loop,
     /// which is totally forbidden in roaming applications.
-    #[cfg_attr(feature = "serde", serde(default = "default_closed_loop"))]
-    pub closed_loop: bool,
+    #[cfg_attr(feature = "serde", serde(default = "default_open_loop"))]
+    pub open_loop: bool,
     /// Possible extra denoising filter, at the expense
     /// of more processing time. The configuration is the denoising factor.
     /// 1000 for x1000 improvement attempt.
@@ -36,7 +36,7 @@ impl Default for SolverOpts {
     fn default() -> Self {
         Self {
             max_gdop: default_max_gdop(),
-            closed_loop: default_closed_loop(),
+            open_loop: default_open_loop(),
             postfit_denoising: default_postfit_denoising(),
         }
     }
@@ -47,7 +47,7 @@ impl SolverOpts {
     pub fn static_preset() -> Self {
         Self {
             max_gdop: 3.0,
-            closed_loop: default_closed_loop(),
+            open_loop: default_open_loop(),
             postfit_denoising: default_postfit_denoising(),
         }
     }

@@ -26,7 +26,6 @@ use crate::{
         Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal,
         SPEED_OF_LIGHT_M_S, SV,
     },
-    time::{AbsoluteTime, Time},
 };
 
 pub use solutions::PVTSolution;
@@ -136,19 +135,18 @@ where
     }
 
     /// Iterates mutable [Navigation] filter.
-    pub fn solving<B: Bias, T: Time>(
+    pub fn solving<B: Bias>(
         &mut self,
         t: Epoch,
         past_state: &State<S>,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, bias, absolute_time)?;
+            self.kf_initialization(t, past_state, candidates, size, bias)?;
         } else {
-            self.kf_run(t, candidates, size, bias, absolute_time)?;
+            self.kf_run(t, candidates, size, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -196,14 +194,13 @@ where
     }
 
     /// Filter first iteration.
-    pub fn kf_initialization<B: Bias, T: Time>(
+    pub fn kf_initialization<B: Bias>(
         &mut self,
         t: Epoch,
         state: &State<S>,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
 
@@ -231,7 +228,6 @@ where
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
-                absolute_time,
             ) {
                 Ok((y_i, r_i, dr_i)) => {
                     y_k.push(y_i);
@@ -337,7 +333,6 @@ where
                     pending.lat_long_alt_deg_deg_km,
                     &mut unused,
                     bias,
-                    absolute_time,
                 ) {
                     Ok((y_i, r_i, _)) => {
                         y_k[i] = y_i;
@@ -389,13 +384,12 @@ where
     }
 
     /// [Kalman] filter run
-    pub fn kf_run<B: Bias, T: Time>(
+    pub fn kf_run<B: Bias>(
         &mut self,
         t: Epoch,
         candidates: &[Candidate],
         size: usize,
         bias: &B,
-        absolute_time: &AbsoluteTime<T>,
     ) -> Result<(), Error> {
         assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
 
@@ -422,7 +416,6 @@ where
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
-                absolute_time,
             ) {
                 Ok((y_i, r_i, dr_i)) => {
                     y_k.push(y_i);
@@ -519,11 +512,11 @@ where
         // update
         self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
-        self.state_validation()?;
-
-        self.state = pending;
-        debug!("{} - new state {}", t, self.state);
+        debug!("{} - new state {}", t, pending);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+
+        self.state_validation()?;
+        self.state = pending;
 
         Ok(())
     }
