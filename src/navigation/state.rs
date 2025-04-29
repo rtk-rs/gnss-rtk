@@ -1,4 +1,4 @@
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName, OVector};
+use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, Vector};
 
 use anise::{
     astro::PhysicsResult,
@@ -6,11 +6,11 @@ use anise::{
     prelude::{Epoch, Frame},
 };
 
-use crate::{constants::SPEED_OF_LIGHT_M_S, navigation::Apriori, prelude::Orbit};
-
-pub mod correction;
-
-use correction::StateCorrection;
+use crate::{
+    constants::SPEED_OF_LIGHT_M_S,
+    navigation::{Apriori, CLOCK_INDEX},
+    prelude::Orbit,
+};
 
 #[derive(Clone, Copy)]
 pub struct State<D: DimName>
@@ -20,12 +20,13 @@ where
 {
     /// [Epoch] of resolution
     pub t: Epoch,
+
     /// Internal [Vector4]
     x: OVector<f64, D>,
+
     /// Clock drift (s.s⁻¹)
     clock_drift_s_s: f64,
-    /// Velocity (m.s⁻¹)
-    velocity_m_s: Vector3,
+
     /// Geodeticy position (ddeg, ddeg, km above mean sea level)
     pub lat_long_alt_deg_deg_km: (f64, f64, f64),
 }
@@ -39,7 +40,6 @@ where
         Self {
             t: Default::default(),
             x: OVector::<f64, D>::zeros(),
-            velocity_m_s: Default::default(),
             clock_drift_s_s: Default::default(),
             lat_long_alt_deg_deg_km: Default::default(),
         }
@@ -101,7 +101,6 @@ where
             x,
             t: orbit.epoch,
             clock_drift_s_s: 0.0_f64,
-            velocity_m_s: Default::default(),
             lat_long_alt_deg_deg_km: latlongalt,
         })
     }
@@ -113,19 +112,12 @@ where
 
     /// Returns position and velocity in ECEF meters as [Vector6]
     pub fn position_velocity_ecef_m(&self) -> Vector6 {
-        Vector6::new(
-            self.x[0],
-            self.x[1],
-            self.x[2],
-            self.velocity_m_s[0],
-            self.velocity_m_s[1],
-            self.velocity_m_s[2],
-        )
+        Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0)
     }
 
     /// Returns estimated clock (offset, drift) in seconds and s.s⁻¹.
     pub fn clock_profile_s(&self) -> (f64, f64) {
-        (self.x[3], self.clock_drift_s_s)
+        (self.x[CLOCK_INDEX], self.clock_drift_s_s)
     }
 
     /// Converts [State] to [Orbit]
@@ -134,30 +126,25 @@ where
         Orbit::from_cartesian_pos_vel(pos_vel_km_s, self.t, frame)
     }
 
-    /// Apply [StateCorrection] with mutable access.
+    ///  [State] correction with mutable access.
     pub fn correct_mut(
         &mut self,
         frame: Frame,
         pending_t: Epoch,
-        correction: StateCorrection<D>,
+        dx: &DVector<f64>,
     ) -> PhysicsResult<()> {
         let dt = (pending_t - self.t).to_seconds();
 
         if dt > 0.0 {
-            self.clock_drift_s_s = (correction.dx[3] / SPEED_OF_LIGHT_M_S - self.x[3]) / dt;
-
-            self.velocity_m_s = Vector3::new(
-                correction.dx[0] / dt,
-                correction.dx[1] / dt,
-                correction.dx[2] / dt,
-            );
+            self.clock_drift_s_s =
+                (dx[CLOCK_INDEX] / SPEED_OF_LIGHT_M_S - self.x[CLOCK_INDEX]) / dt;
         }
 
         for i in 0..D::USIZE {
-            if i == 3 {
-                self.x[i] = correction.dx[i] / SPEED_OF_LIGHT_M_S;
+            if i == CLOCK_INDEX {
+                self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
             } else {
-                self.x[i] += correction.dx[i];
+                self.x[i] += dx[i];
             }
         }
 
@@ -172,9 +159,9 @@ where
 
     /// Temporal update
     pub fn postfit_update_mut(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
-        self.x[0] = dx[0];
-        self.x[1] = dx[1];
-        self.x[2] = dx[2];
+        // for i in 0..D::USIZE {
+        //     self.x[i] += dx[i];
+        // }
 
         let new_orbit = self.to_orbit(frame);
         self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;

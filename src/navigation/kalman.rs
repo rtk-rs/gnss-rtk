@@ -1,4 +1,4 @@
-use crate::{error::Error, navigation::state::correction::StateCorrection};
+use crate::error::Error;
 
 use nalgebra::{
     allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, OVector,
@@ -30,11 +30,6 @@ where
         let x = OVector::<f64, S>::zeros();
         let p = OMatrix::<f64, S, S>::zeros();
         Self { p, x }
-    }
-
-    /// Converts [KfEstimate] to [StateCorrection]
-    pub fn to_state_correction(&self) -> StateCorrection<S> {
-        StateCorrection { dx: self.x }
     }
 
     /// Create new [KfEstimate]
@@ -135,11 +130,11 @@ where
     /// - y_k: Measurement [OVector]
     pub fn run(
         &mut self,
-        f_k: OMatrix<f64, S, S>,
+        f_k: &OMatrix<f64, S, S>,
         g_k: &DMatrix<f64>,
-        w_k: DMatrix<f64>,
-        q_k: OMatrix<f64, S, S>,
-        y_k: DVector<f64>,
+        w_k: &DMatrix<f64>,
+        q_k: &OMatrix<f64, S, S>,
+        y_k: &DVector<f64>,
     ) -> Result<KfEstimate<S>, Error> {
         if !self.initialized {
             panic!("internal error: filter not initialized!");

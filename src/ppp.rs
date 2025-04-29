@@ -1,10 +1,27 @@
 use crate::{
     prelude::{
-        AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
-        PVTSolution,
+        AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, Observation,
+        OrbitSource, PVTSolution, SV,
     },
+    rtk::RTKBase,
     solver::Solver,
 };
+
+struct NullRTK {}
+
+impl RTKBase for NullRTK {
+    fn name(&self) -> String {
+        "UNUSED".to_string()
+    }
+
+    fn observe(&mut self, _: Epoch, _: SV) -> Option<Observation> {
+        None
+    }
+
+    fn reference_position_ecef_m(&self, _: Epoch) -> Option<(f64, f64, f64)> {
+        None
+    }
+}
 
 /// [PPPSolver] is used for direct absolute navigation, without
 /// access to any remote reference sites. The objective is to resolve [PVTSolution]s
@@ -91,7 +108,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPPSolver<O, B, T> {
         epoch: Epoch,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
-        let solution = self.solver.resolve(epoch, candidates)?;
+        let solution = self.solver.resolve::<NullRTK>(epoch, candidates, &[], 0)?;
         Ok(solution)
     }
 

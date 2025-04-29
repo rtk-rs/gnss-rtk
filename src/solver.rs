@@ -16,6 +16,7 @@ use crate::{
     orbit::OrbitSource,
     pool::Pool,
     prelude::{Epoch, Error},
+    rtk::RTKBase,
     time::AbsoluteTime,
 };
 
@@ -27,22 +28,31 @@ use crate::{
 pub struct Solver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     /// Solver [Config]uration preset
     pub cfg: Config,
+
     /// [Almanac]
     almanac: Almanac,
+
     /// [Frame]
     earth_cef: Frame,
+
     /// [OrbitSource]
     orbit_source: O,
+
     /// [Bias] model implementation
     bias: B,
+
     /// Pool
     pool: Pool,
+
     /// To invalidate first solution
     first_solution: bool,
+
     /// [Navigation] solver
     navigation: Navigation<U4>,
+
     /// Possible initial position
     initial_ecef_m: Option<Vector3>,
+
     /// [AbsoluteTime] implementation
     absolute_time: T,
 }
@@ -103,11 +113,21 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
     /// ## Input
     /// - t: [Epoch] of observation
     /// - pool: proposed [Candidate]s
+    /// - rtk_bases: possible known [RTKBase]s
+    /// - num_bases: number of [RTKBase]s (if any)
     ///
     /// ## Output
     /// - [PVTSolution].
-    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<PVTSolution, Error> {
+    pub fn resolve<RTK: RTKBase>(
+        &mut self,
+        t: Epoch,
+        pool: &[Candidate],
+        rtk_bases: &[RTK],
+        num_bases: usize,
+    ) -> Result<PVTSolution, Error> {
         let ts = self.cfg.timescale;
+        let uses_rtk = num_bases > 0;
+
         let min_required = self.min_sv_required();
 
         if pool.len() < min_required {
@@ -182,10 +202,15 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
         }
 
         // Solving attempt
-        match self
-            .navigation
-            .solving(t, &state, &self.pool.candidates(), pool_size, &self.bias)
-        {
+        match self.navigation.solving(
+            t,
+            &state,
+            &self.pool.candidates(),
+            pool_size,
+            rtk_bases,
+            num_bases,
+            &self.bias,
+        ) {
             Ok(_) => {
                 info!("{} - iteration completed", t);
             },

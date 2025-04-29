@@ -114,13 +114,21 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> RTKSolver<O, B, T> {
     }
 
     /// [PVTSolution] solving attempt, at specified [Epoch] and using local [Candidate]s (rover's proposal).
+    /// ## Input
+    /// - epoch: sampling [Epoch], all forwarded [Observation]s should be synchronous
+    /// - candidates: proposed [Candidate]s
+    /// - rtk_bases: [RTKBase]s we will try to connect to
+    /// - num_bases: number of proposed [RTKBase]s.
     pub fn resolve<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
         candidates: &[Candidate],
         rtk_bases: &[RTK],
+        num_bases: usize,
     ) -> Result<PVTSolution, Error> {
-        let solution = self.solver.resolve(epoch, candidates)?;
+        let solution = self
+            .solver
+            .resolve(epoch, candidates, rtk_bases, num_bases)?;
         Ok(solution)
     }
 }

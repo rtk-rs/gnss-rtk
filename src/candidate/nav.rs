@@ -43,8 +43,9 @@ impl Candidate {
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
 
         let (elev_deg, azim_deg) = self.attitude().ok_or(Error::UnresolvedState)?;
-        contribution.elevation = elev_deg;
-        contribution.azimuth = azim_deg;
+
+        contribution.elevation_deg = elev_deg;
+        contribution.azimuth_deg = azim_deg;
 
         let (sv_x_m, sv_y_m, sv_z_m) = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
 
