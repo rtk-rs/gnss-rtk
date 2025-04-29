@@ -101,9 +101,9 @@ impl PostfitKf {
         self.f_k[(2, 5)] = dt_s;
 
         let y_k = DVector::from_row_slice((&state.position_velocity_ecef_m()).into());
-        let w_k = self.w_k.clone();
 
-        self.kalman.run(&self.f_k, &self.g_k, &w_k, &self.q_k, &y_k)
+        self.kalman
+            .run(&self.f_k, &self.g_k, &self.w_k, &self.q_k, &y_k)
     }
 
     /// Reset this [PostfitKf]
