@@ -158,15 +158,19 @@ where
             }
         }
 
-        const Z_BIAS_METERS: f64 = 10.0; // [m]
+        const X_BIAS_METERS: f64 = 1.0; // [m]
+        const Y_BIAS_METERS: f64 = 1.0; // [m]
+        const Z_BIAS_METERS: f64 = 1.0; // [m]
 
         for i in 0..S::USIZE {
             if i == CLOCK_INDEX {
                 q_k[(i, i)] = (cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+            } else if i == 0 {
+                q_k[(i, i)] = X_BIAS_METERS;
+            } else if i == 1 {
+                q_k[(i, i)] = Y_BIAS_METERS;
             } else if i == 2 {
                 q_k[(i, i)] = Z_BIAS_METERS;
-            } else {
-                q_k[(i, i)] = Z_BIAS_METERS / 2.0;
             }
         }
 
@@ -334,7 +338,7 @@ where
             return Err(Error::MatrixMinimalDimension);
         }
 
-        self.g_k.resize_mut(y_len, y_len, 0.0);
+        self.g_k.resize_mut(y_len, S::USIZE, 0.0);
 
         // run
         for _ in 0..nb_iter {
@@ -492,7 +496,7 @@ where
         let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO vector
 
         self.w_k.resize_mut(y_len, y_len, 0.0);
-        self.g_k.resize_mut(y_len, y_len, 0.0);
+        self.g_k.resize_mut(y_len, S::USIZE, 0.0);
 
         for i in 0..y_len {
             self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];

@@ -159,9 +159,9 @@ where
 
     /// Temporal update
     pub fn postfit_update_mut(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
-        // for i in 0..D::USIZE {
-        //     self.x[i] += dx[i];
-        // }
+        for i in 0..D::USIZE {
+            self.x[i] = dx[i];
+        }
 
         let new_orbit = self.to_orbit(frame);
         self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
