@@ -238,57 +238,22 @@ L1 is treated as main reference as always.
 Constellations, Timecales & Absolute time
 =========================================
 
-Like many other topics, `gnss_rtk` tries to be flexible and convenient to operate
-regarding the Constellations and Timescales it supports. Rust comes with
-a great Timescale support, thanks to the `Hifitime` library. Yet timescales are one thing,
-solving "absolute time" is another.
+Like other topics, `GNSS-RTK` tries to be convenient to operate
+and flexible, regarding the temporal solution.
 
-Like signals exploitation, `gnss_rtk` offers a high level of flexibility for the timecales and constellations
-you can use:
+We support all timescales provided by `Nyx-Space/Hifitime`.   
+The `Time` trait should be implemented for applications that require very precise temporal solutions.  
+It allows following the timescale states precisely (using external corrections).  
 
-- you can navigate with a single constellation in sight
-- you can mix constellations, for a modern and advanced setup
-- you can navigate under changing conditions
-- you can observe and express your signals in a different timescale than the prefered timescale
-
-In order to resolve absolute time at all times (...), your time correction source needs to implement the `Time` trait.  
-For simplicity, you should always implement it and provide the latest corrections available.  
-Although, it is true that, if you navigate in GPS Only and Prefered GPST, the implementation is not needed and the absolute time will remain correct.
-
-`gnss_rtk` is smart enough to combine your time corrections to obtain the one needed. In other words, you don't have to provide
-the exactly needed time correction, if you provide many, we can recombine them to obtain the one we need. 
-
-*In any case*:
-
-1. Any SV for which the time correction is not available or outdated will not contribute to the solution.
-So we garantee correct absolute time, at all times
-
-2. We consider that any time correction may apply for a whole week. Which is physically correct and the maximal value.
-In most cases, you should provide regular updates (at least daily) to obtain better results
-
-3. You should provide (through the `Time` trait implementation) the latest time correction that may apply at that instant correctly.
-
-UTC Timescale support
-=====================
-
-Like other timescales, UTC (Universal Time Coordinates) is supported. It is possible to express your temporal solutions
-in UTC. 
-
-Timescale & signal sampling
-===========================
-
-`gnss_rtk` allows you to express your signal observations (data points) in a different timescale than the prefered timescale.
-This should offer yet another level of flexibility. 
-
-For example, you can observe in `UTC` timescale and resolve `GPST`, but for that, your `Time` source needs to provide directly or help us
-resolve `|UTC-GPST|`.
+This library is flexible enough to let you express your measurements in the timescale you want,
+and express the solution in the timescale you want. UTC timescale is fully supported.
 
 Other features
 ==============
 
 Non exhaustive list of other interesting features
 
-- It is possible to apply a custom conic Azimutal + Elevation mask to the satellites contributor.
+- It is possible to apply a custom conic Azimutal + Elevation mask
 
 Framework
 =========
