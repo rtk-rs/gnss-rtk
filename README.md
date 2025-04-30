@@ -209,9 +209,9 @@ You should switch to `PPP` technique any time L1 + L2 phase observations are fea
 Surveying and Apriori Knowledge
 ===============================
 
-This solver is a true surveying tool and can operate without apriori knowledge. In other words,
-it is compatible with obtaining an absolute position without any knowledge at starting point.
-This tool is therefore suited for the challenging task of setting up an RTK reference point.
+`GNSS-RTK` is a complete surveying tool that can operate without apriori knowledge.  
+In otherwords, it is possible to obtain a precise solution from scratch.  
+[Refer to this page that demonstrates this capacity](https://github.com/rtk-rs/rinex-cli/blob/main/demos/SURVEY.md). 
 
 Signal and Measurement Flexibility
 ==================================
