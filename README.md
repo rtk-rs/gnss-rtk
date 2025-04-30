@@ -111,7 +111,7 @@ Select a navigation method:
 | Method        | Physics                                  | Accuracy      |  Application                                            |
 |---------------|------------------------------------------|---------------|---------------------------------------------------------|
 | `SPP`         | Single Frequency Pseudo Range navigation |  2/5          | Low cost devices                                        |
-| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | High cost devices, Timing applications                  |
+| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | Mid cost devices, Timing applications                   |
 | `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Very precise applications, Profesionnal surveying and calibrations |
 
 Select your solver:
@@ -122,8 +122,8 @@ Select your solver:
 |               |                  | `CPP`           | 4/5           | Lab applications, without RTK network. Precise setup of a new RTK reference, without RTK. |
 |               |                  | `PPP`           | 4.5/5         | Professional applications, without RTK network. Profesionnal RTK setup calibration, without RTK |
 | `PPP`         | Moving           | `SPP`           | 3/5           | Roaming low cost devices, without RTK network                |
-|                                  | `CPP`           | 4/5           | Precise tracking, without RTK network                        |
-|                                  | `PPP`           | 4.5/5         | High cost devices, profesionnal tracking, without RTK network|
+|               |                  | `CPP`           | 4/5           | Precise tracking, without RTK network                        |
+|               |                  | `PPP`           | 4.5/5         | High cost devices, profesionnal tracking, without RTK network|
 | `StaticRTK`   | Static           | `SPP`           | 3.5/5         | Low cost devices, hobbyist RTK applications                  |
 |               |                  | `CPP`           | 4/5           | Mid range devices, Lab applications with RTK network, precise applications |
 |               |                  | `PPP`           | 5/5           | High cost devices, profesionnal applications. Ultra precise calibration of a new reference site. Ultra precise verification of a calibration |
