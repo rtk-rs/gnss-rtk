@@ -4,7 +4,7 @@ use crate::{
     ppp::NullRTK,
     prelude::{
         AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
-        PVTSolution,
+        PVTSolution, User,
     },
     solver::Solver,
 };
@@ -92,9 +92,12 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
     pub fn resolve(
         &mut self,
         epoch: Epoch,
+        user: User,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
-        let solution = self.solver.resolve(epoch, candidates, &[], 0)?;
+        let null_base = NullRTK {};
+        let solution = self.solver.resolve(epoch, user, candidates, &null_base)?;
+
         Ok(solution)
     }
 

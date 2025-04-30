@@ -1,5 +1,8 @@
 use crate::prelude::{Duration, IonosphereBias, Signal, SV};
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// SV Navigation information
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]

@@ -97,7 +97,11 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> StaticPPP<O, B, T> {
         epoch: Epoch,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
-        let solution = self.solver.resolve::<NullRTK>(epoch, candidates, &[], 0)?;
+        let null_base = NullRTK {};
+
+        let user = self.solver.cfg.user;
+        let solution = self.solver.resolve(epoch, user, candidates, &null_base)?;
+
         Ok(solution)
     }
 

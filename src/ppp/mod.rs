@@ -3,6 +3,12 @@ use crate::{
     rtk::RTKBase,
 };
 
+mod dynamic_ppp;
+mod static_ppp;
+
+pub use dynamic_ppp::PPP;
+pub use static_ppp::StaticPPP;
+
 struct NullRTK {}
 
 impl RTKBase for NullRTK {
@@ -18,9 +24,3 @@ impl RTKBase for NullRTK {
         None
     }
 }
-
-mod dynamic_ppp;
-mod static_ppp;
-
-pub use dynamic_ppp::PPP;
-pub use static_ppp::StaticPPP;
