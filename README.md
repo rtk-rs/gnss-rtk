@@ -151,27 +151,15 @@ Deployment
 2. at first deployment ever, when using low precision models and built without `embed-ephem` option
 3. regularly, when using highest precision models, regardless of the compilation options.
 
-This library provides an `embed_ephem` compilation option to reduce the requirements on low precision systems.
+This library exposes the `embed_ephem` compilation option. By using it, it is possible to run up to
+mid-range and precise application without internet access. Ultra precise applications require
+regular updates from the Internet.
 
 Configuration simplicity
 ========================
 
 Although the taks is challenging, one objective is to keep things simple.   
 To do so, we rely on the `serde` ecosystem and are able to provide [a consice and comprehensible Parametrization interface](./documentation/Config.md)
-
-Notes on target Profiles
-========================
-
-Target profiling is requested for applications that require a high level of accuracy.  
-The `Profile` struct describes 
-
-The profile is defined for each solving attempt.
-Because solving is synchronous and in chronological order, `GNSS-RTK` is adaptative
-and can adapt to profile changes of your target.
-
-If your application is always static, a `Static` solver is always best suited.  
-Only a roaming solver may apply to such applications. If your target happens to be static from time to time,
-you should still select a dynamic solver.
 
 Notes on Navigation Method
 ==========================
