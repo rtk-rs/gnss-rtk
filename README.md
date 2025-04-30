@@ -111,11 +111,8 @@ Select a navigation method:
 | Method        | Physics                                  | Accuracy      |  Application                                            |
 |---------------|------------------------------------------|---------------|---------------------------------------------------------|
 | `SPP`         | Single Frequency Pseudo Range navigation |  2/5          | Low cost devices                                        |
-| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | High cost devices                                       |
-|               |                                          |               | Timing applications                                     |
-| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices                                       |
-|               |                                          |               | Timing applications                                     |
-|               |                                          |               | High precision site surveying                           |
+| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | High cost devices, Timing applications                  |
+| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Very precise applications, Profesionnal surveying and calibrations |
 
 Select your solver:
 
