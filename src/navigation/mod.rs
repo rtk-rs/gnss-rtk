@@ -126,9 +126,9 @@ where
             }
         }
 
-        q_k[(0, 0)] = 5.0;
-        q_k[(1, 1)] = 5.0;
-        q_k[(2, 2)] = 5.0;
+        q_k[(0, 0)] = 1.0;
+        q_k[(1, 1)] = 1.0;
+        q_k[(2, 2)] = 1.0;
 
         q_k[(Self::clock_index(), Self::clock_index())] =
             (cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);

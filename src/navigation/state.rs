@@ -173,7 +173,9 @@ where
     /// Temporal update
     pub fn postfit_update_mut(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
         for i in 0..D::USIZE {
-            self.x[i] = dx[i];
+            if i != Navigation::clock_index() {
+                self.x[i] = dx[i];
+            }
         }
 
         let new_orbit = self.to_orbit(frame);
