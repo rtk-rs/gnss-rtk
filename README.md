@@ -15,7 +15,7 @@ whether they are real-time or post-processing oriented.
 
 <div align="center">
     <p>
-        Static surveying of a geodetic marker:
+        `StaticPPP` versus a professional geodetic marker
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png alt="Plot">
@@ -25,6 +25,15 @@ whether they are real-time or post-processing oriented.
 <div align="center">
     <p>
         Errors from the geodetic marker (CPP, Galileo E1+E5)
+    </p>
+    <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png>
+        <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png alt="Plot">
+    </a>
+</div>
+
+<div align="center">
+    <p>
+        Roaming with `PPP` in the arctic (CPP, Galileo + GPS E1/L1+E5/L5)
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png alt="Plot">
@@ -97,20 +106,7 @@ is not planned to this day. You can reach out to us and join forces, if you want
 Summary
 =======
 
-Select your solver:
-
-| Solver        | Target           | Accuracy      |  Application                                            |
-|---------------|------------------|---------------|---------------------------------------------------------|
-| `StaticPPP`   | Static           | 3/5           | Surveying of a reference site<br>                       |
-|               |                  |               | Laboratories application without RTK network<br>        |
-|               |                  |               | New RTK Reference site calibration without RTK network  |
-| `PPP`         | Moving           | 3/5           | Roaming navigation without network access               |
-| `StaticRTK`   | Static           | 5/5           | Surveying of a reference site<br>                       |
-|               |                  |               | Laboratories application with RTK network access<br>    |
-|               |                  |               | New RTK Reference site calibration with RTK network     |
-| `RTK`         | Moving           | 4/5           | Roaming navigation with RTK network access              |
-
-Select a navigation technique:
+Select a navigation method:
 
 | Method        | Physics                                  | Accuracy      |  Application                                            |
 |---------------|------------------------------------------|---------------|---------------------------------------------------------|
@@ -120,6 +116,24 @@ Select a navigation technique:
 | `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices                                       |
 |               |                                          |               | Timing applications                                     |
 |               |                                          |               | High precision site surveying                           |
+
+Select your solver:
+
+| Solver        | Rover profile    | Method        | Accuracy      |  Applications                                                      |
+|---------------|------------------|---------------|---------------|--------------------------------------------------------------------|
+| `StaticPPP`   | Static           | SPP           | 3/5           | Low cost calibration of RTK reference site, without network access |
+|               |                  | CPP           | 4/5           | Laboratories application without network access. Precise calibration of a new RTK reference site, without network access.  |
+|               |                  | PPP           | 4.5/5         | Professional laboratory applications, without RTK network. Profesionnal calibration of a new reference, without a reference.        |
+|               |                  |               |               | New RTK Reference site calibration without RTK network       |
+| `PPP`         | Moving           | SPP           | 3/5           | Roaming low cost devices, without RTK network                |
+|                                  | CPP           | 4/5           | Precise tracking, without RTK network                        |
+|                                  | PPP           | 4.5/5         | High cost devices, profesionnal tracking, without RTK network|
+| `StaticRTK`   | Static           | SPP           | 3.5/5         | Low cost calibration, degraded RTK calibration of a geodetic site |
+|               |                  | CPP           | 4/5           | Mid range applications, laboratories application, precise applications |
+|               |                  | PPP           | 5/5           | High cost, profesionnal applications                    |
+|               |                  |               |               | New RTK Reference site calibration with RTK network     |
+| `RTK`         | Moving           | 4/5           |               | Roaming navigation with RTK network access              |
+
 
 For roaming applications, you should also select the `Profile` that suites you best.
 The `profile` is dictated by the range of (instantaneous) velocity you want to cover.  
