@@ -5,13 +5,14 @@ use log::debug;
 use crate::{
     ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
     constants::SPEED_OF_LIGHT_M_S,
-    prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SV},
+    prelude::{Almanac, Config, Constellation, Duration, Epoch, Error, Orbit, Vector3, SV},
 };
 
 use anise::errors::AlmanacResult;
 
 mod bias;
-mod nav;
+mod ppp;
+mod rtk;
 mod signal;
 
 pub mod clock;
@@ -24,28 +25,40 @@ pub use crate::candidate::{clock::ClockCorrection, signal::Observation};
 pub struct Candidate {
     /// [SV]
     pub sv: SV,
+
     /// Sampling [Epoch]
     pub t: Epoch,
+
     /// TX [Epoch]
     pub(crate) t_tx: Epoch,
+
     /// dt TX [Duration]
     pub(crate) dt_tx: Duration,
+
     /// [Orbit]al state
     pub(crate) orbit: Option<Orbit>,
+
     /// SV group delay expressed as a [Duration]
     pub(crate) tgd: Option<Duration>,
+
     /// Windup term in signal cycles
     pub(crate) wind_up: f64,
+
     /// [ClockCorrection]
     pub(crate) clock_corr: Option<ClockCorrection>,
+
     /// Local [Observation]s
     pub(crate) observations: Vec<Observation>,
+
     /// Remote [Observation]s
     pub(crate) remote_obs: Vec<Observation>,
+
     /// elevation at reception time
     pub(crate) elevation_deg: Option<f64>,
+
     /// azimuth at reception time
     pub(crate) azimuth_deg: Option<f64>,
+
     /// Possible time system correction
     pub(crate) system_correction: Option<Duration>,
 }
@@ -77,6 +90,21 @@ impl Candidate {
             elevation_deg: Default::default(),
             clock_corr: Default::default(),
         }
+    }
+
+    pub(crate) fn weight_perturbations(&self) -> f64 {
+        let fact = match self.sv.constellation {
+            Constellation::GPS => 1.0,
+            Constellation::Galileo => 1.0,
+            _ => 10.0,
+        };
+
+        let r_ratio = 100.0;
+
+        let tropod = 3.0;
+        let code_bias = 0.3;
+
+        fact * r_ratio + tropod + code_bias
     }
 
     /// Define Total Group Delay [TDG] if you know it.
@@ -117,10 +145,7 @@ impl Candidate {
     pub(crate) fn is_ppp_compatible(&self) -> bool {
         self.orbit.is_some()
     }
-}
 
-// private
-impl Candidate {
     pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
         let l1 = self.l1_phase_range()?;
         let (f1_hz, l1) = (l1.0.frequency_hz(), l1.1);

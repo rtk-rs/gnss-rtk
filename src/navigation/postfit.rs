@@ -1,5 +1,5 @@
 use nalgebra::{
-    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Matrix6, Vector6, U6,
+    allocator::Allocator, DVector, DefaultAllocator, DimName, Matrix6, OMatrix, Vector6, U6,
 };
 
 use crate::{
@@ -14,15 +14,17 @@ use crate::{
 #[derive(Clone)]
 pub struct PostfitKf {
     /// F [Matrix6]
-    f_k: Matrix6<f64>,
-    // /// R [Matrix6]
-    // r_k: DMatrix<f64>,
+    f_k: OMatrix<f64, U6, U6>,
+
     /// G [Matrix6]
-    g_k: DMatrix<f64>,
+    g_k: OMatrix<f64, U6, U6>,
+
     /// W [Matrix6]
-    w_k: DMatrix<f64>,
-    /// Q [Matrix6]
-    q_k: Matrix6<f64>,
+    w_k: OMatrix<f64, U6, U6>,
+
+    /// Q [OMatrix6]
+    q_k: OMatrix<f64, U6, U6>,
+
     /// [Kalman] filter
     kalman: Kalman<U6>,
 }
@@ -75,9 +77,8 @@ impl PostfitKf {
             f_k,
             q_k,
             kalman,
-            // r_k: DMatrix::from_diagonal(&DVector::from_row_slice(&r_diag)),
-            w_k: DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0])),
-            g_k: DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0])),
+            w_k: OMatrix::identity(),
+            g_k: OMatrix::identity(),
         }
     }
 

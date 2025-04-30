@@ -1,4 +1,4 @@
-use log::{debug, error};
+use log::{debug, error, info};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -12,12 +12,14 @@ pub(crate) mod solutions;
 mod dop;
 mod kalman;
 mod postfit;
+mod sv;
 
 pub(crate) mod state;
 
 use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, U4};
 
 use crate::{
+    cfg::User,
     navigation::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
@@ -25,58 +27,19 @@ use crate::{
         postfit::PostfitKf,
         state::State,
     },
-    prelude::{
-        Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal,
-        SPEED_OF_LIGHT_M_S, SV,
-    },
+    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, SPEED_OF_LIGHT_M_S},
     rtk::RTKBase,
 };
 
-pub(crate) const CLOCK_INDEX: usize = 3;
-
 pub use solutions::PVTSolution;
-
-/// SV Navigation information
-#[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct SVContribution {
-    /// [SV] identity
-    pub sv: SV,
-
-    /// [Signal] being used
-    pub signal: Signal,
-
-    /// Orbital state in kilometers ECEF
-    pub sv_pos_km: (f64, f64, f64),
-
-    /// Orbital velocity in km/s ECEF
-    pub sv_vel_km_s: (f64, f64, f64),
-
-    /// Elevation angle from RX position
-    pub elevation_deg: f64,
-
-    /// Azimuth angle from RX position
-    pub azimuth_deg: f64,
-
-    /// Relativistic path range
-    pub relativistic_path_range_m: f64,
-
-    /// Troposphere bias as meters of propagation delay.
-    pub tropo_bias: Option<f64>,
-
-    /// Ionosphere bias as meters of propagation delay.
-    pub iono_bias: Option<IonosphereBias>,
-
-    /// Offset to selected [TimeScale], expressed as [Duration] within that [TimeScale].
-    pub clock_correction: Option<Duration>,
-}
+pub use sv::SVContribution;
 
 /// [Navigation] Solver
-pub(crate) struct Navigation<S: DimName>
+pub(crate) struct Navigation<D: DimName>
 where
-    DefaultAllocator: Allocator<S> + Allocator<S, S>,
-    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
     /// [Config] preset
     cfg: Config,
@@ -97,10 +60,10 @@ where
     g_k: DMatrix<f64>,
 
     /// F
-    f_k: OMatrix<f64, S, S>,
+    f_k: OMatrix<f64, D, D>,
 
     /// Q
-    q_k: OMatrix<f64, S, S>,
+    q_k: OMatrix<f64, D, D>,
 
     /// X
     x_k: DVector<f64>,
@@ -109,7 +72,7 @@ where
     p_k: DMatrix<f64>,
 
     /// [Kalman]
-    kalman: Kalman<S>,
+    kalman: Kalman<D>,
 
     /// contribution allocation
     indexes: Vec<usize>,
@@ -124,7 +87,7 @@ where
     pub initialized: bool,
 
     /// Current [State]
-    pub state: State<S>,
+    pub state: State<D>,
 
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
@@ -133,11 +96,11 @@ where
     prev_epoch: Option<Epoch>,
 }
 
-impl<S: DimName> Navigation<S>
+impl<D: DimName> Navigation<D>
 where
-    DefaultAllocator: Allocator<S> + Allocator<S, S>,
-    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
     /// Creates new [Navigation] solver.
     /// ## Input
@@ -149,8 +112,10 @@ where
     /// ## Returns
     /// - [Navigation], [Error]
     pub fn new(cfg: &Config, frame: Frame) -> Self {
-        let mut f_k = OMatrix::<f64, S, S>::zeros();
-        let mut q_k = OMatrix::<f64, S, S>::zeros();
+        assert!(D::USIZE >= U4::USIZE, "minimal dimensions!");
+
+        let mut f_k = OMatrix::<f64, D, D>::zeros();
+        let mut q_k = OMatrix::<f64, D, D>::zeros();
 
         if cfg.user.profile.is_static() {
             for i in 0..=2 {
@@ -158,21 +123,10 @@ where
             }
         }
 
-        const X_BIAS_METERS: f64 = 1.0; // [m]
-        const Y_BIAS_METERS: f64 = 1.0; // [m]
-        const Z_BIAS_METERS: f64 = 1.0; // [m]
+        q_k[(Self::clock_index(), Self::clock_index())] =
+            (cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
 
-        for i in 0..S::USIZE {
-            if i == CLOCK_INDEX {
-                q_k[(i, i)] = (cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
-            } else if i == 0 {
-                q_k[(i, i)] = X_BIAS_METERS;
-            } else if i == 1 {
-                q_k[(i, i)] = Y_BIAS_METERS;
-            } else if i == 2 {
-                q_k[(i, i)] = Z_BIAS_METERS;
-            }
-        }
+        // TODO: Q value?!
 
         Self {
             f_k,
@@ -184,15 +138,15 @@ where
             initialized: false,
             state: State::default(),
             sv: Vec::with_capacity(8),
-            kalman: Kalman::<S>::new(),
+            kalman: Kalman::<D>::new(),
             y_k_vec: Vec::with_capacity(8),
             w_k_vec: Vec::with_capacity(8),
             indexes: Vec::with_capacity(8),
-            x_k: DVector::zeros(S::USIZE),
+            x_k: DVector::zeros(D::USIZE),
             dop: DilutionOfPrecision::default(),
             g_k: DMatrix::<f64>::zeros(4, 4),
             w_k: DMatrix::<f64>::zeros(4, 4),
-            p_k: DMatrix::<f64>::zeros(S::USIZE, S::USIZE),
+            p_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
         }
     }
 
@@ -210,25 +164,54 @@ where
         self.dop = DilutionOfPrecision::default();
     }
 
+    /// Returns clock index
+    pub(crate) fn clock_index() -> usize {
+        D::USIZE - 1
+    }
+
     /// Iterates mutable [Navigation] filter.
-    pub fn solving<B: Bias, RTK: RTKBase>(
+    /// ## Input
+    /// - t: sampling [Epoch]
+    /// - user: [User]
+    /// - past_state: past [State]
+    /// - candidates: proposed [Candidate]s
+    /// - size: number of proposed [Cadndidate]s
+    /// - rtk_base: possible [RTKBase] implementation]
+    /// - bias: external [Bias] implementation
+    pub fn solving<B: Bias, R: RTKBase>(
         &mut self,
         t: Epoch,
-        past_state: &State<S>,
+        user: User,
+        past_state: &State<D>,
         candidates: &[Candidate],
         size: usize,
-        rtk_bases: &[RTK],
-        num_bases: usize,
+        rtk_base: &R,
         bias: &B,
     ) -> Result<(), Error> {
-        assert!(num_bases < 2, "n-RTK* is not supported yet");
-
         self.clear();
 
+        if self.cfg.user != user {
+            // profile update
+            if user.profile != self.cfg.user {
+                info!("{}: switching to {} profile", t, user.profile);
+
+                if user.profile.is_static() {
+                    for i in 0..=2 {
+                        self.f_k[(i, i)] = 1.0;
+                    }
+                }
+
+                self.cfg.user.profile = user.profile;
+            }
+
+            self.q_k[(Self::clock_index(), Self::clock_index())] =
+                (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+        }
+
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, rtk_bases, num_bases, bias)?;
+            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias)?;
         } else {
-            self.kf_run(t, candidates, size, rtk_bases, num_bases, bias)?;
+            self.kf_run(t, candidates, size, rtk_base, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -286,15 +269,12 @@ where
     pub fn kf_initialization<B: Bias, RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        state: &State<S>,
+        state: &State<D>,
         candidates: &[Candidate],
         size: usize,
-        rtk_bases: &[RTK],
-        num_bases: usize,
+        rtk_base: &RTK,
         bias: &B,
     ) -> Result<(), Error> {
-        assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
-
         let nb_iter = 10;
 
         let mut pending = state.clone();
@@ -334,11 +314,12 @@ where
         }
 
         let y_len = self.indexes.len();
-        if y_len < S::USIZE {
+
+        if y_len < D::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        self.g_k.resize_mut(y_len, S::USIZE, 0.0);
+        self.g_k.resize_mut(y_len, D::USIZE, 0.0);
 
         // run
         for _ in 0..nb_iter {
@@ -365,7 +346,8 @@ where
                 self.g_k[(i, 0)] = dx;
                 self.g_k[(i, 1)] = dy;
                 self.g_k[(i, 2)] = dz;
-                self.g_k[(i, CLOCK_INDEX)] = 1.0;
+
+                self.g_k[(i, Self::Clock_index())] = 1.0;
             }
 
             // run
@@ -444,12 +426,9 @@ where
         t: Epoch,
         candidates: &[Candidate],
         size: usize,
-        rtk_bases: &[RTK],
-        num_bases: usize,
+        rtk_base: &RTK,
         bias: &B,
     ) -> Result<(), Error> {
-        assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
-
         let mut pending = self.state.clone();
 
         // measurement
@@ -489,14 +468,14 @@ where
 
         let y_len = self.y_k_vec.len();
 
-        if y_len < S::USIZE {
+        if y_len < D::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
         let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO vector
 
         self.w_k.resize_mut(y_len, y_len, 0.0);
-        self.g_k.resize_mut(y_len, S::USIZE, 0.0);
+        self.g_k.resize_mut(y_len, D::USIZE, 0.0);
 
         for i in 0..y_len {
             self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
@@ -513,7 +492,8 @@ where
             self.g_k[(i, 0)] = dx;
             self.g_k[(i, 1)] = dy;
             self.g_k[(i, 2)] = dz;
-            self.g_k[(i, CLOCK_INDEX)] = 1.0;
+
+            self.g_k[(i, Self::clock_index())] = 1.0;
         }
 
         let estimate = self
@@ -598,3 +578,16 @@ where
 //         assert_eq!(dop.tdop, 16.0_f64.sqrt());
 //     }
 // }
+
+#[cfg(test)]
+mod test {
+    use crate::navigation::Navigation;
+    use nalgebra::{U4, U7, U9};
+
+    #[test]
+    fn navigation_dimensions_clock_index() {
+        assert_eq!(Navigation::<U4>::clock_index(), 3);
+        assert_eq!(Navigation::<U7>::clock_indes(), 6);
+        assert_eq!(Navigation::<U9>::clock_indes(), 8);
+    }
+}

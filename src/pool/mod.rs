@@ -102,14 +102,11 @@ impl Pool {
                     );
 
                     cd.orbit = Some(orbit);
-
                     true
-                } else {
-                    false
                 }
             },
             Err(e) => {
-                error!("{} ({}) - tx time error: {}", cd.t, cd.sv, e);
+                error!("{}({}) - tx time error: {}", cd.t, cd.sv, e);
                 false
             },
         });

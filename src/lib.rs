@@ -7,6 +7,8 @@
 extern crate gnss_rs as gnss;
 //extern crate nyx_space as nyx;
 
+pub mod error;
+
 // private modules
 mod ambiguity;
 mod averager;
@@ -25,12 +27,6 @@ pub(crate) mod constants;
 pub(crate) mod ppp;
 pub(crate) mod rtk;
 pub(crate) mod solver;
-// pub(crate) mod tides;
-
-// mod tracker;
-// pub(crate) mod utils;
-
-pub mod error;
 
 #[cfg(test)]
 mod tests;
@@ -47,8 +43,8 @@ pub mod prelude {
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,
-        ppp::PPPSolver,
-        rtk::{RTKBase, RTKSolver},
+        ppp::{StaticPPP, PPP},
+        rtk::{RTKBase, StaticRTK, RTK},
         time::AbsoluteTime,
     };
 

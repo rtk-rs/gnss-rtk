@@ -5,13 +5,11 @@ use anise::{
     prelude::{Almanac, Frame},
 };
 
-use nalgebra::U4;
-
 use crate::{
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
-    cfg::Config,
+    cfg::{Config, User},
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
@@ -20,12 +18,19 @@ use crate::{
     time::AbsoluteTime,
 };
 
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+
 /// [Solver] to resolve [PVTSolution]s.
 /// ## Generics:
 /// - O: [OrbitSource], custom [Orbit] provider.
 /// - B: custom [Bias] model.
 /// - T: [AbsoluteTime] source for correct absolute time
-pub struct Solver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
+pub struct Solver<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime>
+where
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+{
     /// Solver [Config]uration preset
     pub cfg: Config,
 
@@ -48,7 +53,7 @@ pub struct Solver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     first_solution: bool,
 
     /// [Navigation] solver
-    navigation: Navigation<U4>,
+    navigation: Navigation<D>,
 
     /// Possible initial position
     initial_ecef_m: Option<Vector3>,
@@ -57,7 +62,12 @@ pub struct Solver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     absolute_time: T,
 }
 
-impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
+impl<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<D, O, B, T>
+where
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+{
     /// Creates a new [Solver] for either direct or differential navigation,
     /// with possible apriori knowledge.
     ///
@@ -112,21 +122,20 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
     /// [PVTSolution] solving attempt.
     /// ## Input
     /// - t: [Epoch] of observation
+    /// - user: [User] parameters that we will adapt to
     /// - pool: proposed [Candidate]s
-    /// - rtk_bases: possible known [RTKBase]s
-    /// - num_bases: number of [RTKBase]s (if any)
+    /// - rtk_base: possible [RTKBase] we will connect to
     ///
     /// ## Output
     /// - [PVTSolution].
     pub fn resolve<RTK: RTKBase>(
         &mut self,
         t: Epoch,
+        user: User,
         pool: &[Candidate],
-        rtk_bases: &[RTK],
-        num_bases: usize,
+        rtk_base: &RTK,
     ) -> Result<PVTSolution, Error> {
         let ts = self.cfg.timescale;
-        let uses_rtk = num_bases > 0;
 
         let min_required = self.min_sv_required();
 
@@ -156,6 +165,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
         };
 
         let orbit_source = &mut self.orbit_source;
+
         self.pool.orbital_states(&self.cfg, orbit_source);
 
         // current state
@@ -204,11 +214,11 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
         // Solving attempt
         match self.navigation.solving(
             t,
+            user,
             &state,
             &self.pool.candidates(),
             pool_size,
-            rtk_bases,
-            num_bases,
+            rtk_base,
             &self.bias,
         ) {
             Ok(_) => {

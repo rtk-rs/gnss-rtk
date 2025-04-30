@@ -1,0 +1,109 @@
+use nalgebra::U4;
+
+use crate::{
+    ppp::NullRTK,
+    prelude::{
+        AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
+        PVTSolution,
+    },
+    solver::Solver,
+};
+
+/// [StaticPPP] is used for direct / absolute surveying of a static receiver,
+/// without access to subsidary reference sites. It is the same internal core as
+/// [PPP] solver and operates identitcally, but dedicated to static applications.
+/// The solutions will be expressed as [PVTSolution]s.
+/// The objective is to resolve the receiver state with very high accuracy, expressed
+/// as [PVTSolution]s.
+pub struct StaticPPP<O: OrbitSource, B: Bias, T: AbsoluteTime> {
+    /// Internal [Solver]
+    solver: Solver<U4, O, B, T>,
+}
+
+impl<O: OrbitSource, B: Bias, T: AbsoluteTime> StaticPPP<O, B, T> {
+    /// Creates a new [StaticPPP] for direct absolute navigation,
+    /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
+    /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.
+    /// When targetting high accuracy and quality of the solutions, we recommend letting the solver
+    /// figure the initial guess itself if you are not confident about the initial position.
+    ///
+    /// ## Input
+    /// - almanac: provided valid [Almanac]
+    /// - earth_cef: [Frame] that must be an ECEF
+    /// - cfg: solver [Config]uration
+    /// - orbit_source: external [OrbitSource] implementation, oftentimes referred to
+    /// as "orbit provider".
+    /// - time_source: external [Time] implementation, for applications that require
+    /// correct temporal solutions at all times. If you cannot fulffil its requirements
+    /// or do not care about the accuracy of the absolute temporal solution, you can simply
+    /// tie our [NullTime] structure here.
+    /// - bias: external [Bias] model implementation, to improve overall accuracy.
+    /// - initial_position_ecef_m: possible initial position, as ECEF coordinates in meters.
+    pub fn new(
+        almanac: Almanac,
+        earth_cef: Frame,
+        cfg: Config,
+        orbit_source: O,
+        time_source: T,
+        bias: B,
+        initial_position_ecef_m: Option<(f64, f64, f64)>,
+    ) -> Self {
+        let solver = Solver::new(
+            almanac,
+            earth_cef,
+            cfg,
+            orbit_source,
+            time_source,
+            bias,
+            initial_position_ecef_m,
+        );
+
+        Self { solver }
+    }
+
+    /// Creates a new [PPPSolver] for direct absolute navigation,
+    /// without apriori knowledge. In this case, the solver will
+    /// have to initialize itself.
+    ///
+    /// ## Input
+    /// - almanac: provided valid [Almanac]
+    /// - earth_cef: [Frame] that must be an ECEF
+    /// - cfg: solver [Config]uration
+    /// - orbit_source: external [OrbitSource] implementation, oftentimes referred to
+    /// as "orbit provider".
+    /// - bias: external [Bias] model implementation, to improve overall accuracy.
+    pub fn new_survey(
+        almanac: Almanac,
+        earth_cef: Frame,
+        cfg: Config,
+        orbit_source: O,
+        time_source: T,
+        bias: B,
+    ) -> Self {
+        Self::new(
+            almanac,
+            earth_cef,
+            cfg,
+            orbit_source,
+            time_source,
+            bias,
+            None,
+        )
+    }
+
+    /// [PVTSolution] solving attempt, at specified [Epoch] and using proposed [Candidate]s.
+    pub fn resolve(
+        &mut self,
+        epoch: Epoch,
+        candidates: &[Candidate],
+    ) -> Result<PVTSolution, Error> {
+        let solution = self.solver.resolve::<NullRTK>(epoch, candidates, &[], 0)?;
+        Ok(solution)
+    }
+
+    /// Reset [PPPSolver]. This is usually not needed, even on data gaps.
+    /// For the simple reason that a correctly tuned filter will correctly adapt.
+    pub fn reset(&mut self) {
+        self.solver.reset();
+    }
+}

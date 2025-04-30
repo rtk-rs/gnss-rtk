@@ -1,42 +1,28 @@
+use nalgebra::U7;
+
 use crate::{
+    ppp::NullRTK,
     prelude::{
-        AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, Observation,
-        OrbitSource, PVTSolution, SV,
+        AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
+        PVTSolution,
     },
-    rtk::RTKBase,
     solver::Solver,
 };
 
-struct NullRTK {}
-
-impl RTKBase for NullRTK {
-    fn name(&self) -> String {
-        "UNUSED".to_string()
-    }
-
-    fn observe(&mut self, _: Epoch, _: SV) -> Option<Observation> {
-        None
-    }
-
-    fn reference_position_ecef_m(&self, _: Epoch) -> Option<(f64, f64, f64)> {
-        None
-    }
-}
-
-/// [PPPSolver] is used for direct absolute navigation, without
-/// access to any remote reference sites. The objective is to resolve [PVTSolution]s
-/// with high accuracy.
-pub struct PPPSolver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
+/// [PPP] solver used to resolve the state of a roaming target,
+/// using direct / absolute navigation (without access to subsidary reference sites).
+/// The objective is to resolve the target state with very high accuracy,
+/// but the lack of external reference makes it difficult: it is the hardest
+/// situation we propose here ! The solutions are expressed as [PVTSolution]s.
+pub struct PPP<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     /// Internal [Solver]
-    solver: Solver<O, B, T>,
+    solver: Solver<U7, O, B, T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPPSolver<O, B, T> {
-    /// Creates a new [PPPSolver] for direct absolute navigation,
-    /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
-    /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.
-    /// When targetting high accuracy and quality of the solutions, we recommend letting the solver
-    /// figure the initial guess itself if you are not confident about the initial position.
+impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
+    /// Creates a new [PPP] for direct absolute surveying without
+    /// access to any reference sites. This solver is psecifically dedicated to roaming targets
+    /// (receivers). For static applications, you should prefer the Static solver.
     ///
     /// ## Input
     /// - almanac: provided valid [Almanac]
@@ -108,11 +94,11 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPPSolver<O, B, T> {
         epoch: Epoch,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
-        let solution = self.solver.resolve::<NullRTK>(epoch, candidates, &[], 0)?;
+        let solution = self.solver.resolve(epoch, candidates, &[], 0)?;
         Ok(solution)
     }
 
-    /// Reset [PPPSolver]. This is usually not needed, even on data gaps.
+    /// Reset [PPP] solver. This is usually not needed, even on data gaps.
     /// For the simple reason that a correctly tuned filter will correctly adapt.
     pub fn reset(&mut self) {
         self.solver.reset();

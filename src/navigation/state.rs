@@ -1,4 +1,4 @@
-use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, Vector};
+use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector};
 
 use anise::{
     astro::PhysicsResult,
@@ -8,7 +8,7 @@ use anise::{
 
 use crate::{
     constants::SPEED_OF_LIGHT_M_S,
-    navigation::{Apriori, CLOCK_INDEX},
+    navigation::{Apriori, Navigation},
     prelude::Orbit,
 };
 
@@ -117,7 +117,7 @@ where
 
     /// Returns estimated clock (offset, drift) in seconds and s.s⁻¹.
     pub fn clock_profile_s(&self) -> (f64, f64) {
-        (self.x[CLOCK_INDEX], self.clock_drift_s_s)
+        (self.x[Navigation::clock_index()], self.clock_drift_s_s)
     }
 
     /// Converts [State] to [Orbit]
@@ -136,12 +136,13 @@ where
         let dt = (pending_t - self.t).to_seconds();
 
         if dt > 0.0 {
-            self.clock_drift_s_s =
-                (dx[CLOCK_INDEX] / SPEED_OF_LIGHT_M_S - self.x[CLOCK_INDEX]) / dt;
+            self.clock_drift_s_s = (dx[Navigation::clock_index()] / SPEED_OF_LIGHT_M_S
+                - self.x[Navigation::clock_index()])
+                / dt;
         }
 
         for i in 0..D::USIZE {
-            if i == CLOCK_INDEX {
+            if i == Navigation::clock_index() {
                 self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
             } else {
                 self.x[i] += dx[i];
