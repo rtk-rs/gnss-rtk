@@ -104,12 +104,11 @@ Select your solver:
 | `StaticPPP`   | Static           | 3/5           | Surveying of a reference site<br>                       |
 |               |                  |               | Laboratories application without RTK network<br>        |
 |               |                  |               | New RTK Reference site calibration without RTK network  |
-| StaticRTK     | Static           | 5/5           | Surveying of a reference site<br>                       |
+| `PPP`         | Moving           | 3/5           | Roaming navigation without network access               |
+| `StaticRTK`   | Static           | 5/5           | Surveying of a reference site<br>                       |
 |               |                  |               | Laboratories application with RTK network access<br>    |
 |               |                  |               | New RTK Reference site calibration with RTK network     |
-| PPP           | Moving           | 3/5           | Roaming navigation without network access               |
-| RTK           | Moving           | 4/5           | Roaming navigation with RTK network access              |
-|---------------|------------------|---------------|---------------------------------------------------------|
+| `RTK`         | Moving           | 4/5           | Roaming navigation with RTK network access              |
 
 Select a navigation technique:
 
@@ -123,7 +122,14 @@ Select a navigation technique:
 |               |                                          |               | High precision site surveying                           |
 
 For roaming applications, you should also select the `Profile` that suites you best.
+The `profile` is dictated by the range of (instantaneous) velocity you want to cover.  
 
+Roaming solvers (`RTK` or `PPP`) are obviously compatible with devices coming to a full stop, even for long period of time.
+They are the only one that can truly do so and you should prefer those if your receiver is not completly static.
+These solvers adapt to ongoing events, especially when the correct `Profile` was selected.
+
+If your profile changes over time, you can reflect that by modifying the value you are passing to the solver `PPP.resolve(user=User)`,
+and the solver will adapt.
 
 Deployment
 ==========
