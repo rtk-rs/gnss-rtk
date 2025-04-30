@@ -112,21 +112,26 @@ where
     /// ## Returns
     /// - [Navigation], [Error]
     pub fn new(cfg: &Config, frame: Frame) -> Self {
-        assert!(D::USIZE >= U4::USIZE, "minimal dimensions!");
+        match D::USIZE {
+            4 | 7 => {},
+            u => panic!("non supported dimensions: {}", u),
+        }
 
         let mut f_k = OMatrix::<f64, D, D>::zeros();
         let mut q_k = OMatrix::<f64, D, D>::zeros();
 
-        if cfg.user.profile.is_static() {
+        if D::USIZE == 4 {
             for i in 0..=2 {
                 f_k[(i, i)] = 1.0;
             }
         }
 
+        q_k[(0, 0)] = 5.0;
+        q_k[(1, 1)] = 5.0;
+        q_k[(2, 2)] = 5.0;
+
         q_k[(Self::clock_index(), Self::clock_index())] =
             (cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
-
-        // TODO: Q value?!
 
         Self {
             f_k,
@@ -193,15 +198,10 @@ where
         if self.cfg.user != user {
             // profile update
             if user.profile != self.cfg.user.profile {
-                info!("{}: switching to {} profile", t, user.profile);
-
-                if user.profile.is_static() {
-                    for i in 0..=2 {
-                        self.f_k[(i, i)] = 1.0;
-                    }
+                if let Some(profile) = user.profile {
+                    info!("{}: switching to {} profile", t, profile);
+                    self.cfg.user.profile = Some(profile);
                 }
-
-                self.cfg.user.profile = user.profile;
             }
 
             self.q_k[(Self::clock_index(), Self::clock_index())] =
@@ -234,18 +234,10 @@ where
                         Error::StateUpdate
                     })?;
             } else {
-                let sigma_state_pos_std_dev_m = 1.0 / self.cfg.solver.postfit_denoising;
-
-                let mut sigma_state_vel_std_dev_m = 1.0 / self.cfg.solver.postfit_denoising;
-
-                if self.cfg.user.profile.is_static() {
-                    sigma_state_vel_std_dev_m /= 100.0;
-                }
-
                 self.postfit = Some(PostfitKf::new(
                     &self.state,
-                    sigma_state_pos_std_dev_m,
-                    sigma_state_vel_std_dev_m,
+                    1.0 / self.cfg.solver.postfit_denoising,
+                    1.0 / self.cfg.solver.postfit_denoising,
                     1.0,
                     1.0,
                 ));

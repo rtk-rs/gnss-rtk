@@ -204,7 +204,9 @@ impl Config {
     /// You can then customize [Self] as you will.
     pub fn static_preset(method: Method) -> Self {
         let mut s = Self::default();
+
         s.method = method;
+        s.user.profile = None;
 
         // consider that static applications can afford stringent criterias
         s.solver.max_gdop = 3.0;
@@ -214,11 +216,11 @@ impl Config {
 
     /// Returns [Config] for dynamic PPP positioning, with desired [Method]
     /// and rover [Profile]. You can then customize [Self] as you will.
-    pub fn dynamic_preset(profile: Profile, method: Method) -> Self {
+    pub fn dynamic_preset(method: Method, profile: Profile) -> Self {
         let mut s = Self::default();
 
         s.method = method;
-        s.user.profile = profile;
+        s.user.profile = Some(profile);
 
         s.solver.max_gdop = 5.0;
         s.max_tropo_bias = 15.0;
@@ -234,8 +236,8 @@ impl Config {
 
     /// Returns [Config] for dynamic RTK positioning, with desired [Method],
     /// rover [Profile].
-    pub fn dynamic_rtk_preset(profile: Profile, method: Method) -> Self {
-        Self::dynamic_preset(profile, method) // stricty identical
+    pub fn dynamic_rtk_preset(method: Method, profile: Profile) -> Self {
+        Self::dynamic_preset(method, profile)
     }
 
     /// Returns new [Config] with desired navigation [Method]

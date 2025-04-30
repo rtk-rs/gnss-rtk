@@ -152,6 +152,7 @@ impl Candidate {
             .count()
             > 1
     }
+
     /// True if dual pseudo range measurement is present
     pub(crate) fn has_triple_pseudo_range(&self) -> bool {
         self.pseudo_range_iter()

@@ -132,20 +132,6 @@ impl Candidate {
         self.remote_obs.push(remote);
     }
 
-    pub(crate) fn is_navi_compatible(&self) -> bool {
-        self.is_rtk_compatible() || self.is_ppp_compatible()
-    }
-
-    /// Returns true if self is compatible with RTK positioning
-    pub(crate) fn is_rtk_compatible(&self) -> bool {
-        self.remote_obs.len() > 3 && self.observations.len() > 3
-    }
-
-    /// Returns true if self is compatible with PPP positioning
-    pub(crate) fn is_ppp_compatible(&self) -> bool {
-        self.orbit.is_some()
-    }
-
     pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
         let l1 = self.l1_phase_range()?;
         let (f1_hz, l1) = (l1.0.frequency_hz(), l1.1);

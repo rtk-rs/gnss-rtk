@@ -118,7 +118,13 @@ where
 
     /// Returns position and velocity in ECEF meters as [Vector6]
     pub fn position_velocity_ecef_m(&self) -> Vector6 {
-        Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0)
+        match D::USIZE {
+            4 => Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0),
+            7 => Vector6::new(
+                self.x[0], self.x[1], self.x[2], self.x[3], self.x[4], self.x[5],
+            ),
+            _ => unreachable!("invalid dimensions!"),
+        }
     }
 
     /// Returns estimated clock (offset, drift) in seconds and s.s⁻¹.
