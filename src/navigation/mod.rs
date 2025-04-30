@@ -192,7 +192,7 @@ where
 
         if self.cfg.user != user {
             // profile update
-            if user.profile != self.cfg.user {
+            if user.profile != self.cfg.user.profile {
                 info!("{}: switching to {} profile", t, user.profile);
 
                 if user.profile.is_static() {
@@ -347,7 +347,7 @@ where
                 self.g_k[(i, 1)] = dy;
                 self.g_k[(i, 2)] = dz;
 
-                self.g_k[(i, Self::Clock_index())] = 1.0;
+                self.g_k[(i, Self::clock_index())] = 1.0;
             }
 
             // run
@@ -587,7 +587,7 @@ mod test {
     #[test]
     fn navigation_dimensions_clock_index() {
         assert_eq!(Navigation::<U4>::clock_index(), 3);
-        assert_eq!(Navigation::<U7>::clock_indes(), 6);
-        assert_eq!(Navigation::<U9>::clock_indes(), 8);
+        assert_eq!(Navigation::<U7>::clock_index(), 6);
+        assert_eq!(Navigation::<U9>::clock_index(), 8);
     }
 }

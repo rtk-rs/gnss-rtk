@@ -1,7 +1,7 @@
 use crate::{
     prelude::{
         AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
-        PVTSolution,
+        PVTSolution, User,
     },
     rtk::RTKBase,
     solver::Solver,
@@ -103,12 +103,11 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> StaticRTK<O, B, T> {
     pub fn resolve<R: RTKBase>(
         &mut self,
         epoch: Epoch,
+        user: User,
         candidates: &[Candidate],
         rtk_base: &R,
     ) -> Result<PVTSolution, Error> {
-        let solution = self
-            .solver
-            .resolve(epoch, candidates, candidates, rtk_base)?;
+        let solution = self.solver.resolve(epoch, user, candidates, rtk_base)?;
 
         Ok(solution)
     }

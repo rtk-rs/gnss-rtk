@@ -52,6 +52,8 @@ impl PVTSolution {
     where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
         let pos_vel_ecef_m = state.position_velocity_ecef_m();
         let (clock_offset_s, clock_drift_s_s) = state.clock_profile_s();

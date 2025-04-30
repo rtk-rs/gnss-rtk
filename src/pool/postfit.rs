@@ -24,6 +24,8 @@ impl Pool {
     ) where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
         self.post_fit_attitudes(almanac, frame, cfg, state);
         self.post_fit_velocities(cfg.modeling.relativistic_clock_bias);
@@ -48,6 +50,8 @@ impl Pool {
     ) where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
         let rx_orbit = state.to_orbit(frame);
 

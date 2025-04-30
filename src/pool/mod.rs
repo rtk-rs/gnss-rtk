@@ -103,6 +103,8 @@ impl Pool {
 
                     cd.orbit = Some(orbit);
                     true
+                } else {
+                    false
                 }
             },
             Err(e) => {

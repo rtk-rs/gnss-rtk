@@ -68,7 +68,7 @@ impl std::fmt::Display for Profile {
 
 /// [User] profile definition. High accuracy requires correct use
 /// of these settings.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct User {
     /// Custom user [Profile] which is application dependent

@@ -35,6 +35,8 @@ impl<D: DimName> Default for State<D>
 where
     DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
     fn default() -> Self {
         Self {
@@ -50,6 +52,8 @@ impl<D: DimName> std::fmt::Display for State<D>
 where
     DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let position_vel_m = self.position_velocity_ecef_m();
@@ -67,6 +71,8 @@ impl<D: DimName> State<D>
 where
     DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
     /// Create new [State] initialized from [Apriori]
     pub fn from_apriori(apriori: &Apriori) -> PhysicsResult<Self> {

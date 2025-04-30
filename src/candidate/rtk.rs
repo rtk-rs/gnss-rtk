@@ -9,20 +9,31 @@ impl Candidate {
         remote: &Self,
     ) -> Result<(f64, f64, f64), Error> {
         let mut rho_m = match cfg.method {
-            Method::SPP => self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?,
-            Method::PPP | Method::CPP => self
-                .code_if_combination()
-                .ok_or(Error::PseudoRangeCombination)?,
+            Method::SPP => {
+                let (_, range_m) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
+
+                range_m
+            },
+            Method::PPP | Method::CPP => {
+                let combination = self
+                    .code_if_combination()
+                    .ok_or(Error::PseudoRangeCombination)?;
+
+                combination.value
+            },
         };
 
         match cfg.method {
             Method::SPP => {
-                rho_m -= remote.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
+                let (_, range_m) = remote.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
+                rho_m -= range_m;
             },
             Method::PPP | Method::CPP => {
-                rho_m -= remote
+                let combination = remote
                     .code_if_combination()
                     .ok_or(Error::PseudoRangeCombination)?;
+
+                rho_m -= combination.value;
             },
         }
 
@@ -41,7 +52,7 @@ impl Candidate {
         dr: f64,
         x0_y0_z0_m: Vector3<f64>,
         base_r0: Vector3<f64>,
-    ) -> (f64, f64, f64) {
+    ) -> Vector3<f64> {
         let (x0_m, y0_m, z0_m) = (x0_y0_z0_m[0], x0_y0_z0_m[1], x0_y0_z0_m[2]);
 
         let orbit = self.orbit.unwrap_or_else(|| {
