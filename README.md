@@ -9,13 +9,9 @@ GNSS-RTK
 [![MRSV](https://img.shields.io/badge/MSRV-1.81.0-orange?style=for-the-badge)](https://github.com/rust-lang/rust/releases/tag/1.81.0)
 [![License](https://img.shields.io/badge/license-MPL_2.0-orange?style=for-the-badge&logo=mozilla)](https://github.com/rtk-rs/gnss-rtk/blob/main/LICENSE)
 
-The `GNSS-RTK` library provides a Position Velocity Time (PVT) solutions solver,
-with an efficient abstract interface, suitable for almost any type of applications,
-whether it is real-time or post-processing oriented. 
-
-The objective of this library is to provide a powerful API that is easy to operate
-and gives correct results at at all times. Due to the challenge in the task,
-the library requires `std` support and it is not scheduled to make a `no-std` version of this library.
+The `GNSS-RTK` library provides several Position Velocity Time (PVT) solution solvers,
+with abstract and flexible interfaces, which makes it suitable for most navigation applications,
+whether they are real-time or post-processing oriented.
 
 Licensing
 =========
@@ -23,8 +19,40 @@ Licensing
 This library is part of the [RTK-rs framework](https://github.com/rtk-rs) which
 is delivered under the [Mozilla V2 Public](https://www.mozilla.org/en-US/MPL/2.0) license.
 
-Solver API
-==========
+P.V.T Solutions
+===============
+
+The objective of each solver is to resolve the state of the target device: the GNSS receiver,
+in space time, with high accuracy. The solutions are called P. V. T. for Position Velocity Time
+solution, that emphasize the space & time coordinates dual coordinates. 
+
+Whether the receiver is moving or not is application dependent. You should select the solver
+that suites your application best.
+
+PVT Solvers
+===========
+
+This library proposes two different sets of solver, the absolute `PPP` and the `RTK` solver.
+Selecting one of those is driven by your application and what you can access
+
+- PPP for absolute navigation, without acess to an external reference.
+It is your only solution if you cannot access an RTK reference site.
+
+- RTK for differential navigation. To obtain the highest accuracy, you should prefer RTK solvers 
+when feasible.
+
+For each solver, we propose a `Static` or `Dynamic` solver that you should select
+depending on your target profile:
+
+- `StaticPPP` and `StaticRTK` are dedicated to static surveying of a reference site.
+You should prefer those if your target never moves and remains static.
+
+- `PPP`  and `RTK`for moving targets. Although they will adapt to static targets,
+you should select one of those if your application is not static. You can then customize
+the solver according to your target `Profile`.
+
+Application Programming Interface (API)
+=======================================
 
 This API demands you provide the minimum required to obtain valid PVT solutions.
 One key element is that we are physics driven and are not tied to a specific data format (CSV, RINEX..). 
@@ -37,6 +65,48 @@ Therefore, we rely on somewhat "advanced" interfacing, mainly:
 * One function pointer to provide possible environmental perturbations
 * One function pointer to collect the latest time corrections
 
+When solving in RTK (differential navigation), you must propose one reference station
+that implements the `RTKBase` trait, at each solving attempt.
+This means we naturally adapt to changes over your RTK network.
+
+This API is physics driven and does not depend on the input data source. You should
+be able to deploy this solver from any valid data source you have at your disposal.
+
+GNSS-RTK is limited to ground based (=low altitude, within atmosphere) navigation on planet Earth. 
+Although it would be possible to make GNSS-RTK more abstract and compatible with other Planets, it
+is not planned to this day. You can reach out to us and join forces, if you want to see this happen !
+
+Summary
+=======
+
+Select your solver:
+
+| Solver        | Target           | Accuracy      |  Application                                            |
+|---------------|------------------|---------------|---------------------------------------------------------|
+| `StaticPPP`   | Static           | 3/5           | Surveying of a reference site<br>                       |
+|               |                  |               | Laboratories application without RTK network<br>        |
+|               |                  |               | New RTK Reference site calibration without RTK network  |
+| StaticRTK     | Static           | 5/5           | Surveying of a reference site<br>                       |
+|               |                  |               | Laboratories application with RTK network access<br>    |
+|               |                  |               | New RTK Reference site calibration with RTK network     |
+| PPP           | Moving           | 3/5           | Roaming navigation without network access               |
+| RTK           | Moving           | 4/5           | Roaming navigation with RTK network access              |
+|---------------|------------------|---------------|---------------------------------------------------------|
+
+Select a navigation technique:
+
+| Method        | Physics                                  | Accuracy      |  Application                                            |
+|---------------|------------------------------------------|---------------|---------------------------------------------------------|
+| `SPP`         | Single Frequency Pseudo Range navigation |  2/5          | Low cost devices                                        |
+| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | High cost devices                                       |
+|               |                                          |               | Timing applications                                     |
+| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices                                       |
+|               |                                          |               | Timing applications                                     |
+|               |                                          |               | High precision site surveying                           |
+
+For roaming applications, you should also select the `Profile` that suites you best.
+
+
 Deployment
 ==========
 
@@ -48,72 +118,56 @@ Deployment
 
 This library provides an `embed_ephem` compilation option to reduce the requirements on low precision systems.
 
-GNSS-RTK Illustrations
-======================
-
-If you are inquiring for more details and results, you should take a look
-at our [`rinex-cli`](https://github.com/rtk-rs/rinex-cli) Examples & Demos,
-that illustrate what this solver has to offer.
-
-Context
-=======
-
-This library is oriented towards precise navigation on Earth ground (whether it is
-static or roaming navigation does not impact the process at first). We implement all the
-requirements to do so on planet Earth, not other planets.
-Although this modification would not require a lot of effort, it is not planed as of today
-to make `gnss_rtk` generic about the rover planet. If you are interested in seeing this happen,
-feel free to join the effort online.
-
 Configuration simplicity
 ========================
 
 Although the taks is challenging, one objective is to keep things simple.   
 To do so, we rely on the `serde` ecosystem and are able to provide [a consice and comprehensible Parametrization interface](./documentation/Config.md)
 
-Teaching & learning toolkit
-===========================
+Notes on target Profiles
+========================
 
-Because it is easy to operate and tweak `gnss_rtk`, it should be a good candidate
-for teaching, learning or prototyping. 
+Target profiling is requested for applications that require a high level of accuracy.  
+The `Profile` struct describes 
 
-PPP / RTK
-=========
+The profile is defined for each solving attempt.
+Because solving is synchronous and in chronological order, `GNSS-RTK` is adaptative
+and can adapt to profile changes of your target.
 
-This library is not particularly oriented towards PPP nor RTK, which are the most "popular" techniques
-for people aiming at ultra precise results. Instead, we try to support most navigations techniques, these two just happen to be one of them.
+If your application is always static, a `Static` solver is always best suited.  
+Only a roaming solver may apply to such applications. If your target happens to be static from time to time,
+you should still select a dynamic solver.
 
-Supported Techniques and Methods
-================================
+Notes on Navigation Method
+==========================
 
-We differentiate absolute and differential navigation techniques. The differential technique (RTK) is work in progress.
-
-Absolute or differential is selected by the deployment function. The 
-[navigation technique](https://docs.rs/gnss-rtk/latest/gnss_rtk/prelude/enum.Method.html) is defined
+Absolute or differential is selected at deployment. The 
+[navigation method](https://docs.rs/gnss-rtk/latest/gnss_rtk/prelude/enum.Method.html) is defined
 by the configuration preset.
 
-1. Absolute navigation
- 
-  - `SPP`: is a Pseudo Range navigation technique for single signal / degraded / limited setups.
-  Phase range observations are disregarded, unless you intend to use the L1+C1 enhancing smoothing technique.
-  You can enhance the SPP technique with an external model for environment perturbations. You can use the models we provide 
-  to answer that requirement. If you do not provide an accurate model (which is a complex thing to do), you cannot obtain
-  accurate solutions. We recommend using a different technique for any setups that allow to do so.
+- `SPP`: is a Pseudo Range navigation method for single signal / degraded / limited setups.
+Phase range observations are disregarded, unless you intend to use the L1+C1 enhancing smoothing technique.
+You can enhance the `SPP` with an external model for environment perturbations. You can use the models we provide 
+to answer that requirement. If you do not provide an accurate model (which is a complex thing to do), you cannot obtain
+accurate solutions. We recommend using a different technique for any setups that allow you to do so.
+It is often times interesting to degrade a CPP or PPP run back to SPP to actually see the huge difference
+these two made.
 
-  - `CPP`: starting at CPP, we use physical cancellation of the ionosphere impact.
-  Any ionosphere model is disregarded.
-  You need to provide two separate frequencies for this mode to operate.
-  CPP is like SPP and purely based on Pseudo Range navigation, phase range are disregarded,
-  unless you intend to use the L1+C1+L2+C2 smoothing technique.
+- `CPP`: starting at CPP, we use physical cancellation of the ionosphere bias.
+You need to provide two separate frequencies for this mode to operate.
+CPP is like SPP and purely based on Pseudo Range navigation, phase range are disregarded,
+unless you intend to use the L1+C1+L2+C2 smoothing technique.
 
-  - `PPP`: has the same requirements and objectives, but phase observations
-  are now also expected. It can be further enhanced by deploying the code smoothing technique.
-  Since PPP is very heavy and requires all signals to be available, our PPP presets activate the 
-  smoothing technique by default.
+- `PPP`: has the same requirements and objectives, but phase observations
+are now also expected. It can be further enhanced by deploying the code smoothing technique.
+Since PPP is very heavy and requires all signals to be available, our PPP presets activate the 
+smoothing technique by default.
 
-2. Differential navigation
+All of these are independent of the rover's profile AND the navigation technique:
 
-  - :warning: Work in Progress
+- you can use any signal strategy along any rover profile
+- you an use any signal strategy with either static or dynamic applications
+- you can use any signal strategy along RTK differential technique
 
 Enhanced Navigation techniques
 ==============================
@@ -205,11 +259,12 @@ This should offer yet another level of flexibility.
 For example, you can observe in `UTC` timescale and resolve `GPST`, but for that, your `Time` source needs to provide directly or help us
 resolve `|UTC-GPST|`.
 
-Custom Azimutal condition
-=========================
+Other features
+==============
 
-It is possible to restrict the contributors to a conic Azimutal + Elevation area (angle ranges),
-using the configuration preset.
+Non exhaustive list of other interesting features
+
+- It is possible to apply a custom conic Azimutal + Elevation mask to the satellites contributor.
 
 Framework
 =========
