@@ -13,6 +13,24 @@ The `GNSS-RTK` library provides several Position Velocity Time (PVT) solution so
 with abstract and flexible interfaces, which makes it suitable for most navigation applications,
 whether they are real-time or post-processing oriented.
 
+<div align="center">
+    <p>
+        Static surveying of a geodetic marker:
+    </p>
+    <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png>
+        <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png alt="Plot">
+    </a>
+</div>
+
+<div align="center">
+    <p>
+        Errors from the geodetic marker (CPP, Galileo E1+E5)
+    </p>
+    <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png>
+        <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png alt="Plot">
+    </a>
+</div>
+
 Licensing
 =========
 
