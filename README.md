@@ -121,18 +121,18 @@ Select your solver:
 
 | Solver        | Rover profile    | Method        | Accuracy      |  Applications                                                      |
 |---------------|------------------|---------------|---------------|--------------------------------------------------------------------|
-| `StaticPPP`   | Static           | SPP           | 3/5           | Low cost calibration of RTK reference site, without network access |
-|               |                  | CPP           | 4/5           | Laboratories application without network access. Precise calibration of a new RTK reference site, without network access.  |
-|               |                  | PPP           | 4.5/5         | Professional laboratory applications, without RTK network. Profesionnal calibration of a new reference, without a reference.        |
-|               |                  |               |               | New RTK Reference site calibration without RTK network       |
-| `PPP`         | Moving           | SPP           | 3/5           | Roaming low cost devices, without RTK network                |
-|                                  | CPP           | 4/5           | Precise tracking, without RTK network                        |
-|                                  | PPP           | 4.5/5         | High cost devices, profesionnal tracking, without RTK network|
-| `StaticRTK`   | Static           | SPP           | 3.5/5         | Low cost calibration, degraded RTK calibration of a geodetic site |
-|               |                  | CPP           | 4/5           | Mid range applications, laboratories application, precise applications |
-|               |                  | PPP           | 5/5           | High cost, profesionnal applications                    |
-|               |                  |               |               | New RTK Reference site calibration with RTK network     |
-| `RTK`         | Moving           | 4/5           |               | Roaming navigation with RTK network access              |
+| `StaticPPP`   | Static           | `SPP`           | 3/5           | Low cost surveying. Hobbyist calibration of an RTK reference, without RTK |
+|               |                  | `CPP`           | 4/5           | Lab applications, without RTK network. Precise setup of a new RTK reference, without RTK. |
+|               |                  | `PPP`           | 4.5/5         | Professional applications, without RTK network. Profesionnal RTK setup calibration, without RTK |
+| `PPP`         | Moving           | `SPP`           | 3/5           | Roaming low cost devices, without RTK network                |
+|                                  | `CPP`           | 4/5           | Precise tracking, without RTK network                        |
+|                                  | `PPP`           | 4.5/5         | High cost devices, profesionnal tracking, without RTK network|
+| `StaticRTK`   | Static           | `SPP`           | 3.5/5         | Low cost devices, hobbyist RTK applications                  |
+|               |                  | `CPP`           | 4/5           | Mid range devices, Lab applications with RTK network, precise applications |
+|               |                  | `PPP`           | 5/5           | High cost devices, profesionnal applications. Ultra precise calibration of a new reference site. Ultra precise verification of a calibration |
+| `RTK`         | Moving           | `SPP`           | 4/5           | Roaming low cost devices, with RTK network                   |
+|               |                  | `CPP`           | 4.5/5         | Precise tracking, Profesionnal applications                  |
+|               |                  | `PPP`           | 5/5           | High cost devices, ultra precise profesionnal tracking       |
 
 
 For roaming applications, you should also select the `Profile` that suites you best.
