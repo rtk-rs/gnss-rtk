@@ -16,7 +16,7 @@ mod sv;
 
 pub(crate) mod state;
 
-use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, U4};
+use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix};
 
 use crate::{
     cfg::User,
@@ -542,44 +542,42 @@ where
     }
 }
 
-// #[cfg(test)]
-// #[cfg(feature = "embed_ephem")]
-// mod test {
-//     use super::{DilutionOfPrecision, State};
-//     use crate::prelude::{Almanac, EARTH_J2000};
-//     use nalgebra::Matrix4;
-//
-//     #[test]
-//     fn test_dop() {
-//         let state = State {
-//             t: Default::default(),
-//             clock_dt: Default::default(),
-//             clock_drift_s_s: 0.0,
-//             pos_m: (1.0, 2.0, 3.0),
-//             lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0),
-//             vel_m_s: (4.0, 5.0, 6.0),
-//         };
-//
-//         let matrix = Matrix4::new(
-//             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
-//         );
-//
-//         let dop = DilutionOfPrecision::new(&state, matrix);
-//
-//         assert_eq!(dop.gdop, (1.0_f64 + 6.0_f64 + 11.0_f64 + 16.0_f64).sqrt());
-//         assert_eq!(dop.tdop, 16.0_f64.sqrt());
-//     }
-// }
-
 #[cfg(test)]
 mod test {
-    use crate::navigation::Navigation;
-    use nalgebra::{U4, U7, U9};
+    use crate::navigation::{DilutionOfPrecision, Navigation, State};
+    use nalgebra::{DMatrix, DVector, U4, U7, U9};
 
     #[test]
     fn navigation_dimensions_clock_index() {
-        assert_eq!(Navigation::<U4>::clock_index(), 3);
-        assert_eq!(Navigation::<U7>::clock_index(), 6);
-        assert_eq!(Navigation::<U9>::clock_index(), 8);
+        assert_eq!(
+            Navigation::<U4>::clock_index(),
+            3,
+            "invalid clock index for U4"
+        );
+        assert_eq!(
+            Navigation::<U7>::clock_index(),
+            6,
+            "invalid clock index for U7"
+        );
+        assert_eq!(
+            Navigation::<U9>::clock_index(),
+            8,
+            "invalid clock index for U9"
+        );
+    }
+
+    #[test]
+    fn dilution_of_navigation_precision() {
+        let state = State::<U4>::default();
+        let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
+        let dop = DilutionOfPrecision::new(&state, matrix);
+        assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());
+        assert_eq!(dop.tdop, 2.0);
+
+        let state = State::<U7>::default();
+        let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
+        let dop = DilutionOfPrecision::new(&state, matrix);
+        assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());
+        assert_eq!(dop.tdop, 2.0);
     }
 }
