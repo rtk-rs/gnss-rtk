@@ -3,11 +3,14 @@ use anise::{
     prelude::{Almanac, Epoch, Frame, Orbit},
 };
 
+use crate::navigation::apriori::Apriori;
+
 pub mod bias;
 
 mod bancroft;
 mod candidate;
 mod data;
+mod navigation;
 mod phase_range;
 mod pool;
 mod pseudo_range;
@@ -49,7 +52,7 @@ pub fn test_orbits() -> OrbitsData {
 
 pub const REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3628427.9118, 562059.0936, 5197872.2150);
 
-/// Expresse [REFERENCE_COORDS_ECEF_M] as ANISE [Orbit].
+/// Express [REFERENCE_COORDS_ECEF_M] as ANISE [Orbit].
 pub fn test_reference_orbit(t: Epoch, frame: Frame) -> Orbit {
     Orbit::from_position(
         REFERENCE_COORDS_ECEF_M.0 / 1.0E3,
@@ -58,6 +61,15 @@ pub fn test_reference_orbit(t: Epoch, frame: Frame) -> Orbit {
         t,
         frame,
     )
+}
+
+/// Builds reference [Apriori] position
+pub fn test_reference_apriori() -> Apriori {
+    let earth_frame = test_earth_frame();
+    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+    let ref_orbit = test_reference_orbit(t0_gpst, earth_frame);
+    let apriori = Apriori::from_orbit(&ref_orbit, earth_frame);
+    apriori
 }
 
 use std::str::FromStr;
