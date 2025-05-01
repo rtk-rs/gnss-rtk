@@ -50,9 +50,6 @@ pub struct Candidate {
     /// Local [Observation]s
     pub(crate) observations: Vec<Observation>,
 
-    /// Remote [Observation]s
-    pub(crate) remote_obs: Vec<Observation>,
-
     /// elevation at reception time
     pub(crate) elevation_deg: Option<f64>,
 
@@ -85,7 +82,6 @@ impl Candidate {
             dt_tx: Default::default(),
             orbit: Default::default(),
             wind_up: Default::default(),
-            remote_obs: Default::default(),
             azimuth_deg: Default::default(),
             elevation_deg: Default::default(),
             clock_corr: Default::default(),
@@ -127,16 +123,6 @@ impl Candidate {
         let mut s = self.clone();
         s.clock_corr = Some(corr);
         s
-    }
-
-    /// Provide remote [Observation]s observed by remote reference site. Not required if you intend to navigate in PPP mode.
-    pub fn set_remote_observations(&mut self, remote: Vec<Observation>) {
-        self.remote_obs = remote.clone();
-    }
-
-    /// Provide one remote [Observation] realized on remote reference site. Not required if you intend to navigate in PPP mode.
-    pub fn add_remote_observation(&mut self, remote: Observation) {
-        self.remote_obs.push(remote);
     }
 
     pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
