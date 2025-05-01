@@ -3,12 +3,15 @@ use anise::{
     prelude::{Almanac, Epoch, Frame, Orbit},
 };
 
+pub mod bias;
+
 mod bancroft;
+mod candidate;
 mod data;
 mod phase_range;
+mod pool;
 mod pseudo_range;
-
-pub mod bias;
+mod time;
 // mod navi;
 mod spp;
 
@@ -37,6 +40,11 @@ pub fn test_earth_frame() -> Frame {
         .unwrap_or_else(|e| panic!("Failed to build test Almanac: {}", e))
         .frame_from_uid(EARTH_J2000)
         .unwrap_or_else(|e| panic!("Failed to build test EARTH-J2000 frame: {}", e))
+}
+
+pub fn test_orbits() -> OrbitsData {
+    let earth_frame = test_earth_frame();
+    OrbitsData::new(earth_frame)
 }
 
 pub const REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3628427.9118, 562059.0936, 5197872.2150);

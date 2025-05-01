@@ -1,9 +1,8 @@
 use crate::{
-    prelude::{Almanac, Epoch, Frame, Orbit, OrbitSource, SV},
+    prelude::{Almanac, Duration, Epoch, Frame, Orbit, OrbitSource, SV},
     tests::data::{E01, E03, E05, E09, E13, E15, E24, E31},
 };
 
-use anise::constants::frames::EARTH_J2000;
 use rstest::*;
 
 use itertools::Itertools;
@@ -35,13 +34,7 @@ pub struct OrbitsData {
 }
 
 impl OrbitsData {
-    fn new(frame: Frame) -> Self {
-        let almanac = build_almanac();
-
-        let earth_j2000 = almanac
-            .frame_from_uid(EARTH_J2000)
-            .unwrap_or_else(|e| panic!("Failed to obtain EARTH-J2000: {}", e));
-
+    pub fn new(frame: Frame) -> Self {
         let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
 
         let map = HashMap::from_iter(
@@ -116,7 +109,8 @@ impl OrbitSource for OrbitsData {
             .map
             .iter()
             .filter_map(|(k, v)| {
-                if k.sv == sv && k.epoch == epoch {
+                // TODO : missing state interpolation !
+                if k.sv == sv && (k.epoch - epoch).abs() < Duration::from_seconds(15.0 * 60.0) {
                     Some(v)
                 } else {
                     None

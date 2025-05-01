@@ -116,10 +116,17 @@ impl Candidate {
         self.tgd = Some(tgd);
     }
 
-    /// Define on board Clock Correction if you know it.
+    /// Define on board [ClockCorrection] if you know it.
     /// This is mandatory for PPP and will increase your accuracy by hundreds of km.
     pub fn set_clock_correction(&mut self, corr: ClockCorrection) {
         self.clock_corr = Some(corr);
+    }
+
+    /// Copy and return updated [Candidate] with desired [ClockCorrection]
+    pub fn with_clock_correction(&self, corr: ClockCorrection) -> Self {
+        let mut s = self.clone();
+        s.clock_corr = Some(corr);
+        s
     }
 
     /// Provide remote [Observation]s observed by remote reference site. Not required if you intend to navigate in PPP mode.
@@ -228,18 +235,8 @@ impl Candidate {
             t_tx
         );
 
-        // assert!(
-        //     self.t - e_tx <
-        //     "{}({}): {} Space/Earth propagation delay is unrealistic: invalid input",
-        //     self.t,
-        //     self.sv,
-        //     dt
-        // );
-
         self.t_tx = t_tx;
         self.dt_tx = self.t - self.t_tx;
-
-        debug!("{} ({}) - tx delay: {}", self.t, self.sv, self.dt_tx,);
 
         Ok(())
     }
