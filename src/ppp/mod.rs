@@ -3,13 +3,13 @@ use crate::{
     rtk::RTKBase,
 };
 
-mod dynamic_ppp;
+mod kinematics;
 mod static_ppp;
 
-pub use dynamic_ppp::PPP;
+pub use kinematics::PPP;
 pub use static_ppp::StaticPPP;
 
-struct NullRTK {}
+pub(crate) struct NullRTK {}
 
 impl RTKBase for NullRTK {
     fn name(&self) -> String {
