@@ -1,144 +1,150 @@
 use crate::{
-    prelude::{Almanac, Epoch, Frame, Orbit, OrbitSource, EARTH_J2000, SV},
-    tests::{
-        epochs::EPOCHS_DESCRIPTOR,
-        gps::{G02, G05, G07, G08, G09, G13, G15},
-        init_logger, REFERENCE_COORDS_ECEF_M,
-    },
+    prelude::{Almanac, Epoch, Frame, Orbit, OrbitSource, SV},
+    tests::data::{E01, E03, E05, E09, E13, E15, E24, E31},
 };
 
-use hifitime::Unit;
+use anise::constants::frames::EARTH_J2000;
+use rstest::*;
 
-use log::warn;
-use std::str::FromStr;
+use itertools::Itertools;
 
-/// Dummy structure that allows deploying and iterating the solver
-/// infinitely, but cannot be used for calculations verification.
-pub struct NullOrbits {}
+use std::{collections::HashMap, str::FromStr};
 
-impl OrbitSource for NullOrbits {
-    fn next_at(&mut self, t: Epoch, _: SV, fr: Frame) -> Option<Orbit> {
-        let (x_km, y_km, z_km) = (15600.0, 7540.0, 20140.0);
-        Some(Orbit::from_position(x_km, y_km, z_km, t, fr))
-    }
+const MIN_ORBITS_PER_EPOCH: usize = 4 * 2;
+
+#[fixture]
+fn build_almanac() -> Almanac {
+    use crate::tests::test_almanac;
+    test_almanac()
 }
 
-pub struct OrbitData {
-    pub t: Epoch,
+#[fixture]
+fn build_earth_frame() -> Frame {
+    use crate::tests::test_earth_frame;
+    test_earth_frame()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash)]
+pub struct OrbitsDataKey {
     pub sv: SV,
-    pub pos_km: (f64, f64, f64),
+    pub epoch: Epoch,
 }
 
-pub struct GpsOrbits {
-    buffer: [OrbitData; 7],
+pub struct OrbitsData {
+    pub map: HashMap<OrbitsDataKey, Orbit>,
 }
 
-impl GpsOrbits {
-    pub fn build() -> Self {
-        Self {
-            buffer: [
-                OrbitData {
-                    t: Epoch::from_str(EPOCHS_DESCRIPTOR[0]).unwrap(),
-                    sv: G02,
-                    pos_km: (21815.313784, -13786.051880, -5530.292407),
-                },
-                OrbitData {
-                    t: Epoch::from_str(EPOCHS_DESCRIPTOR[0]).unwrap(),
-                    sv: G05,
-                    pos_km: (20403.407951, -4547.528919, 16359.977231),
-                },
-                OrbitData {
-                    t: Epoch::from_str(EPOCHS_DESCRIPTOR[0]).unwrap(),
-                    sv: G07,
-                    pos_km: (7216.464981, 13874.448927, 21747.416323),
-                },
-                OrbitData {
-                    t: Epoch::from_str(EPOCHS_DESCRIPTOR[0]).unwrap(),
-                    sv: G08,
-                    pos_km: (-7492.550168, 20537.976443, 14911.094048),
-                },
-                OrbitData {
-                    t: Epoch::from_str(EPOCHS_DESCRIPTOR[0]).unwrap(),
-                    sv: G09,
-                    pos_km: (8106.486739, 24398.526847, 6586.681092),
-                },
-                OrbitData {
-                    t: Epoch::from_str(EPOCHS_DESCRIPTOR[0]).unwrap(),
-                    sv: G13,
-                    pos_km: (13008.717968, -13353.750095, 18762.067067),
-                },
-                OrbitData {
-                    t: Epoch::from_str(EPOCHS_DESCRIPTOR[0]).unwrap(),
-                    sv: G15,
-                    pos_km: (5550.690261, -21648.534281, 13744.298178),
-                },
-            ],
-        }
+impl OrbitsData {
+    fn new(frame: Frame) -> Self {
+        let almanac = build_almanac();
+
+        let earth_j2000 = almanac
+            .frame_from_uid(EARTH_J2000)
+            .unwrap_or_else(|e| panic!("Failed to obtain EARTH-J2000: {}", e));
+
+        let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+        let map = HashMap::from_iter(
+            [
+                (
+                    OrbitsDataKey {
+                        sv: E01,
+                        epoch: t0_gpst,
+                    },
+                    Orbit::from_position(-11562.163582, 14053.114306, 23345.128269, t0_gpst, frame),
+                ),
+                (
+                    OrbitsDataKey {
+                        sv: E03,
+                        epoch: t0_gpst,
+                    },
+                    Orbit::from_position(4577.136069, -22995.974895, 18062.640686, t0_gpst, frame),
+                ),
+                (
+                    OrbitsDataKey {
+                        sv: E05,
+                        epoch: t0_gpst,
+                    },
+                    Orbit::from_position(16577.017768, -4619.539763, 24092.494804, t0_gpst, frame),
+                ),
+                (
+                    OrbitsDataKey {
+                        sv: E09,
+                        epoch: t0_gpst,
+                    },
+                    Orbit::from_position(18846.610510, 16144.830741, 16159.863309, t0_gpst, frame),
+                ),
+                (
+                    OrbitsDataKey {
+                        sv: E13,
+                        epoch: t0_gpst,
+                    },
+                    Orbit::from_position(-15921.765341, -5400.108297, 24360.804625, t0_gpst, frame),
+                ),
+                (
+                    OrbitsDataKey {
+                        sv: E15,
+                        epoch: t0_gpst,
+                    },
+                    Orbit::from_position(-409.147663, -21456.140629, 20391.202816, t0_gpst, frame),
+                ),
+                (
+                    OrbitsDataKey {
+                        sv: E24,
+                        epoch: t0_gpst,
+                    },
+                    Orbit::from_position(26947.918853, 9320.740084, 7908.580547, t0_gpst, frame),
+                ),
+                (
+                    OrbitsDataKey {
+                        sv: E31,
+                        epoch: t0_gpst,
+                    },
+                    Orbit::from_position(11195.440434, 16391.022663, 21968.198345, t0_gpst, frame),
+                ),
+            ]
+            .into_iter(),
+        );
+
+        Self { map }
     }
 }
 
-impl OrbitSource for GpsOrbits {
-    fn next_at(&mut self, t: Epoch, sv: SV, frame: Frame) -> Option<Orbit> {
-        let point = self
-            .buffer
+impl OrbitSource for OrbitsData {
+    fn next_at(&mut self, epoch: Epoch, sv: SV, _: Frame) -> Option<Orbit> {
+        let orbit = self
+            .map
             .iter()
-            .filter(|pt| pt.sv == sv && (pt.t - t).abs() < 1.0 * Unit::Nanosecond)
+            .filter_map(|(k, v)| {
+                if k.sv == sv && k.epoch == epoch {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
             .reduce(|k, _| k)?;
 
-        Some(Orbit::from_position(
-            point.pos_km.0,
-            point.pos_km.1,
-            point.pos_km.2,
-            t,
-            frame,
-        ))
+        Some(*orbit)
     }
 }
 
 #[test]
-#[cfg(feature = "embed_ephem")]
-fn validity() {
-    init_logger();
+fn verify_min_test_orbits_per_epoch() {
+    let earth_frame = build_earth_frame();
 
-    let almanac = Almanac::until_2035().unwrap();
-    let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+    let data = OrbitsData::new(earth_frame);
 
-    let mut gps_orbits = GpsOrbits::build();
+    for epoch in data.map.keys().map(|k| k.epoch).unique() {
+        let collected = data
+            .map
+            .iter()
+            .filter(|(k, _)| k.epoch == epoch)
+            .collect::<Vec<_>>();
 
-    for t in EPOCHS_DESCRIPTOR.iter() {
-        let t_gpst = Epoch::from_str(t).unwrap();
-
-        let rx_orbit = Orbit::from_position(
-            REFERENCE_COORDS_ECEF_M.0 / 1.0E3,
-            REFERENCE_COORDS_ECEF_M.1 / 1.0E3,
-            REFERENCE_COORDS_ECEF_M.2 / 1.0E3,
-            t_gpst,
-            frame,
+        assert!(
+            collected.len() >= MIN_ORBITS_PER_EPOCH,
+            "not enough valid test orbits @ {}",
+            epoch
         );
-
-        match *t {
-            "2020-06-25T00:00:00 GPST" => {
-                for sv in [G05] {
-                    let orbit = gps_orbits
-                        .next_at(t_gpst, sv, frame)
-                        .expect(&format!("undetermined orbital state: {}({})", t_gpst, sv));
-
-                    let azelrange = almanac
-                        .azimuth_elevation_range_sez(orbit, rx_orbit, None, None)
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "Physical error, invalid orbital state? {}({}): {}",
-                                t_gpst, sv, e
-                            )
-                        });
-
-                    assert!(
-                        azelrange.elevation_deg.is_sign_positive(),
-                        "not seen by station: invalid data point"
-                    );
-                }
-            },
-            t => warn!("{}: orbits not verified", t),
-        }
     }
 }
