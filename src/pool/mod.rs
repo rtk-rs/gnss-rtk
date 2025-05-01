@@ -66,19 +66,19 @@ impl Pool {
         self.inner = candidates.to_vec();
     }
 
-    pub fn retain<F>(&mut self, f: F)
-    where
-        F: FnMut(&Candidate) -> bool,
-    {
-        self.inner.retain(f)
-    }
+    // pub fn retain<F>(&mut self, f: F)
+    // where
+    //     F: FnMut(&Candidate) -> bool,
+    // {
+    //     self.inner.retain(f)
+    // }
 
-    pub fn retain_mut<F>(&mut self, f: F)
-    where
-        F: FnMut(&mut Candidate) -> bool,
-    {
-        self.inner.retain_mut(f)
-    }
+    // pub fn retain_mut<F>(&mut self, f: F)
+    // where
+    //     F: FnMut(&mut Candidate) -> bool,
+    // {
+    //     self.inner.retain_mut(f)
+    // }
 
     pub fn len(&self) -> usize {
         self.inner.len()
