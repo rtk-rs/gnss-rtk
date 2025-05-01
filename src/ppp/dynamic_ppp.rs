@@ -89,10 +89,18 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
     }
 
     /// [PVTSolution] solving attempt, at specified [Epoch] and using proposed [Candidate]s.
+    /// ## Input
+    /// - user: latest [User] profile.   
+    /// Everything counts in dynamic applications, not only the evolution of the
+    /// measurement system, but changes to the rover profile as well.
+    /// - epoch: sampling [Epoch]
+    /// - candidates: proposed [Candidate]s
+    /// ## Output
+    /// - solution: as [PVTSolution]
     pub fn resolve(
         &mut self,
-        epoch: Epoch,
         user: User,
+        epoch: Epoch,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
         let null_base = NullRTK {};

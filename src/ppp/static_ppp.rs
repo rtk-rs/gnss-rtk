@@ -4,7 +4,7 @@ use crate::{
     ppp::NullRTK,
     prelude::{
         AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
-        PVTSolution,
+        PVTSolution, User,
     },
     solver::Solver,
 };
@@ -92,14 +92,20 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> StaticPPP<O, B, T> {
     }
 
     /// [PVTSolution] solving attempt, at specified [Epoch] and using proposed [Candidate]s.
+    /// ## Input
+    /// - user: latest [User] profile so we can adapt.   
+    /// In static applications, only the measurement system profile counts here, anything else is disregarded.
+    /// - epoch: sampling [Epoch]
+    /// - candidates: proposed [Candidate]s
+    /// ## Output
+    /// - solution: as [PVTSolution]
     pub fn resolve(
         &mut self,
+        user: User,
         epoch: Epoch,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
         let null_base = NullRTK {};
-
-        let user = self.solver.cfg.user;
         let solution = self.solver.resolve(epoch, user, candidates, &null_base)?;
 
         Ok(solution)
