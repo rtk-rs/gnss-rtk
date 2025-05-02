@@ -99,6 +99,15 @@ GNSS-RTK is limited to ground based (=low altitude, within atmosphere) navigatio
 Although it would be possible to make GNSS-RTK more abstract and compatible with other Planets, it
 is not planned to this day. You can reach out to us and join forces, if you want to see this happen !
 
+Logs
+====
+
+This library uses `$RUST_LOG` to report the current state, what it is doing, analyze your preset
+and give recommendations, and finally, help debug potential use cases.
+
+For correct debugging, you should set `$RUST_LOG=debug`. For ulimtate debugging, `$RUST_LOG=trace`
+will give all the information we output.
+
 Summary
 =======
 
