@@ -100,13 +100,15 @@ impl Candidate {
             contribution.clock_correction = Some(dt.duration);
             bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
 
-            let correction = self.system_correction.unwrap_or(Duration::ZERO);
-            bias_m += correction.to_seconds() * SPEED_OF_LIGHT_M_S;
+            if let Some(system_corr) = self.system_correction {
+                bias_m += correction.to_seconds() * SPEED_OF_LIGHT_M_S;
+                
+                debug!(
+                    "{}({}) - system correction : {}",
+                    self.t, self.sv, system_corr
+                );
+            }
 
-            debug!(
-                "{}({}) - system correction : {}",
-                self.t, self.sv, correction
-            );
         }
 
         if cfg.modeling.sv_total_group_delay {
