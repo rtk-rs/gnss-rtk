@@ -15,7 +15,7 @@ whether they are real-time or post-processing oriented.
 
 <div align="center">
     <p>
-        `StaticPPP` versus a professional geodetic marker
+        `PPP` versus a professional geodetic marker
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png alt="Plot">
@@ -59,24 +59,20 @@ that suites your application best.
 PVT Solvers
 ===========
 
-This library proposes two different sets of solver, the absolute `PPP` and the `RTK` solver.
-Selecting one of those is driven by your application and what you can access
+This library proposes the `PPP` solver and the `RTK` solver, which you can select
+depending on your application. Currently we do not offer a hybrid solver that can do both,
+but that will be easily created in near future.
 
-- PPP for absolute navigation, without acess to an external reference.
-It is your only solution if you cannot access an RTK reference site.
+- `PPP` is used when you cannot access an RTK network (or reference sites).
+- `RTK` is used for differential navigation, with at least one RTK reference site.
 
-- RTK for differential navigation. To obtain the highest accuracy, you should prefer RTK solvers 
-when feasible.
+`RTK` is currently limited to a single reference, but we will augment this to N base in very near future.  
+`RTK` should always be prefered over `PPP` to obtain higher accuracy more easily.  
+Both solvers can operate without initial preset and can make a very good first guess to initialize themselves.
 
-For each solver, we propose a `Static` or `Dynamic` solver that you should select
-depending on your target profile:
-
-- `StaticPPP` and `StaticRTK` are dedicated to static surveying of a reference site.
-You should prefer those if your target never moves and remains static.
-
-- `PPP`  and `RTK`for moving targets. Although they will adapt to static targets,
-you should select one of those if your application is not static. You can then customize
-the solver according to your target `Profile`.
+In static applications, it is important you keep the user `Profile` up to date, if the range of velocity varies.  
+`Profile` also contains the perturbations of the measurement system, this applies to all cases, either
+static or dynamic.
 
 Application Programming Interface (API)
 =======================================
@@ -116,31 +112,15 @@ Select a navigation method:
 
 Select your solver:
 
-| Solver        | Rover profile    | Method        | Accuracy      |  Applications                                                      |
-|---------------|------------------|---------------|---------------|--------------------------------------------------------------------|
-| `StaticPPP`   | Static           | `SPP`           | 3/5           | Low cost surveying. Hobbyist calibration of an RTK reference, without RTK |
-|               |                  | `CPP`           | 4/5           | Lab applications, without RTK network. Precise setup of a new RTK reference, without RTK. |
-|               |                  | `PPP`           | 4.5/5         | Professional applications, without RTK network. Profesionnal RTK setup calibration, without RTK |
-| `PPP`         | Moving           | `SPP`           | 3/5           | Roaming low cost devices, without RTK network                |
-|               |                  | `CPP`           | 4/5           | Precise tracking, without RTK network                        |
-|               |                  | `PPP`           | 4.5/5         | High cost devices, profesionnal tracking, without RTK network|
-| `StaticRTK`   | Static           | `SPP`           | 3.5/5         | Low cost devices, hobbyist RTK applications                  |
-|               |                  | `CPP`           | 4/5           | Mid range devices, Lab applications with RTK network, precise applications |
-|               |                  | `PPP`           | 5/5           | High cost devices, profesionnal applications. Ultra precise calibration of a new reference site. Ultra precise verification of a calibration |
-| `RTK`         | Moving           | `SPP`           | 4/5           | Roaming low cost devices, with RTK network                   |
-|               |                  | `CPP`           | 4.5/5         | Precise tracking, Profesionnal applications                  |
-|               |                  | `PPP`           | 5/5           | High cost devices, ultra precise profesionnal tracking       |
+| Solver        | Method        | Accuracy      |  Context                 |
+|---------------|---------------|---------------|--------------------------|
+| `PPP`         | `SPP`         | 3/5           | Low cost / hobbyist      |
+|               | `CPP`         | 4/5           | Mid cost / lab           |
+|               | `PPP`         | 4.5/5         | High cost / profesionnal |
+| `RTK`         | `SPP`         | 4/5           | Low cost / hobbyist      |
+|               | `CPP`         | 4.5/5         | Mid cost / lab           |
+|               | `PPP`         | 5/5           | High cost / profesionnal |
 
-
-For roaming applications, you should also select the `Profile` that suites you best.
-The `profile` is dictated by the range of (instantaneous) velocity you want to cover.  
-
-Roaming solvers (`RTK` or `PPP`) are obviously compatible with devices coming to a full stop, even for long period of time.
-They are the only one that can truly do so and you should prefer those if your receiver is not completly static.
-These solvers adapt to ongoing events, especially when the correct `Profile` was selected.
-
-If your profile changes over time, you can reflect that by modifying the value you are passing to the solver `PPP.resolve(user=User)`,
-and the solver will adapt.
 
 Deployment
 ==========

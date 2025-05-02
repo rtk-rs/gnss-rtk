@@ -9,19 +9,16 @@ use crate::{
     solver::Solver,
 };
 
-/// [StaticPPP] is used for direct / absolute surveying of a static receiver,
-/// without access to subsidary reference sites. It is the same internal core as
-/// [PPP] solver and operates identitcally, but dedicated to static applications.
-/// The solutions will be expressed as [PVTSolution]s.
-/// The objective is to resolve the receiver state with very high accuracy, expressed
-/// as [PVTSolution]s.
-pub struct StaticPPP<O: OrbitSource, B: Bias, T: AbsoluteTime> {
+/// The [PPP] solver is used for absolute navigation, without access to an RTK network.
+/// It achieves the complex task of obtaining a [PVTSolution], possibly from scratch
+/// without any initial apriori.
+pub struct PPP<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     /// Internal [Solver]
     solver: Solver<U4, O, B, T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: AbsoluteTime> StaticPPP<O, B, T> {
-    /// Creates a new [StaticPPP] for direct absolute navigation,
+impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
+    /// Creates a new [PPP] solver for direct absolute navigation,
     /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
     /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.
     /// When targetting high accuracy and quality of the solutions, we recommend letting the solver
@@ -61,7 +58,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> StaticPPP<O, B, T> {
         Self { solver }
     }
 
-    /// Creates a new [PPPSolver] for direct absolute navigation,
+    /// Creates a new [PPP] solver for direct absolute navigation,
     /// without apriori knowledge. In this case, the solver will
     /// have to initialize itself.
     ///
@@ -111,7 +108,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> StaticPPP<O, B, T> {
         Ok(solution)
     }
 
-    /// Reset [PPPSolver]. This is usually not needed, even on data gaps.
+    /// Reset [PPP] solver. This is usually not needed, even on data gaps.
     /// For the simple reason that a correctly tuned filter will correctly adapt.
     pub fn reset(&mut self) {
         self.solver.reset();
