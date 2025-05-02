@@ -1,13 +1,29 @@
 use nalgebra::U4;
 
 use crate::{
-    ppp::NullRTK,
     prelude::{
         AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
-        PVTSolution, User,
+        PVTSolution, User, SV,
     },
+    rtk::RTKBase,
     solver::Solver,
 };
+
+struct NullRTK {}
+
+impl RTKBase for NullRTK {
+    fn name(&self) -> String {
+        "UNUSED".to_string()
+    }
+
+    fn observe(&mut self, _: Epoch, _: SV) -> Option<Candidate> {
+        None
+    }
+
+    fn reference_position_ecef_m(&self, _: Epoch) -> Option<(f64, f64, f64)> {
+        None
+    }
+}
 
 /// The [PPP] solver is used for absolute navigation, without access to an RTK network.
 /// It achieves the complex task of obtaining a [PVTSolution], possibly from scratch
@@ -91,7 +107,8 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
     /// [PVTSolution] solving attempt, at specified [Epoch] and using proposed [Candidate]s.
     /// ## Input
     /// - user: latest [User] profile so we can adapt.   
-    /// In static applications, only the measurement system profile counts here, anything else is disregarded.
+    /// Keep the [User] profile up to date with the rover behavior, in dynamic applications.  
+    /// The measurement system profile is also contained in the profile, and this may apply to static applications as well.
     /// - epoch: sampling [Epoch]
     /// - candidates: proposed [Candidate]s
     /// ## Output

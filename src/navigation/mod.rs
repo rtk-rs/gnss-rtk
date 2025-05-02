@@ -573,11 +573,5 @@ mod test {
         let dop = DilutionOfPrecision::new(&state, matrix);
         assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());
         assert_eq!(dop.tdop, 2.0);
-
-        let state = State::<U7>::default();
-        let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
-        let dop = DilutionOfPrecision::new(&state, matrix);
-        assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());
-        assert_eq!(dop.tdop, 2.0);
     }
 }

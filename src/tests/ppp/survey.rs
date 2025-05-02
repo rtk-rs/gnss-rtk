@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    ppp::StaticPPP,
+    ppp::PPP,
     prelude::{Almanac, Config, Epoch, Error, Frame, User},
     tests::{bias::NullBias, time::NullTime, CandidatesBuilder, OrbitsData},
 };
@@ -42,7 +42,7 @@ fn static_ppp_survey() {
     let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
     let candidates = CandidatesBuilder::build_at(t0_gpst);
 
-    let mut solver = StaticPPP::new_survey(
+    let mut solver = PPP::new_survey(
         almanac,
         earth_frame,
         default_cfg,

@@ -43,7 +43,7 @@ pub mod prelude {
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,
-        ppp::{StaticPPP, PPP},
+        ppp::PPP,
         rtk::{RTKBase, StaticRTK, RTK},
         time::AbsoluteTime,
     };

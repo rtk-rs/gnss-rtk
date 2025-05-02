@@ -1,2 +1,2 @@
-mod kinematics;
-mod statics;
+mod survey;
+mod initialized;
