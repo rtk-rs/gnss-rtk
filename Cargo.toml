@@ -14,6 +14,9 @@ exclude = [
     "examples_need_update/*",
 ]
 
+[package.metadata]
+msrv = "1.81"
+
 [features]
 default = []
 
