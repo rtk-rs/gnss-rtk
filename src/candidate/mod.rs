@@ -18,7 +18,10 @@ mod signal;
 pub mod clock;
 pub(crate) mod combination;
 
-pub use crate::candidate::{clock::ClockCorrection, signal::Observation};
+pub use crate::{
+    candidate::{clock::ClockCorrection, signal::Observation},
+    prelude::Carrier,
+};
 
 /// Position solving candidate
 #[derive(Clone, Debug)]
@@ -123,6 +126,48 @@ impl Candidate {
         let mut s = self.clone();
         s.clock_corr = Some(corr);
         s
+    }
+
+    /// Update pseudo range observation (in meters) for this frequency.
+    pub fn set_pseudo_range_m(&mut self, carrier: Carrier, pr_m: f64) {
+        if let Some(observation) = self
+            .observations
+            .iter_mut()
+            .filter_map(|obs| {
+                if obs.carrier == carrier && obs.pseudo_range_m.is_some() {
+                    Some(obs)
+                } else {
+                    None
+                }
+            })
+            .reduce(|k, _| k)
+        {
+            observation.pseudo_range_m = Some(pr_m);
+        } else {
+            self.observations
+                .push(Observation::pseudo_range(carrier, pr_m, None));
+        }
+    }
+
+    /// Update with ambiguous range observation (in meters) for this frequency.
+    pub fn set_ambiguous_phase_range_m(&mut self, carrier: Carrier, pr_m: f64) {
+        if let Some(observation) = self
+            .observations
+            .iter_mut()
+            .filter_map(|obs| {
+                if obs.carrier == carrier && obs.phase_range_m.is_some() {
+                    Some(obs)
+                } else {
+                    None
+                }
+            })
+            .reduce(|k, _| k)
+        {
+            observation.phase_range_m = Some(pr_m);
+        } else {
+            self.observations
+                .push(Observation::ambiguous_phase_range(carrier, pr_m, None));
+        }
     }
 
     pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
