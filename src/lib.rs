@@ -5,7 +5,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate gnss_rs as gnss;
-//extern crate nyx_space as nyx;
 
 pub mod error;
 
@@ -47,6 +46,9 @@ pub mod prelude {
         rtk::{RTKBase, StaticRTK, RTK},
         time::AbsoluteTime,
     };
+
+    // std types
+    pub use std::rc::Rc;
 
     // gnss types
     pub use gnss::prelude::{Constellation, SV};

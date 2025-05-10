@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
     constants::EARTH_ANGULAR_VEL_RAD,
-    prelude::{Candidate, Config, Duration, Epoch, Frame, Orbit, OrbitSource, SV},
+    prelude::{Candidate, Config, Duration, Epoch, Frame, Orbit, OrbitSource, Rc, SV},
     smoothing::Smoother,
 };
 
@@ -89,7 +89,7 @@ impl Pool {
     }
 
     /// Determine orbital states
-    pub fn orbital_states<O: OrbitSource>(&mut self, cfg: &Config, orbits: &mut O) {
+    pub fn orbital_states<O: OrbitSource>(&mut self, cfg: &Config, orbits: &Rc<O>) {
         self.inner.retain_mut(|cd| match cd.tx_epoch(cfg) {
             Ok(_) => {
                 if let Some(orbit) = orbits.next_at(cd.t_tx, cd.sv, self.earth_cef) {

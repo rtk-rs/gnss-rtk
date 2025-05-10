@@ -2,7 +2,7 @@ use crate::{
     cfg::User,
     prelude::{
         AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
-        PVTSolution,
+        PVTSolution, Rc,
     },
     rtk::RTKBase,
     solver::Solver,
@@ -42,7 +42,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> RTK<O, B, T> {
         almanac: Almanac,
         earth_cef: Frame,
         cfg: Config,
-        orbit_source: O,
+        orbit_source: Rc<O>,
         time_source: T,
         bias: B,
         initial_position_ecef_m: Option<(f64, f64, f64)>,
@@ -80,7 +80,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> RTK<O, B, T> {
         almanac: Almanac,
         earth_cef: Frame,
         cfg: Config,
-        orbit_source: O,
+        orbit_source: Rc<O>,
         time_source: T,
         bias: B,
     ) -> Self {

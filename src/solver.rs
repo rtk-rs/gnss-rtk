@@ -13,7 +13,7 @@ use crate::{
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
-    prelude::{Epoch, Error},
+    prelude::{Epoch, Error, Rc},
     rtk::RTKBase,
     time::AbsoluteTime,
 };
@@ -22,7 +22,7 @@ use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 /// [Solver] to resolve [PVTSolution]s.
 /// ## Generics:
-/// - O: [OrbitSource], custom [Orbit] provider.
+/// - O: [OrbitSource], custom Orbit provider.
 /// - B: custom [Bias] model.
 /// - T: [AbsoluteTime] source for correct absolute time
 pub struct Solver<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime>
@@ -41,7 +41,7 @@ where
     earth_cef: Frame,
 
     /// [OrbitSource]
-    orbit_source: O,
+    orbit_source: Rc<O>,
 
     /// [Bias] model implementation
     bias: B,
@@ -75,7 +75,9 @@ where
     /// - almanac: provided valid [Almanac]
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
-    /// - orbit_source: custom [OrbitSource] implementation.
+    /// - orbit_source: custom [OrbitSource] implementation,
+    /// wrapped in a Rc<RefCell<>> which allows the solver
+    /// and the orbital provider to live in the same thread.
     /// - absolute_time: external [AbsoluteTime] implementation.
     /// - bias: [Bias] model implementation
     /// - state_ecef_m: provide initial state as ECEF 3D coordinates,
@@ -84,7 +86,7 @@ where
         almanac: Almanac,
         earth_cef: Frame,
         cfg: Config,
-        orbit_source: O,
+        orbit_source: Rc<O>,
         absolute_time: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
@@ -164,7 +166,7 @@ where
             corrected
         };
 
-        let orbit_source = &mut self.orbit_source;
+        let orbit_source = &self.orbit_source;
 
         self.pool.orbital_states(&self.cfg, orbit_source);
 

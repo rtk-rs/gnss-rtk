@@ -84,9 +84,14 @@ You may deploy this solver with your own data source.
 Because Navigation is a complex task, providing an abstract interface for the end user is not easy.
 Therefore, we rely on somewhat "advanced" interfacing, mainly:
 
-* One function pointer to provide the state of the observed SV (also referred to as orbital source)
-* One function pointer to provide possible environmental perturbations
-* One function pointer to collect the latest time corrections
+* When building the solver, it obtains mutable access to the orbit provider.
+We wrapp it in a `Rc` (Reference Counter) so it can still live own in this current thread,
+to be updated, as required by real time applications. For post-processing applications,
+you are fine at this point, because you deploy the solver once your data set is ready.
+
+* The bias (environmental perturbations) provider is much simpler.
+* One final external interface to provide your own epoch conversion method, that the solver
+may use.
 
 When solving in RTK (differential navigation), you must propose one reference station
 that implements the `RTKBase` trait, at each solving attempt.
