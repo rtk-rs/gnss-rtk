@@ -52,6 +52,8 @@ impl PVTSolution {
     where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
         let pos_vel_ecef_m = state.position_velocity_ecef_m();
         let (clock_offset_s, clock_drift_s_s) = state.clock_profile_s();
@@ -62,15 +64,15 @@ impl PVTSolution {
             tdop: dop.tdop,
             vdop: dop.vdop,
             hdop: dop.hdop,
-            sv: contributions.to_vec(),
-            timescale: state.t.time_scale,
-            clock_offset_s: clock_offset_s,
-            clock_drift_s_s: clock_drift_s_s,
+            clock_offset_s,
+            clock_drift_s_s,
             lat_long_alt_deg_deg_m: (
                 state.lat_long_alt_deg_deg_km.0,
                 state.lat_long_alt_deg_deg_km.1,
                 state.lat_long_alt_deg_deg_km.2 * 1.0E3,
             ),
+            sv: contributions.to_vec(),
+            timescale: state.t.time_scale,
             pos_m: (pos_vel_ecef_m[0], pos_vel_ecef_m[1], pos_vel_ecef_m[2]),
             vel_m_s: (pos_vel_ecef_m[3], pos_vel_ecef_m[4], pos_vel_ecef_m[5]),
         }

@@ -5,47 +5,60 @@ use log::debug;
 use crate::{
     ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
     constants::SPEED_OF_LIGHT_M_S,
-    prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SV},
+    prelude::{Almanac, Config, Constellation, Duration, Epoch, Error, Orbit, Vector3, SV},
 };
 
 use anise::errors::AlmanacResult;
 
 mod bias;
-mod nav;
+mod ppp;
+mod rtk;
 mod signal;
 
 pub mod clock;
 pub(crate) mod combination;
 
-pub use crate::candidate::{clock::ClockCorrection, signal::Observation};
+pub use crate::{
+    candidate::{clock::ClockCorrection, signal::Observation},
+    prelude::Carrier,
+};
 
 /// Position solving candidate
 #[derive(Clone, Debug)]
 pub struct Candidate {
     /// [SV]
     pub sv: SV,
+
     /// Sampling [Epoch]
     pub t: Epoch,
+
     /// TX [Epoch]
     pub(crate) t_tx: Epoch,
+
     /// dt TX [Duration]
     pub(crate) dt_tx: Duration,
+
     /// [Orbit]al state
     pub(crate) orbit: Option<Orbit>,
+
     /// SV group delay expressed as a [Duration]
     pub(crate) tgd: Option<Duration>,
+
     /// Windup term in signal cycles
     pub(crate) wind_up: f64,
+
     /// [ClockCorrection]
     pub(crate) clock_corr: Option<ClockCorrection>,
+
     /// Local [Observation]s
     pub(crate) observations: Vec<Observation>,
-    /// Remote [Observation]s
-    pub(crate) remote_obs: Vec<Observation>,
+
     /// elevation at reception time
     pub(crate) elevation_deg: Option<f64>,
+
     /// azimuth at reception time
     pub(crate) azimuth_deg: Option<f64>,
+
     /// Possible time system correction
     pub(crate) system_correction: Option<Duration>,
 }
@@ -72,11 +85,25 @@ impl Candidate {
             dt_tx: Default::default(),
             orbit: Default::default(),
             wind_up: Default::default(),
-            remote_obs: Default::default(),
             azimuth_deg: Default::default(),
             elevation_deg: Default::default(),
             clock_corr: Default::default(),
         }
+    }
+
+    pub(crate) fn weight_perturbations(&self) -> f64 {
+        let fact = match self.sv.constellation {
+            Constellation::GPS => 1.0,
+            Constellation::Galileo => 1.0,
+            _ => 10.0,
+        };
+
+        let r_ratio = 100.0;
+
+        let tropod = 3.0;
+        let code_bias = 0.3;
+
+        fact * r_ratio + tropod + code_bias
     }
 
     /// Define Total Group Delay [TDG] if you know it.
@@ -88,39 +115,61 @@ impl Candidate {
         self.tgd = Some(tgd);
     }
 
-    /// Define on board Clock Correction if you know it.
+    /// Define on board [ClockCorrection] if you know it.
     /// This is mandatory for PPP and will increase your accuracy by hundreds of km.
     pub fn set_clock_correction(&mut self, corr: ClockCorrection) {
         self.clock_corr = Some(corr);
     }
 
-    /// Provide remote [Observation]s observed by remote reference site. Not required if you intend to navigate in PPP mode.
-    pub fn set_remote_observations(&mut self, remote: Vec<Observation>) {
-        self.remote_obs = remote.clone();
+    /// Copy and return updated [Candidate] with desired [ClockCorrection]
+    pub fn with_clock_correction(&self, corr: ClockCorrection) -> Self {
+        let mut s = self.clone();
+        s.clock_corr = Some(corr);
+        s
     }
 
-    /// Provide one remote [Observation] realized on remote reference site. Not required if you intend to navigate in PPP mode.
-    pub fn add_remote_observation(&mut self, remote: Observation) {
-        self.remote_obs.push(remote);
+    /// Update pseudo range observation (in meters) for this frequency.
+    pub fn set_pseudo_range_m(&mut self, carrier: Carrier, pr_m: f64) {
+        if let Some(observation) = self
+            .observations
+            .iter_mut()
+            .filter_map(|obs| {
+                if obs.carrier == carrier && obs.pseudo_range_m.is_some() {
+                    Some(obs)
+                } else {
+                    None
+                }
+            })
+            .reduce(|k, _| k)
+        {
+            observation.pseudo_range_m = Some(pr_m);
+        } else {
+            self.observations
+                .push(Observation::pseudo_range(carrier, pr_m, None));
+        }
     }
 
-    pub(crate) fn is_navi_compatible(&self) -> bool {
-        self.is_rtk_compatible() || self.is_ppp_compatible()
+    /// Update with ambiguous range observation (in meters) for this frequency.
+    pub fn set_ambiguous_phase_range_m(&mut self, carrier: Carrier, pr_m: f64) {
+        if let Some(observation) = self
+            .observations
+            .iter_mut()
+            .filter_map(|obs| {
+                if obs.carrier == carrier && obs.phase_range_m.is_some() {
+                    Some(obs)
+                } else {
+                    None
+                }
+            })
+            .reduce(|k, _| k)
+        {
+            observation.phase_range_m = Some(pr_m);
+        } else {
+            self.observations
+                .push(Observation::ambiguous_phase_range(carrier, pr_m, None));
+        }
     }
 
-    /// Returns true if self is compatible with RTK positioning
-    pub(crate) fn is_rtk_compatible(&self) -> bool {
-        self.remote_obs.len() > 3 && self.observations.len() > 3
-    }
-
-    /// Returns true if self is compatible with PPP positioning
-    pub(crate) fn is_ppp_compatible(&self) -> bool {
-        self.orbit.is_some()
-    }
-}
-
-// private
-impl Candidate {
     pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
         let l1 = self.l1_phase_range()?;
         let (f1_hz, l1) = (l1.0.frequency_hz(), l1.1);
@@ -217,18 +266,8 @@ impl Candidate {
             t_tx
         );
 
-        // assert!(
-        //     self.t - e_tx <
-        //     "{}({}): {} Space/Earth propagation delay is unrealistic: invalid input",
-        //     self.t,
-        //     self.sv,
-        //     dt
-        // );
-
         self.t_tx = t_tx;
         self.dt_tx = self.t - self.t_tx;
-
-        debug!("{} ({}) - tx delay: {}", self.t, self.sv, self.dt_tx,);
 
         Ok(())
     }

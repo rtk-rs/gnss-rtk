@@ -20,6 +20,7 @@ impl Candidate {
     /// - x0_y0_z0: current state (metric)
     /// - rx_lat_long_alt_ddeg_km: state as geodetic lat, long both
     /// in decimal degrees, and altitude above mean sea level (km)
+    /// - contribution: mutable [SVContribution]
     /// - bias: [Bias] model
     /// ## Returns
     /// - b_i contribution, r_i contribution, dr: relativistic path range
@@ -100,15 +101,13 @@ impl Candidate {
             contribution.clock_correction = Some(dt.duration);
             bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
 
-            if let Some(system_corr) = self.system_correction {
-                bias_m += correction.to_seconds() * SPEED_OF_LIGHT_M_S;
-                
-                debug!(
-                    "{}({}) - system correction : {}",
-                    self.t, self.sv, system_corr
-                );
-            }
+            let correction = self.system_correction.unwrap_or(Duration::ZERO);
+            bias_m += correction.to_seconds() * SPEED_OF_LIGHT_M_S;
 
+            debug!(
+                "{}({}) - system correction : {}",
+                self.t, self.sv, correction
+            );
         }
 
         if cfg.modeling.sv_total_group_delay {
@@ -162,11 +161,11 @@ impl Candidate {
         Ok((range_m - rho - bias_m, 1.0, dr))
     }
 
-    /// Geometric matrix contribution.
+    /// Matrix contribution.
     /// ## Input
     ///  - i: matrix row
     ///  - cfg: [Config] preset
-    ///  - x0_y0_z0: apriori triplet (m ECEF)
+    ///  - x0_y0_z0: position coordinates as ECEF (m)
     pub(crate) fn matrix_contribution(
         &self,
         cfg: &Config,
