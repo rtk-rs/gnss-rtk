@@ -86,6 +86,18 @@ pub struct User {
     pub clock_sigma_s: f64,
 }
 
+impl std::fmt::Display for User {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if let Some(profile) = self.profile {
+            write!(f, "Profile=\"{}\" ", profile)?;
+        } else {
+            write!(f, "Profile=Static ")?;
+        }
+
+        write!(f, "clock-sigma={}s", self.clock_sigma_s)
+    }
+}
+
 impl Default for User {
     fn default() -> Self {
         Self {
