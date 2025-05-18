@@ -161,7 +161,7 @@ where
         self.kalman.reset();
 
         if let Some(postfit) = &mut self.postfit {
-            postfit.reset();
+            self.postfit = None;
         }
 
         self.prev_epoch = None;

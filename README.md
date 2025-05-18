@@ -77,32 +77,40 @@ static or dynamic.
 Application Programming Interface (API)
 =======================================
 
+GNSS-RTK is limited to ground based (=low altitude, within atmosphere) navigation on planet Earth. 
+Although it would be possible to make GNSS-RTK more abstract and compatible with other Planets, it
+is not planned to this day. You can reach out to us and join forces, if you want to see this happen !
+
 This API demands you provide the minimum required to obtain valid PVT solutions.
 One key element is that we are physics driven and are not tied to a specific data format (CSV, RINEX..). 
 You may deploy this solver with your own data source.
 
 Because Navigation is a complex task, providing an abstract interface for the end user is not easy.
-Therefore, we rely on somewhat "advanced" interfacing, mainly:
+Therefore, we rely on somewhat "advanced" interfacing: function pointers.
 
-* When building the solver, it obtains mutable access to the orbit provider.
-We wrapp it in a `Rc` (Reference Counter) so it can still live own in this current thread,
-to be updated, as required by real time applications. For post-processing applications,
-you are fine at this point, because you deploy the solver once your data set is ready.
+* When building the solver, we obtain a immutable access to the orbit provider,
+wrapped in a `Rc<>`. This means your orbit provider can live in the same thread
+as the solver, and may have internal mutability (checkout this ""concept"") to do its own task
+to answer our requirements.
 
-* The bias (environmental perturbations) provider is much simpler.
-* One final external interface to provide your own epoch conversion method, that the solver
-may use.
+* Other function pointers are easier to deal with, and should not cause any issues,
+even in multi-threading context:
+  - environmental perturbations
+  - time correction equation
 
-When solving in RTK (differential navigation), you must propose one reference station
-that implements the `RTKBase` trait, at each solving attempt.
-This means we naturally adapt to changes over your RTK network.
+Selection between absolute or differential navigation is done at deployment time, by selecting
+either the `PPP` solver or the `RTK` solver. Although, impossible in the current version,
+we may offer a more flexible solver that can switch between both, with RTK preference and possible
+PPP fallback, but that is not obvious this is actually needed in the real world.
 
-This API is physics driven and does not depend on the input data source. You should
-be able to deploy this solver from any valid data source you have at your disposal.
+Our RTK solver is currently limited to 1 REF, but that will change in the future.
+So you will have to select which one we will use yourself, if you have access to a whole network.
 
-GNSS-RTK is limited to ground based (=low altitude, within atmosphere) navigation on planet Earth. 
-Although it would be possible to make GNSS-RTK more abstract and compatible with other Planets, it
-is not planned to this day. You can reach out to us and join forces, if you want to see this happen !
+This library is no longer shipped with examples. Instead, look applications that exist within this framework,
+which are kept up to date with the latest version of this core and illustrate both cases:
+
+- [RT-Navi](https://github.com/rtk-rs/rt-navi) is a real-time application which therefore, requires multi-threading ("easier").
+- [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) is dedicated to post processing workflows (more complex).
 
 Logs
 ====
@@ -116,7 +124,7 @@ will give all the information we output.
 Summary
 =======
 
-Select a navigation method:
+Select a navigation method, depending on your equiment and targeted accuracy:
 
 | Method        | Physics                                  | Accuracy      |  Application                                            |
 |---------------|------------------------------------------|---------------|---------------------------------------------------------|
@@ -124,7 +132,7 @@ Select a navigation method:
 | `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | Mid cost devices, Timing applications                   |
 | `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Very precise applications, Profesionnal surveying and calibrations |
 
-Select your solver:
+Select your solver, depending on your use case, type of application and targeted accuracy:
 
 | Solver        | Method        | Accuracy      |  Context                 |
 |---------------|---------------|---------------|--------------------------|
@@ -134,7 +142,6 @@ Select your solver:
 | `RTK`         | `SPP`         | 4/5           | Low cost / hobbyist      |
 |               | `CPP`         | 4.5/5         | Mid cost / lab           |
 |               | `PPP`         | 5/5           | High cost / profesionnal |
-
 
 Deployment
 ==========
