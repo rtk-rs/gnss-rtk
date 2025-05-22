@@ -110,8 +110,8 @@ although it is not clear to this day if this is actually needed in real world ap
 Examples
 ========
 
-This library is no longer shipped with examples. But we now have applications built-in our framework
-that illustrate all use cases, so you can refer to them, to see how you can get started quicker:
+This library is no longer shipped with examples. But our framework hosts applications that illustrate
+all use cases: 
 
 - [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) is dedicated to post processing workflows (more complex workflow).
 - [RT-Navi](https://github.com/rtk-rs/rt-navi) is a real-time application which therefore, requires multi-threading and 
