@@ -15,7 +15,7 @@ whether your application is real-time or post-processing does not matter.
 
 <div align="center">
     <p>
-        `PPP` versus a professional geodetic marker
+        <br>PPP solver</br> in static application, surveying a professional geodetic marker
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png alt="Plot">
@@ -33,7 +33,7 @@ whether your application is real-time or post-processing does not matter.
 
 <div align="center">
     <p>
-        Roaming session (pedestrian profile), post-processed with `PPP` solver (no ground reference), 
+        Roaming session (pedestrian profile), post-processed with <br>PPP solver</br> (no ground reference), 
         CPP, GPS L1/L5 + Galileo L1/L5
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png>
