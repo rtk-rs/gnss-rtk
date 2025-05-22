@@ -1,7 +1,10 @@
-use log::{debug, error};
+use log::{debug, error, info};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+#[cfg(doc)]
+use crate::prelude::TimeScale;
 
 pub(crate) mod apriori;
 pub(crate) mod solutions;
@@ -9,59 +12,34 @@ pub(crate) mod solutions;
 mod dop;
 mod kalman;
 mod postfit;
+mod sv;
 
 pub(crate) mod state;
 
-use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, U4};
+use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix};
 
 use crate::{
+    cfg::User,
     navigation::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
         kalman::{Kalman, KfEstimate},
         postfit::PostfitKf,
-        state::{correction::StateCorrection, State},
+        state::State,
     },
-    prelude::{
-        Bias, Candidate, Config, Duration, Epoch, Error, Frame, IonosphereBias, Signal,
-        SPEED_OF_LIGHT_M_S, SV,
-    },
+    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, SPEED_OF_LIGHT_M_S},
+    rtk::RTKBase,
 };
 
 pub use solutions::PVTSolution;
-
-/// SV Navigation information
-#[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct SVContribution {
-    /// Identitity
-    pub sv: SV,
-    /// [Signal] being used
-    pub signal: Signal,
-    /// Orbital state
-    pub sv_pos_km: (f64, f64, f64),
-    /// Orbital velocity
-    pub sv_vel_km_s: (f64, f64, f64),
-    /// Elevation from RX position
-    pub elevation: f64,
-    /// Azimuth from RX position
-    pub azimuth: f64,
-    /// Relativistic path range is evaluated for each contributor (only once)
-    pub relativistic_path_range_m: f64,
-    /// Troposphere bias in meters of delay
-    pub tropo_bias: Option<f64>,
-    /// Ionosphere bias
-    pub iono_bias: Option<IonosphereBias>,
-    /// Correction to said constellation, expressed as [Duration]
-    pub clock_correction: Option<Duration>,
-}
+pub use sv::SVContribution;
 
 /// [Navigation] Solver
-pub(crate) struct Navigation<S: DimName>
+pub(crate) struct Navigation<D: DimName>
 where
-    DefaultAllocator: Allocator<S> + Allocator<S, S>,
-    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
     /// [Config] preset
     cfg: Config,
@@ -69,8 +47,38 @@ where
     /// [Frame]
     frame: Frame,
 
+    /// Y allocation
+    y_k_vec: Vec<f64>,
+
+    /// W allocation
+    w_k_vec: Vec<f64>,
+
+    /// W
+    w_k: DMatrix<f64>,
+
+    /// G
+    g_k: DMatrix<f64>,
+
+    /// F
+    f_k: OMatrix<f64, D, D>,
+
+    /// Q
+    q_k: OMatrix<f64, D, D>,
+
+    /// X
+    x_k: DVector<f64>,
+
+    /// P
+    p_k: DMatrix<f64>,
+
     /// [Kalman]
-    kalman: Kalman<S>,
+    kalman: Kalman<D>,
+
+    /// contribution allocation
+    indexes: Vec<usize>,
+
+    /// [SVContribution]s
+    pub sv: Vec<SVContribution>,
 
     /// Postfit [Kalman]
     postfit: Option<PostfitKf>,
@@ -79,23 +87,20 @@ where
     pub initialized: bool,
 
     /// Current [State]
-    pub state: State<S>,
-
-    /// Previous Epoch. Null on first attempt.
-    prev_epoch: Option<Epoch>,
-
-    /// [SVContribution]s
-    pub sv: Vec<SVContribution>,
+    pub state: State<D>,
 
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
+
+    /// Null of first iter
+    prev_epoch: Option<Epoch>,
 }
 
-impl<S: DimName> Navigation<S>
+impl<D: DimName> Navigation<D>
 where
-    DefaultAllocator: Allocator<S> + Allocator<S, S>,
-    <DefaultAllocator as Allocator<S>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<S, S>>::Buffer<f64>: Copy,
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
     /// Creates new [Navigation] solver.
     /// ## Input
@@ -107,26 +112,56 @@ where
     /// ## Returns
     /// - [Navigation], [Error]
     pub fn new(cfg: &Config, frame: Frame) -> Self {
+        match D::USIZE {
+            4 | 7 => {},
+            u => panic!("non supported dimensions: {}", u),
+        }
+
+        let mut f_k = OMatrix::<f64, D, D>::zeros();
+        let mut q_k = OMatrix::<f64, D, D>::zeros();
+
+        if D::USIZE == 4 {
+            for i in 0..=2 {
+                f_k[(i, i)] = 1.0;
+            }
+        }
+
+        q_k[(0, 0)] = 1.0;
+        q_k[(1, 1)] = 1.0;
+        q_k[(2, 2)] = 1.0;
+
+        q_k[(Self::clock_index(), Self::clock_index())] =
+            (cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+
         Self {
+            f_k,
+            q_k,
             frame,
             postfit: None,
             cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
-            sv: Vec::with_capacity(8),
-            kalman: Kalman::<S>::new(),
             state: State::default(),
+            sv: Vec::with_capacity(8),
+            kalman: Kalman::<D>::new(),
+            y_k_vec: Vec::with_capacity(8),
+            w_k_vec: Vec::with_capacity(8),
+            indexes: Vec::with_capacity(8),
+            x_k: DVector::zeros(D::USIZE),
             dop: DilutionOfPrecision::default(),
+            g_k: DMatrix::<f64>::zeros(4, 4),
+            w_k: DMatrix::<f64>::zeros(4, 4),
+            p_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
         }
     }
 
     /// Reset [Navigation] filter.
     pub fn reset(&mut self) {
-        self.sv.clear();
+        self.clear();
         self.kalman.reset();
 
         if let Some(postfit) = &mut self.postfit {
-            postfit.reset();
+            self.postfit = None;
         }
 
         self.prev_epoch = None;
@@ -134,19 +169,49 @@ where
         self.dop = DilutionOfPrecision::default();
     }
 
+    /// Returns clock index
+    pub(crate) fn clock_index() -> usize {
+        D::USIZE - 1
+    }
+
     /// Iterates mutable [Navigation] filter.
-    pub fn solving<B: Bias>(
+    /// ## Input
+    /// - t: sampling [Epoch]
+    /// - user: [User]
+    /// - past_state: past [State]
+    /// - candidates: proposed [Candidate]s
+    /// - size: number of proposed [Cadndidate]s
+    /// - rtk_base: possible [RTKBase] implementation]
+    /// - bias: external [Bias] implementation
+    pub fn solving<B: Bias, R: RTKBase>(
         &mut self,
         t: Epoch,
-        past_state: &State<S>,
+        user: User,
+        past_state: &State<D>,
         candidates: &[Candidate],
         size: usize,
+        rtk_base: &R,
         bias: &B,
     ) -> Result<(), Error> {
+        self.clear();
+
+        if self.cfg.user != user {
+            // profile update
+            if user.profile != self.cfg.user.profile {
+                if let Some(profile) = user.profile {
+                    info!("{}: switching to {} profile", t, profile);
+                    self.cfg.user.profile = Some(profile);
+                }
+            }
+
+            self.q_k[(Self::clock_index(), Self::clock_index())] =
+                (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+        }
+
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, bias)?;
+            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias)?;
         } else {
-            self.kf_run(t, candidates, size, bias)?;
+            self.kf_run(t, candidates, size, rtk_base, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -169,18 +234,10 @@ where
                         Error::StateUpdate
                     })?;
             } else {
-                let sigma_state_pos_std_dev_m = 1.0 / self.cfg.solver.postfit_denoising;
-
-                let mut sigma_state_vel_std_dev_m = 1.0 / self.cfg.solver.postfit_denoising;
-
-                if self.cfg.user.profile.is_static() {
-                    sigma_state_vel_std_dev_m /= 100.0;
-                }
-
                 self.postfit = Some(PostfitKf::new(
                     &self.state,
-                    sigma_state_pos_std_dev_m,
-                    sigma_state_vel_std_dev_m,
+                    1.0 / self.cfg.solver.postfit_denoising,
+                    1.0 / self.cfg.solver.postfit_denoising,
                     1.0,
                     1.0,
                 ));
@@ -193,26 +250,26 @@ where
         Ok(())
     }
 
+    fn clear(&mut self) {
+        self.sv.clear();
+        self.indexes.clear();
+        self.y_k_vec.clear();
+        self.w_k_vec.clear();
+    }
+
     /// Filter first iteration.
-    pub fn kf_initialization<B: Bias>(
+    pub fn kf_initialization<B: Bias, RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        state: &State<S>,
+        state: &State<D>,
         candidates: &[Candidate],
         size: usize,
+        rtk_base: &RTK,
         bias: &B,
     ) -> Result<(), Error> {
-        assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
-
         let nb_iter = 10;
 
-        self.sv.clear();
-
         let mut pending = state.clone();
-        let mut indexes = Vec::<usize>::with_capacity(size);
-
-        let mut y_k = Vec::<f64>::with_capacity(size);
-        let mut r_k = Vec::<f64>::with_capacity(size);
 
         // measurement
         for i in 0..size {
@@ -230,9 +287,10 @@ where
                 bias,
             ) {
                 Ok((y_i, r_i, dr_i)) => {
-                    y_k.push(y_i);
-                    r_k.push(r_i);
-                    indexes.push(i);
+                    self.y_k_vec.push(y_i);
+                    self.w_k_vec.push(1.0 / r_i);
+                    self.indexes.push(i);
+                    self.sv.push(contrib);
 
                     if self.cfg.modeling.relativistic_path_range {
                         debug!(
@@ -240,8 +298,6 @@ where
                             t, candidates[i].sv, dr_i
                         );
                     }
-
-                    self.sv.push(contrib);
                 },
                 Err(e) => {
                     error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
@@ -249,29 +305,29 @@ where
             }
         }
 
-        let y_len = indexes.len();
-        if y_len < S::USIZE {
+        let y_len = self.indexes.len();
+
+        if y_len < D::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        let mut y_k = DVector::<f64>::from_row_slice(&y_k);
-        let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
-
-        let mut w_k = DMatrix::<f64>::identity(y_len, y_len);
-
-        for i in 0..y_len {
-            w_k[(i, i)] = 1.0 / r_k[i];
-        }
-
-        let mut x_k = DVector::<f64>::zeros(S::USIZE);
-        let mut correction = StateCorrection::default();
-
-        let mut p_k = DMatrix::<f64>::zeros(S::USIZE, S::USIZE);
+        self.g_k.resize_mut(y_len, D::USIZE, 0.0);
 
         // run
         for _ in 0..nb_iter {
+            let y_len = self.y_k_vec.len();
+
+            //self.y_k.resize_mut(y_len, 0.0); // TODO: vector
+            self.w_k.resize_mut(y_len, y_len, 0.0);
+
+            for i in 0..y_len {
+                self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
+            }
+
+            let y_k = DVector::from_row_slice(&self.y_k_vec);
+
             // form g_k
-            for (i, index) in indexes.iter().enumerate() {
+            for (i, index) in self.indexes.iter().enumerate() {
                 let dr_i = self.sv[i].relativistic_path_range_m;
 
                 let position_m = pending.position_ecef_m();
@@ -279,39 +335,31 @@ where
                 let (dx, dy, dz) =
                     candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
-                g_k[(i, 0)] = dx;
-                g_k[(i, 1)] = dy;
-                g_k[(i, 2)] = dz;
-                g_k[(i, 3)] = 1.0;
-            }
+                self.g_k[(i, 0)] = dx;
+                self.g_k[(i, 1)] = dy;
+                self.g_k[(i, 2)] = dz;
 
-            // verify correctness
-            if g_k.nrows() != y_len {
-                return Err(Error::MatrixDimension);
+                self.g_k[(i, Self::clock_index())] = 1.0;
             }
 
             // run
-            let gt = g_k.transpose();
-            let gt_g = gt.clone() * g_k.clone();
-            let gt_w = gt.clone() * w_k.clone();
-            let gt_w_g = gt_w * g_k.clone();
+            let gt = self.g_k.transpose();
+            let gt_g = gt.clone() * self.g_k.clone();
+            let gt_w = gt.clone() * self.w_k.clone();
+            let gt_w_g = gt_w * self.g_k.clone();
             let gt_w_g_inv = gt_w_g.try_inverse().ok_or(Error::MatrixInversion)?;
             let gt_w_g_inv_gt = gt_w_g_inv.clone() * gt.clone();
-            let gt_w_g_inv_gt_w = gt_w_g_inv_gt * w_k.clone();
+            let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.w_k.clone();
 
-            x_k = gt_w_g_inv_gt_w * y_k.clone();
-            p_k = gt_w_g_inv.clone();
+            self.x_k = gt_w_g_inv_gt_w * y_k.clone();
+            self.p_k = gt_w_g_inv.clone();
 
-            for i in 0..S::USIZE {
-                correction.dx[i] = x_k[i];
-            }
+            debug!("state correction: dx={}", self.x_k);
 
-            pending
-                .correct_mut(self.frame, t, correction)
-                .map_err(|e| {
-                    error!("{} - state update failed with physical error: {}", t, e);
-                    Error::StateUpdate
-                })?;
+            pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
@@ -321,12 +369,15 @@ where
             debug!("{} - pending state {}", t, pending);
 
             // models update
-            for (i, index) in indexes.iter().enumerate() {
+            self.y_k_vec.clear();
+            self.w_k_vec.clear();
+
+            self.indexes.retain(|i| {
                 let mut unused = SVContribution::default();
 
                 let position_m = pending.position_ecef_m();
 
-                match candidates[*index].vector_contribution(
+                match candidates[*i].vector_contribution(
                     t,
                     &self.cfg,
                     position_m,
@@ -335,46 +386,24 @@ where
                     bias,
                 ) {
                     Ok((y_i, r_i, _)) => {
-                        y_k[i] = y_i;
-                        w_k[(i, i)] = 1.0 / r_i;
+                        self.y_k_vec.push(y_i);
+                        self.w_k_vec.push(1.0 / r_i);
+                        true
                     },
                     Err(e) => {
-                        error!(
-                            "{}({}) - cannot contribute: {}",
-                            t, candidates[*index].sv, e
-                        );
+                        error!("{}({}) - cannot contribute: {}", t, candidates[*i].sv, e);
+                        false
                     },
                 }
-            }
+            });
         }
 
         // validation
         self.state_validation()?;
 
-        let mut f_k = OMatrix::<f64, S, S>::zeros();
+        let initial_estimate = KfEstimate::from_dynamic(self.x_k.clone(), self.p_k.clone());
 
-        if self.cfg.user.profile.is_static() {
-            for i in 0..3 {
-                f_k[(i, i)] = 1.0;
-            }
-        }
-
-        let mut q_k = OMatrix::<f64, S, S>::zeros();
-
-        const Z_BIAS_METERS: f64 = 5.0; // [m]
-
-        for i in 0..S::USIZE {
-            if i == 3 {
-                q_k[(i, i)] = (self.cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
-            } else if i == 2 {
-                q_k[(i, i)] = Z_BIAS_METERS;
-            } else {
-                q_k[(i, i)] = Z_BIAS_METERS / 2.0;
-            }
-        }
-
-        let initial_estimate = KfEstimate::from_dynamic(x_k, p_k);
-        self.kalman.initialize(f_k, q_k, initial_estimate);
+        self.kalman.initialize(self.f_k, self.q_k, initial_estimate);
 
         self.state = pending;
         debug!("{} - new state {}", t, self.state);
@@ -384,22 +413,15 @@ where
     }
 
     /// [Kalman] filter run
-    pub fn kf_run<B: Bias>(
+    pub fn kf_run<B: Bias, RTK: RTKBase>(
         &mut self,
         t: Epoch,
         candidates: &[Candidate],
         size: usize,
+        rtk_base: &RTK,
         bias: &B,
     ) -> Result<(), Error> {
-        assert!(S::USIZE >= U4::USIZE, "minimal dimensions!");
-
-        self.sv.clear();
-
         let mut pending = self.state.clone();
-        let mut indexes = Vec::<usize>::with_capacity(size);
-
-        let mut y_k = Vec::<f64>::with_capacity(size);
-        let mut r_k = Vec::<f64>::with_capacity(size);
 
         // measurement
         for i in 0..size {
@@ -418,10 +440,10 @@ where
                 bias,
             ) {
                 Ok((y_i, r_i, dr_i)) => {
-                    y_k.push(y_i);
-                    r_k.push(r_i);
-
-                    indexes.push(i);
+                    self.y_k_vec.push(y_i);
+                    self.w_k_vec.push(1.0 / r_i);
+                    self.indexes.push(i);
+                    self.sv.push(contrib);
 
                     if self.cfg.modeling.relativistic_path_range {
                         debug!(
@@ -429,8 +451,6 @@ where
                             t, candidates[i].sv, dr_i
                         );
                     }
-
-                    self.sv.push(contrib);
                 },
                 Err(e) => {
                     error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
@@ -438,74 +458,52 @@ where
             }
         }
 
-        let y_len = y_k.len();
-        if y_len < S::USIZE {
+        let y_len = self.y_k_vec.len();
+
+        if y_len < D::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        let y_k = DVector::<f64>::from_row_slice(&y_k);
-        let mut g_k = DMatrix::<f64>::zeros(y_len, S::USIZE);
+        let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO vector
 
-        let mut w_k = DMatrix::<f64>::identity(y_len, y_len);
+        self.w_k.resize_mut(y_len, y_len, 0.0);
+        self.g_k.resize_mut(y_len, D::USIZE, 0.0);
 
         for i in 0..y_len {
-            w_k[(i, i)] = 1.0 / r_k[i];
+            self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
         }
 
         // form g_k
-        for (i, index) in indexes.iter().enumerate() {
+        for (i, index) in self.indexes.iter().enumerate() {
             let dr_i = self.sv[i].relativistic_path_range_m;
 
             let position_m = pending.position_ecef_m();
 
             let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
-            g_k[(i, 0)] = dx;
-            g_k[(i, 1)] = dy;
-            g_k[(i, 2)] = dz;
-            g_k[(i, 3)] = 1.0;
+            self.g_k[(i, 0)] = dx;
+            self.g_k[(i, 1)] = dy;
+            self.g_k[(i, 2)] = dz;
+
+            self.g_k[(i, Self::clock_index())] = 1.0;
         }
 
-        if g_k.nrows() != y_len {
-            // incorrect dimensions
-            return Err(Error::MatrixDimension);
+        let estimate = self
+            .kalman
+            .run(&self.f_k, &self.g_k, &self.w_k, &self.q_k, &y_k)?;
+
+        debug!("state correction: dx={}", estimate.x);
+
+        for i in 0..estimate.x.nrows() {
+            self.x_k[i] = estimate.x[i];
         }
 
-        let mut f_k = OMatrix::<f64, S, S>::zeros();
+        pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
+            error!("{} - state update failed with physical error: {}", t, e);
+            Error::StateUpdate
+        })?;
 
-        if self.cfg.user.profile.is_static() {
-            for i in 0..3 {
-                f_k[(i, i)] = 1.0;
-            }
-        }
-
-        let mut q_k = OMatrix::<f64, S, S>::zeros();
-
-        const Z_BIAS_METERS: f64 = 5.0; // [m]
-
-        for i in 0..S::USIZE {
-            if i == 3 {
-                q_k[(i, i)] = (self.cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
-            } else if i == 2 {
-                q_k[(i, i)] = Z_BIAS_METERS;
-            } else {
-                q_k[(i, i)] = Z_BIAS_METERS / 2.0;
-            }
-        }
-
-        let estimate = self.kalman.run(f_k, &g_k, w_k, q_k, y_k)?;
-
-        let correction = estimate.to_state_correction();
-        debug!("state correction: dx={}", correction.dx);
-
-        pending
-            .correct_mut(self.frame, t, correction)
-            .map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
-                Error::StateUpdate
-            })?;
-
-        let gt_g_inv = (g_k.transpose() * g_k)
+        let gt_g_inv = (self.g_k.transpose() * self.g_k.clone())
             .try_inverse()
             .ok_or(Error::MatrixInversion)?;
 
@@ -544,31 +542,36 @@ where
     }
 }
 
-// #[cfg(test)]
-// #[cfg(feature = "embed_ephem")]
-// mod test {
-//     use super::{DilutionOfPrecision, State};
-//     use crate::prelude::{Almanac, EARTH_J2000};
-//     use nalgebra::Matrix4;
-//
-//     #[test]
-//     fn test_dop() {
-//         let state = State {
-//             t: Default::default(),
-//             clock_dt: Default::default(),
-//             clock_drift_s_s: 0.0,
-//             pos_m: (1.0, 2.0, 3.0),
-//             lat_long_alt_deg_deg_km: (0.0, 0.0, 0.0),
-//             vel_m_s: (4.0, 5.0, 6.0),
-//         };
-//
-//         let matrix = Matrix4::new(
-//             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
-//         );
-//
-//         let dop = DilutionOfPrecision::new(&state, matrix);
-//
-//         assert_eq!(dop.gdop, (1.0_f64 + 6.0_f64 + 11.0_f64 + 16.0_f64).sqrt());
-//         assert_eq!(dop.tdop, 16.0_f64.sqrt());
-//     }
-// }
+#[cfg(test)]
+mod test {
+    use crate::navigation::{DilutionOfPrecision, Navigation, State};
+    use nalgebra::{DMatrix, DVector, U4, U7, U9};
+
+    #[test]
+    fn navigation_dimensions_clock_index() {
+        assert_eq!(
+            Navigation::<U4>::clock_index(),
+            3,
+            "invalid clock index for U4"
+        );
+        assert_eq!(
+            Navigation::<U7>::clock_index(),
+            6,
+            "invalid clock index for U7"
+        );
+        assert_eq!(
+            Navigation::<U9>::clock_index(),
+            8,
+            "invalid clock index for U9"
+        );
+    }
+
+    #[test]
+    fn dilution_of_navigation_precision() {
+        let state = State::<U4>::default();
+        let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
+        let dop = DilutionOfPrecision::new(&state, matrix);
+        assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());
+        assert_eq!(dop.tdop, 2.0);
+    }
+}

@@ -1,19 +1,40 @@
-pub mod epochs;
-pub mod gps;
+mod candidates;
+pub use candidates::CandidatesBuilder;
 
-pub mod orbits;
+mod orbits;
+pub use orbits::OrbitsData;
 
-use crate::prelude::{Epoch, Frame, Orbit};
-use std::str::FromStr;
+use crate::prelude::{Constellation, SV};
 
-pub const REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3582105.2910, 532589.7313, 5232754.8054);
-
-pub fn reference_orbit(fr: Frame) -> Orbit {
-    Orbit::from_position(
-        REFERENCE_COORDS_ECEF_M.0 / 1.0E3,
-        REFERENCE_COORDS_ECEF_M.1 / 1.0E3,
-        REFERENCE_COORDS_ECEF_M.2 / 1.0E3,
-        Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap(),
-        fr,
-    )
-}
+pub const E01: SV = SV {
+    constellation: Constellation::Galileo,
+    prn: 1,
+};
+pub const E03: SV = SV {
+    constellation: Constellation::Galileo,
+    prn: 3,
+};
+pub const E05: SV = SV {
+    constellation: Constellation::Galileo,
+    prn: 5,
+};
+pub const E09: SV = SV {
+    constellation: Constellation::Galileo,
+    prn: 9,
+};
+pub const E13: SV = SV {
+    constellation: Constellation::Galileo,
+    prn: 13,
+};
+pub const E15: SV = SV {
+    constellation: Constellation::Galileo,
+    prn: 15,
+};
+pub const E24: SV = SV {
+    constellation: Constellation::Galileo,
+    prn: 24,
+};
+pub const E31: SV = SV {
+    constellation: Constellation::Galileo,
+    prn: 31,
+};

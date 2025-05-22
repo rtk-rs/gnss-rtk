@@ -5,49 +5,69 @@ use anise::{
     prelude::{Almanac, Frame},
 };
 
-use nalgebra::U4;
-
 use crate::{
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
-    cfg::Config,
+    cfg::{Config, User},
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
-    prelude::{Epoch, Error},
+    prelude::{Epoch, Error, Rc},
+    rtk::RTKBase,
     time::AbsoluteTime,
 };
 
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+
 /// [Solver] to resolve [PVTSolution]s.
 /// ## Generics:
-/// - O: [OrbitSource], custom [Orbit] provider.
+/// - O: [OrbitSource], custom Orbit provider.
 /// - B: custom [Bias] model.
 /// - T: [AbsoluteTime] source for correct absolute time
-pub struct Solver<O: OrbitSource, B: Bias, T: AbsoluteTime> {
+pub struct Solver<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime>
+where
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+{
     /// Solver [Config]uration preset
     pub cfg: Config,
+
     /// [Almanac]
     almanac: Almanac,
+
     /// [Frame]
     earth_cef: Frame,
+
     /// [OrbitSource]
-    orbit_source: O,
+    orbit_source: Rc<O>,
+
     /// [Bias] model implementation
     bias: B,
+
     /// Pool
     pool: Pool,
+
     /// To invalidate first solution
     first_solution: bool,
+
     /// [Navigation] solver
-    navigation: Navigation<U4>,
+    navigation: Navigation<D>,
+
     /// Possible initial position
     initial_ecef_m: Option<Vector3>,
+
     /// [AbsoluteTime] implementation
     absolute_time: T,
 }
 
-impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
+impl<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<D, O, B, T>
+where
+    DefaultAllocator: Allocator<D> + Allocator<D, D>,
+    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+{
     /// Creates a new [Solver] for either direct or differential navigation,
     /// with possible apriori knowledge.
     ///
@@ -55,7 +75,9 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
     /// - almanac: provided valid [Almanac]
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
-    /// - orbit_source: custom [OrbitSource] implementation.
+    /// - orbit_source: custom [OrbitSource] implementation,
+    /// wrapped in a Rc<RefCell<>> which allows the solver
+    /// and the orbital provider to live in the same thread.
     /// - absolute_time: external [AbsoluteTime] implementation.
     /// - bias: [Bias] model implementation
     /// - state_ecef_m: provide initial state as ECEF 3D coordinates,
@@ -64,7 +86,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
         almanac: Almanac,
         earth_cef: Frame,
         cfg: Config,
-        orbit_source: O,
+        orbit_source: Rc<O>,
         absolute_time: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
@@ -102,12 +124,21 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
     /// [PVTSolution] solving attempt.
     /// ## Input
     /// - t: [Epoch] of observation
+    /// - user: [User] parameters that we will adapt to
     /// - pool: proposed [Candidate]s
+    /// - rtk_base: possible [RTKBase] we will connect to
     ///
     /// ## Output
     /// - [PVTSolution].
-    pub fn resolve(&mut self, t: Epoch, pool: &[Candidate]) -> Result<PVTSolution, Error> {
+    pub fn resolve<RTK: RTKBase>(
+        &mut self,
+        t: Epoch,
+        user: User,
+        pool: &[Candidate],
+        rtk_base: &RTK,
+    ) -> Result<PVTSolution, Error> {
         let ts = self.cfg.timescale;
+
         let min_required = self.min_sv_required();
 
         if pool.len() < min_required {
@@ -135,7 +166,8 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
             corrected
         };
 
-        let orbit_source = &mut self.orbit_source;
+        let orbit_source = &self.orbit_source;
+
         self.pool.orbital_states(&self.cfg, orbit_source);
 
         // current state
@@ -182,10 +214,15 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<O, B, T> {
         }
 
         // Solving attempt
-        match self
-            .navigation
-            .solving(t, &state, &self.pool.candidates(), pool_size, &self.bias)
-        {
+        match self.navigation.solving(
+            t,
+            user,
+            &state,
+            &self.pool.candidates(),
+            pool_size,
+            rtk_base,
+            &self.bias,
+        ) {
             Ok(_) => {
                 info!("{} - iteration completed", t);
             },

@@ -136,16 +136,20 @@ impl Bancroft {
 mod test {
     use super::{lorentz_4_4, Bancroft};
     use nalgebra::Vector4;
+
     #[test]
-    fn lorentz_product() {
+    fn lorentz_4_4_product() {
         let a = Vector4::<f64>::new(1.0, 2.0, 3.0, 4.0);
         let b = Vector4::<f64>::new(5.0, 6.0, 7.0, 8.0);
         let m = Bancroft::m_matrix();
+
         assert_eq!(lorentz_4_4(a, b, &m), 6.0);
+
         assert_eq!(
             lorentz_4_4(a, b, &m),
             a[0] * b[0] + a[1] * b[1] + a[2] * b[2] - a[3] * b[3]
         );
+
         assert_eq!(
             lorentz_4_4(a, a, &m),
             a[0].powi(2) + a[1].powi(2) + a[2].powi(2) - a[3].powi(2)

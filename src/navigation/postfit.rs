@@ -1,5 +1,6 @@
 use nalgebra::{
-    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Matrix6, Vector6, U6,
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Matrix6, OMatrix, Vector6,
+    U6,
 };
 
 use crate::{
@@ -14,15 +15,17 @@ use crate::{
 #[derive(Clone)]
 pub struct PostfitKf {
     /// F [Matrix6]
-    f_k: Matrix6<f64>,
-    // /// R [Matrix6]
-    // r_k: DMatrix<f64>,
-    /// G [Matrix6]
+    f_k: OMatrix<f64, U6, U6>,
+
+    /// G [DMatrix]
     g_k: DMatrix<f64>,
-    /// W [Matrix6]
+
+    /// W [DMatrix]
     w_k: DMatrix<f64>,
-    /// Q [Matrix6]
-    q_k: Matrix6<f64>,
+
+    /// Q [OMatrix6]
+    q_k: OMatrix<f64, U6, U6>,
+
     /// [Kalman] filter
     kalman: Kalman<U6>,
 }
@@ -75,7 +78,6 @@ impl PostfitKf {
             f_k,
             q_k,
             kalman,
-            // r_k: DMatrix::from_diagonal(&DVector::from_row_slice(&r_diag)),
             w_k: DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0])),
             g_k: DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0])),
         }
@@ -101,9 +103,9 @@ impl PostfitKf {
         self.f_k[(2, 5)] = dt_s;
 
         let y_k = DVector::from_row_slice((&state.position_velocity_ecef_m()).into());
-        let w_k = self.w_k.clone();
 
-        self.kalman.run(self.f_k, &self.g_k, w_k, self.q_k, y_k)
+        self.kalman
+            .run(&self.f_k, &self.g_k, &self.w_k, &self.q_k, &y_k)
     }
 
     /// Reset this [PostfitKf]

@@ -24,6 +24,8 @@ impl Pool {
     ) where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
         self.post_fit_attitudes(almanac, frame, cfg, state);
         self.post_fit_velocities(cfg.modeling.relativistic_clock_bias);
@@ -48,12 +50,25 @@ impl Pool {
     ) where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
         let rx_orbit = state.to_orbit(frame);
 
         self.inner
             .retain_mut(|cd| match cd.orbital_attitude_fixup(almanac, rx_orbit) {
-                Ok(_) => true,
+                Ok(_) => {
+                    let elevation_deg = cd.elevation_deg.unwrap();
+                    if elevation_deg < 0.0 {
+                        error!(
+                            "{}({}) - invalid negative elevation. Invalid input data!",
+                            cd.t, cd.sv
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                },
                 Err(e) => {
                     error!("{}({}) - orbital fixup: {}", state.t, cd.sv, e);
                     false

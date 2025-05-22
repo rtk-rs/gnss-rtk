@@ -5,7 +5,8 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate gnss_rs as gnss;
-//extern crate nyx_space as nyx;
+
+pub mod error;
 
 // private modules
 mod ambiguity;
@@ -25,12 +26,6 @@ pub(crate) mod constants;
 pub(crate) mod ppp;
 pub(crate) mod rtk;
 pub(crate) mod solver;
-// pub(crate) mod tides;
-
-// mod tracker;
-// pub(crate) mod utils;
-
-pub mod error;
 
 #[cfg(test)]
 mod tests;
@@ -42,15 +37,18 @@ pub mod prelude {
         bias::{Bias, BiasRuntime, IonosphereBias, IonosphereModel, KbModel, TroposphereModel},
         candidate::{Candidate, ClockCorrection, Observation},
         carrier::{Carrier, Signal},
-        cfg::{Config, Method, Profile},
+        cfg::{Config, Method, Profile, User},
         constants::SPEED_OF_LIGHT_M_S,
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,
-        ppp::PPPSolver,
-        rtk::{RTKBase, RTKSolver},
+        ppp::PPP,
+        rtk::{RTKBase, RTK},
         time::AbsoluteTime,
     };
+
+    // std types
+    pub use std::rc::Rc;
 
     // gnss types
     pub use gnss::prelude::{Constellation, SV};

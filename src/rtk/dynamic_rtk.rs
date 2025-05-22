@@ -1,41 +1,28 @@
-use nalgebra::U4;
-
 use crate::{
+    cfg::User,
     prelude::{
         AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
-        PVTSolution, Rc, User, SV,
+        PVTSolution, Rc,
     },
     rtk::RTKBase,
     solver::Solver,
 };
 
-struct NullRTK {}
+use nalgebra::U7;
 
-impl RTKBase for NullRTK {
-    fn name(&self) -> String {
-        "UNUSED".to_string()
-    }
-
-    fn observe(&mut self, _: Epoch, _: SV) -> Option<Candidate> {
-        None
-    }
-
-    fn reference_position_ecef_m(&self, _: Epoch) -> Option<(f64, f64, f64)> {
-        None
-    }
-}
-
-/// The [PPP] solver is used for absolute navigation, without access to an RTK network.
-/// It achieves the complex task of obtaining a [PVTSolution], possibly from scratch
-/// without any initial apriori.
-pub struct PPP<O: OrbitSource, B: Bias, T: AbsoluteTime> {
+/// [RTK] is dedicated to resolve the state of a roaming (moving) target
+/// with help of at least 1 external reference sitee.
+/// It is the most accurate scenario we propose for moving targets.
+/// For static site surveying, you should prefer the [StaticRTK] solver.
+pub struct RTK<O: OrbitSource, B: Bias, T: AbsoluteTime> {
     /// Internal [Solver]
-    solver: Solver<U4, O, B, T>,
+    solver: Solver<U7, O, B, T>,
 }
 
-impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
-    /// Creates a new [PPP] solver for direct absolute navigation,
-    /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
+impl<O: OrbitSource, B: Bias, T: AbsoluteTime> RTK<O, B, T> {
+    /// Creates a new [StaticRTK] for direct differential navigation
+    /// of a static receiver, with external help of at least one reference site.
+    /// If you know the initial position (a rough estimate will do),
     /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.
     /// When targetting high accuracy and quality of the solutions, we recommend letting the solver
     /// figure the initial guess itself if you are not confident about the initial position.
@@ -46,10 +33,9 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
     /// - cfg: solver [Config]uration
     /// - orbit_source: external [OrbitSource] implementation, oftentimes referred to
     /// as "orbit provider".
-    /// - time_source: external [Time] implementation, for applications that require
-    /// correct temporal solutions at all times. If you cannot fulffil its requirements
-    /// or do not care about the accuracy of the absolute temporal solution, you can simply
-    /// tie our [NullTime] structure here.
+    /// - time_source: external [AbsoluteTime] implementation, for applications that require
+    /// correct temporal solutions at all times.
+    /// - rtk_base: single reference that implements the [RTKBase] trait.
     /// - bias: external [Bias] model implementation, to improve overall accuracy.
     /// - initial_position_ecef_m: possible initial position, as ECEF coordinates in meters.
     pub fn new(
@@ -74,7 +60,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
         Self { solver }
     }
 
-    /// Creates a new [PPP] solver for direct absolute navigation,
+    /// Creates a new [PPPSolver] for direct absolute navigation,
     /// without apriori knowledge. In this case, the solver will
     /// have to initialize itself.
     ///
@@ -84,6 +70,11 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
     /// - cfg: solver [Config]uration
     /// - orbit_source: external [OrbitSource] implementation, oftentimes referred to
     /// as "orbit provider".
+    /// - time_source: external [Time] implementation, for applications that require
+    /// correct temporal solutions at all times. If you cannot fulffil its requirements
+    /// or do not care about the accuracy of the absolute temporal solution, you can simply
+    /// tie our [NullTime] structure here.
+    /// - rtk_base: single reference that implements the [RTKBase] trait.
     /// - bias: external [Bias] model implementation, to improve overall accuracy.
     pub fn new_survey(
         almanac: Almanac,
@@ -104,30 +95,21 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
         )
     }
 
-    /// [PVTSolution] solving attempt, at specified [Epoch] and using proposed [Candidate]s.
+    /// [PVTSolution] solving attempt, at specified [Epoch] and using local [Candidate]s (rover's proposal).
     /// ## Input
-    /// - user: latest [User] profile so we can adapt.   
-    /// Keep the [User] profile up to date with the rover behavior, in dynamic applications.  
-    /// The measurement system profile is also contained in the profile, and this may apply to static applications as well.
-    /// - epoch: sampling [Epoch]
+    /// - epoch: sampling [Epoch], all forwarded [Observation]s should be synchronous
+    /// - user: latest most suited [User] profile
     /// - candidates: proposed [Candidate]s
-    /// ## Output
-    /// - solution: as [PVTSolution]
-    pub fn resolve(
+    /// - rtk_base: [RTKBase] implementation
+    pub fn resolve<R: RTKBase>(
         &mut self,
-        user: User,
         epoch: Epoch,
+        user: User,
         candidates: &[Candidate],
+        rtk_base: &R,
     ) -> Result<PVTSolution, Error> {
-        let null_base = NullRTK {};
-        let solution = self.solver.resolve(epoch, user, candidates, &null_base)?;
+        let solution = self.solver.resolve(epoch, user, candidates, rtk_base)?;
 
         Ok(solution)
-    }
-
-    /// Reset [PPP] solver. This is usually not needed, even on data gaps.
-    /// For the simple reason that a correctly tuned filter will correctly adapt.
-    pub fn reset(&mut self) {
-        self.solver.reset();
     }
 }
