@@ -46,7 +46,7 @@ fn static_ppp_survey() {
         almanac,
         earth_frame,
         default_cfg,
-        orbits_data,
+        orbits_data.into(),
         null_time,
         null_bias,
     );

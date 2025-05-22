@@ -4,6 +4,8 @@ use crate::{
     tests::{data::CandidatesBuilder, init_logger, time::NullTime, OrbitsData},
 };
 
+use std::rc::Rc;
+
 use hifitime::Duration;
 use rstest::*;
 use std::str::FromStr;
@@ -28,7 +30,7 @@ fn test_simple_pool_fit() {
     let default_cfg = Config::default();
 
     let earth_frame = build_earth_frame();
-    let mut orbits_data = build_orbit_source();
+    let orbits_data = Rc::new(build_orbit_source());
 
     let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
 
@@ -46,7 +48,7 @@ fn test_simple_pool_fit() {
 
     pool.pre_fit(&default_cfg, &null_time);
 
-    pool.orbital_states(&default_cfg, &mut orbits_data);
+    pool.orbital_states(&default_cfg, &orbits_data);
 
     assert_eq!(
         pool.candidates().len(),
@@ -65,7 +67,7 @@ fn test_pool_gst_preference() {
     default_cfg.timescale = TimeScale::GST;
 
     let earth_frame = build_earth_frame();
-    let mut orbits_data = build_orbit_source();
+    let orbits_data = Rc::new(build_orbit_source());
 
     let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
 
@@ -92,7 +94,7 @@ fn test_pool_gst_preference() {
         );
     }
 
-    pool.orbital_states(&default_cfg, &mut orbits_data);
+    pool.orbital_states(&default_cfg, &orbits_data);
 
     for cd in pool.candidates().iter() {
         assert_eq!(

@@ -48,7 +48,7 @@ fn static_ppp_with_preset() {
         almanac,
         earth_frame,
         default_cfg,
-        orbits_data,
+        orbits_data.into(),
         null_time,
         null_bias,
         Some(REFERENCE_COORDS_ECEF_M),
