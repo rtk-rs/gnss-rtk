@@ -9,9 +9,9 @@ GNSS-RTK
 [![MRSV](https://img.shields.io/badge/MSRV-1.81.0-orange?style=for-the-badge)](https://github.com/rust-lang/rust/releases/tag/1.81.0)
 [![License](https://img.shields.io/badge/license-MPL_2.0-orange?style=for-the-badge&logo=mozilla)](https://github.com/rtk-rs/gnss-rtk/blob/main/LICENSE)
 
-The `GNSS-RTK` library provides several Position Velocity Time (PVT) solution solvers,
-with abstract and flexible interfaces, which makes it suitable for most navigation applications,
-whether they are real-time or post-processing oriented.
+The `GNSS-RTK` library provides Position Velocity Time (PVT) solution solvers,
+with abstract and flexible interfaces, so it may apply to most navigation scenarios,
+whether your application is real-time or post-processing does not matter.
 
 <div align="center">
     <p>
@@ -33,10 +33,11 @@ whether they are real-time or post-processing oriented.
 
 <div align="center">
     <p>
-        Roaming with `PPP` in the arctic (CPP, Galileo + GPS E1/L1+E5/L5)
+        Roaming session (pedestrian profile), post-processed with `PPP` solver (no ground reference), 
+        CPP, GPS L1/L5 + Galileo L1/L5
     </p>
-    <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png>
-        <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png alt="Plot">
+    <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png>
+        <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png alt="Plot">
     </a>
 </div>
 
@@ -51,10 +52,14 @@ P.V.T Solutions
 
 The objective of each solver is to resolve the state of the target device: the GNSS receiver,
 in space time, with high accuracy. The solutions are called P. V. T. for Position Velocity Time
-solution, that emphasize the space & time coordinates dual coordinates. 
+solution, that emphasizes the space & time coordinates. 
 
 Whether the receiver is moving or not is application dependent. You should select the solver
 that suites your application best.
+
+GNSS-RTK is limited to ground based (=low altitude, within atmosphere) navigation on planet Earth. 
+Although it would be possible to make GNSS-RTK more abstract and compatible with other Planets, it
+is not planned to this day. You can reach out to us and join forces, if you want to see this happen !
 
 PVT Solvers
 ===========
@@ -77,40 +82,40 @@ static or dynamic.
 Application Programming Interface (API)
 =======================================
 
-GNSS-RTK is limited to ground based (=low altitude, within atmosphere) navigation on planet Earth. 
-Although it would be possible to make GNSS-RTK more abstract and compatible with other Planets, it
-is not planned to this day. You can reach out to us and join forces, if you want to see this happen !
+The API allows the Orbital provider to live in the same thread as the solver, to answer
+the requirements of real-time navigation. In post-process applications, you will deploy
+the solver once all data has been collected & then exit, so this will not matter to you.
 
-This API demands you provide the minimum required to obtain valid PVT solutions.
-One key element is that we are physics driven and are not tied to a specific data format (CSV, RINEX..). 
-You may deploy this solver with your own data source.
+The Orbital Trait does not require mutable access and is wrapped in a `Rc` (Reference Counter).
+You can then have an "internally mutable" (checkout this concept) in that thread, for you to collect
+your Orbital data, and yet provide it to the function pointer.
 
-Because Navigation is a complex task, providing an abstract interface for the end user is not easy.
-Therefore, we rely on somewhat "advanced" interfacing: function pointers.
+The other vital side is the `Solver.resolve()` method, that you need to call for each measurement period.
+Synchronous measurements should be grouped together and provided
+only once. Epochs should evolve in chronological order, naturally, although we do not verify this progression internally.
+Measurements, in our API, are Candidates proposal. Depending on the current state, the requirements will vary.
 
-* When building the solver, we obtain a immutable access to the orbit provider,
-wrapped in a `Rc<>`. This means your orbit provider can live in the same thread
-as the solver, and may have internal mutability (checkout this ""concept"") to do its own task
-to answer our requirements.
+Other function pointers exist and are "required" at least to deploy, but can actually be bypassed,
+by simply returning `None` in your implementation. In other words, they are not vital. Their sole
+purpose is to improve the model and accuracy of the final solution. We have to other function pointers as of today:
 
-* Other function pointers are easier to deal with, and should not cause any issues,
-even in multi-threading context:
-  - environmental perturbations
-  - time correction equation
+- `Bias` for environmental perturbations
+- `Time`: the epoch translation is implemented externally, not internally. This allows advanced
+applications that may access a translation (correction) database to take advantage of it.
 
 Selection between absolute or differential navigation is done at deployment time, by selecting
-either the `PPP` solver or the `RTK` solver. Although, impossible in the current version,
-we may offer a more flexible solver that can switch between both, with RTK preference and possible
-PPP fallback, but that is not obvious this is actually needed in the real world.
+either the `PPP` solver or the `RTK` solver. We may offer an adaptative solver that may support both,
+although it is not clear to this day if this is actually needed in real world applications.
 
-Our RTK solver is currently limited to 1 REF, but that will change in the future.
-So you will have to select which one we will use yourself, if you have access to a whole network.
+Examples
+========
 
-This library is no longer shipped with examples. Instead, look applications that exist within this framework,
-which are kept up to date with the latest version of this core and illustrate both cases:
+This library is no longer shipped with examples. But we now have applications built-in our framework
+that illustrate all use cases, so you can refer to them, to see how you can get started quicker:
 
-- [RT-Navi](https://github.com/rtk-rs/rt-navi) is a real-time application which therefore, requires multi-threading ("easier").
-- [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) is dedicated to post processing workflows (more complex).
+- [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) is dedicated to post processing workflows (more complex workflow).
+- [RT-Navi](https://github.com/rtk-rs/rt-navi) is a real-time application which therefore, requires multi-threading and 
+respect the threading requirements. It is also hardware dependent (obviously).
 
 Logs
 ====
