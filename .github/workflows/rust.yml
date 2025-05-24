@@ -45,18 +45,12 @@ jobs:
 
     - name: Config documentation
       run: |
-        cargo test generate_static_cpp_preset --all-features
-        echo "Static CPP" >> $GITHUB_STEP_SUMMARY
-        echo "==========" >> $GITHUB_STEP_SUMMARY
-        python3 tools/jsonmd.py static_cpp.json >> $GITHUB_STEP_SUMMARY 
-        rm static_cpp.json
+        cargo test generate_default_preset --all-features
+        echo "Default Preset" >> $GITHUB_STEP_SUMMARY
+        echo "==============" >> $GITHUB_STEP_SUMMARY
+        python3 tools/jsonmd.py default.json >> $GITHUB_STEP_SUMMARY 
+        rm default.json
         
-        cargo test generate_static_ppp_preset --all-features
-        echo "Static PPP" >> $GITHUB_STEP_SUMMARY
-        echo "==========" >> $GITHUB_STEP_SUMMARY
-        python3 tools/jsonmd.py static_ppp.json >> $GITHUB_STEP_SUMMARY 
-        rm static_ppp.json
-
   publish:
     name: Publish Library
     runs-on: ubuntu-latest

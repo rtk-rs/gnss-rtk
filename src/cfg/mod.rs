@@ -41,7 +41,7 @@ const fn max_iono_bias() -> f64 {
 }
 
 const fn min_sv_elev() -> Option<f64> {
-    Some(10.0)
+    Some(12.5)
 }
 
 const fn default_code_smoothing() -> usize {
@@ -195,26 +195,6 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Returns a [Config] that is well suited for high quality setups, using desired
-    /// Navigation [Method]. You can then customize [Self] as you will.
-    pub fn high_quality(method: Method) -> Self {
-        let mut s = Self::default();
-        s.method = method;
-        s.solver.max_gdop = 3.0;
-        s.max_tropo_bias = 15.0;
-        s
-    }
-
-    /// Returns a [Config] that is well suited for general public setups, using desired
-    /// Navigation [Method]. You can then customize [Self] as you will.
-    pub fn medium_quality(method: Method) -> Self {
-        let mut s = Self::default();
-        s.method = method;
-        s.solver.max_gdop = 5.0;
-        s.max_tropo_bias = 15.0;
-        s
-    }
-
     /// Returns new [Config] with desired navigation [Method]
     pub fn with_navigation_method(&self, method: Method) -> Self {
         let mut s = self.clone();
@@ -239,18 +219,10 @@ mod test {
     use std::io::Write;
 
     #[test]
-    fn generate_static_cpp_preset() {
-        let cfg = Config::static_preset(Method::CPP);
+    fn generate_default_preset() {
+        let cfg = Config::default();
         let string = serde_json::to_string_pretty(&cfg).unwrap();
-        let mut fd = std::fs::File::create("static_cpp.json").unwrap();
-        write!(fd, "{}", string).unwrap();
-    }
-
-    #[test]
-    fn generate_static_ppp_preset() {
-        let cfg = Config::static_preset(Method::PPP);
-        let string = serde_json::to_string_pretty(&cfg).unwrap();
-        let mut fd = std::fs::File::create("static_ppp.json").unwrap();
+        let mut fd = std::fs::File::create("default.json").unwrap();
         write!(fd, "{}", string).unwrap();
     }
 }
