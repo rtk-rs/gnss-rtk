@@ -126,12 +126,10 @@ where
             }
         }
 
+        // TODO: improve this model
         q_k[(0, 0)] = 1.0;
         q_k[(1, 1)] = 1.0;
         q_k[(2, 2)] = 1.0;
-
-        q_k[(Self::clock_index(), Self::clock_index())] =
-            (cfg.user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
 
         Self {
             f_k,
@@ -156,11 +154,18 @@ where
     }
 
     /// Reset [Navigation] filter.
+    ///
+    /// To this day, it has not been demonstrated that this
+    /// operation is needed by any real-world application, even
+    /// real-time processing. But anyways.. this exists.
+    ///
+    /// After reset, the [Navigation] solver is in the same state as deployment,
+    /// ready to consume a first measurement.
     pub fn reset(&mut self) {
         self.clear();
         self.kalman.reset();
 
-        if let Some(postfit) = &mut self.postfit {
+        if self.postfit.is_some() {
             self.postfit = None;
         }
 
@@ -177,7 +182,7 @@ where
     /// Iterates mutable [Navigation] filter.
     /// ## Input
     /// - t: sampling [Epoch]
-    /// - user: [User]
+    /// - user: [User] profile
     /// - past_state: past [State]
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
@@ -195,18 +200,8 @@ where
     ) -> Result<(), Error> {
         self.clear();
 
-        if self.cfg.user != user {
-            // profile update
-            if user.profile != self.cfg.user.profile {
-                if let Some(profile) = user.profile {
-                    info!("{}: switching to {} profile", t, profile);
-                    self.cfg.user.profile = Some(profile);
-                }
-            }
-
-            self.q_k[(Self::clock_index(), Self::clock_index())] =
-                (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
-        }
+        self.q_k[(Self::clock_index(), Self::clock_index())] =
+            (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
 
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, size, rtk_base, bias)?;

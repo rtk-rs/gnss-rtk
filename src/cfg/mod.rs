@@ -80,10 +80,6 @@ pub struct Config {
     #[cfg_attr(feature = "serde", serde(default))]
     pub method: Method,
 
-    /// [Profile] defines the type of application.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub user: User,
-
     /// Select a prefered signal.
     /// When defined, this signal will strictly be used in the navigation process.
     /// When undefined, the algorithm will prefer the best SNR available, and the
@@ -179,7 +175,6 @@ impl Default for Config {
         Self {
             timescale: default_timescale(),
             method: Method::default(),
-            user: User::default(),
             solver: SolverOpts::default(),
             int_delay: Default::default(),
             modeling: Modeling::default(),
@@ -200,44 +195,24 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Returns [Config] for static PPP positioning, with desired [Method].
-    /// You can then customize [Self] as you will.
-    pub fn static_preset(method: Method) -> Self {
+    /// Returns a [Config] that is well suited for high quality setups, using desired
+    /// Navigation [Method]. You can then customize [Self] as you will.
+    pub fn high_quality(method: Method) -> Self {
         let mut s = Self::default();
-
         s.method = method;
-        s.user.profile = None;
-
-        // consider that static applications can afford stringent criterias
         s.solver.max_gdop = 3.0;
         s.max_tropo_bias = 15.0;
         s
     }
 
-    /// Returns [Config] for dynamic PPP positioning, with desired [Method]
-    /// and rover [Profile]. You can then customize [Self] as you will.
-    pub fn dynamic_preset(method: Method, profile: Profile) -> Self {
+    /// Returns a [Config] that is well suited for general public setups, using desired
+    /// Navigation [Method]. You can then customize [Self] as you will.
+    pub fn medium_quality(method: Method) -> Self {
         let mut s = Self::default();
-
         s.method = method;
-        s.user.profile = Some(profile);
-
         s.solver.max_gdop = 5.0;
         s.max_tropo_bias = 15.0;
         s
-    }
-
-    /// Returns [Config] for static RTK positioning, with desired [Method],
-    /// Remote site coordinates expressed in meters ECEF.
-    /// You can then customize [Self] as you will.
-    pub fn static_rtk_preset(method: Method) -> Self {
-        Self::static_preset(method) // strictly identical
-    }
-
-    /// Returns [Config] for dynamic RTK positioning, with desired [Method],
-    /// rover [Profile].
-    pub fn dynamic_rtk_preset(method: Method, profile: Profile) -> Self {
-        Self::dynamic_preset(method, profile)
     }
 
     /// Returns new [Config] with desired navigation [Method]
