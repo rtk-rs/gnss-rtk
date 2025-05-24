@@ -82,30 +82,52 @@ static or dynamic.
 Application Programming Interface (API)
 =======================================
 
-The API allows the Orbital provider to live in the same thread as the solver, to answer
-the requirements of real-time navigation. In post-process applications, you will deploy
-the solver once all data has been collected & then exit, so this will not matter to you.
+The API requires a few function pointers to be implemented. The orbit provider
+is mandatory. Other are actually optional, if you return `None` or `0.0` in those,
+you will just degrade the accuracy of the solution.
 
-The Orbital Trait does not require mutable access and is wrapped in a `Rc` (Reference Counter).
-You can then have an "internally mutable" (checkout this concept) in that thread, for you to collect
-your Orbital data, and yet provide it to the function pointer.
+The API is designed to allow real-time applications, which requires
+real-time collection of orbital data and measurements. For each measurement,
+which happen in chronological order, you should group them as a list of Candidates
+(solving attempt proposal) that are synchronous and attempt solving, which requires mutable access.
 
-The other vital side is the `Solver.resolve()` method, that you need to call for each measurement period.
-Synchronous measurements should be grouped together and provided
-only once. Epochs should evolve in chronological order, naturally, although we do not verify this progression internally.
-Measurements, in our API, are Candidates proposal. Depending on the current state, the requirements will vary.
+When solving attempt is requested, the solver will soon after issue a request on the orbit
+provider interface, which is non mutable. In real-time application, the measurement
+and orbit collection should live in separate threads. The API is designed to allow
+the Solver and the Orbit provider to live in the same thread. Assuming orbit collection
+will require mutable access (on your side), you can use the concept of `Interior Mutability`,
+because the orbit provider is wrapped in a `Rc<>` structure.
 
-Other function pointers exist and are "required" at least to deploy, but can actually be bypassed,
-by simply returning `None` in your implementation. In other words, they are not vital. Their sole
-purpose is to improve the model and accuracy of the final solution. We have to other function pointers as of today:
+Orbit Provider
+==============
 
-- `Bias` for environmental perturbations
-- `Time`: the epoch translation is implemented externally, not internally. This allows advanced
-applications that may access a translation (correction) database to take advantage of it.
+When measurements have been proposed, the solver will issue a request to this function pointer,
+soon after. That you must answer, otherwise this candidate proposal will be dropped and will not contribute
+to the solution. That is not a big deal, assuming you are in position to provide many measurements.
+But we will always need at least 4 proposal to pass this step and future "post-fit" attitude filters
+that you may have selected.
 
-Selection between absolute or differential navigation is done at deployment time, by selecting
-either the `PPP` solver or the `RTK` solver. We may offer an adaptative solver that may support both,
-although it is not clear to this day if this is actually needed in real world applications.
+Other function pointers are much easier to implement and are not mandatory.
+
+Environment models & perturbations
+==================================
+
+We provide a function pointer that allows you to apply the Ionosphere and Troposphere perturbations
+compensation. If you are in position to apply your own database and/or model, you then have an interface
+to do so. Returning no compensation will simply degrade the quality of your solution.
+
+If you don't have a custom model, simply pick one of our internal models and apply it as the answer
+to the request. For example, `TroposphereModel` can serve as a simple answer to the troposphere perturbation request.
+
+Time transposition function
+===========================
+
+We require a function pointer to perform any time transposition. This is very useful if you have
+access to correction tables for finer temporal corrections. In case you don't, simply return
+the transposition using `Epoch.to_time_scale()`.
+
+This API allows us to support all timescales supported by Hifitime and obtain higher
+precision for people who have access to such data.
 
 Examples
 ========
