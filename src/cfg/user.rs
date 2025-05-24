@@ -9,25 +9,36 @@ const fn default_clock_sigma() -> f64 {
 }
 
 /// Default user [Profile]
-const fn default_user_profile() -> Option<Profile> {
-    Some(Profile::Pedestrian)
+const fn default_user_profile() -> Profile {
+    Profile::Pedestrian
 }
 
-/// Receiver [Profile], which is application dependent.
-/// [Profile::Static] is our default value: any roaming application needs to customize its profile.
+/// Receiver [Profile], which is application dependent.  
+/// Operating under incorrect parametrization ([Profile] not matching your use case),
+/// will not prohibit obtaining results. It's just that they could be improved
+/// by adapting your profile to your use case correctly.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Profile {
-    /// [Profile::Pedestrian]: < 10 km/h very low velocity
+    /// [Profile::Static] applies to user applications where
+    /// the receiver antenna is held static at all times.
+    /// This is not our prefered mode, because this apply to particular use cases.
+    Static,
+
+    /// [Profile::Pedestrian]: < 10 km/h very low velocity.
+    /// This is our default mode.
     #[cfg_attr(feature = "serde", serde(alias = "pedestrian", alias = "Pedestrian"))]
     #[default]
     Pedestrian,
+
     /// [Profile::Car]: < 100 km/h slow velocity
     #[cfg_attr(feature = "serde", serde(alias = "car", alias = "Car"))]
     Car,
+
     /// [Profile::Airplane]: < 1000 km/h high velocity
     #[cfg_attr(feature = "serde", serde(alias = "airplane", alias = "airplane"))]
     Airplane,
+
     /// [Profile::Rocket]: > 1000 km/h ultra high velocity
     #[cfg_attr(feature = "serde", serde(alias = "rocket", alias = "rocket"))]
     Rocket,
@@ -39,6 +50,7 @@ impl std::str::FromStr for Profile {
         let s = s.to_lowercase();
         let trimmed = s.trim();
         match trimmed {
+            "static" => Ok(Self::Static),
             "pedestrian" => Ok(Self::Pedestrian),
             "car" => Ok(Self::Car),
             "airplane" => Ok(Self::Airplane),
@@ -51,6 +63,7 @@ impl std::str::FromStr for Profile {
 impl std::fmt::Display for Profile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Static => write!(f, "Static"),
             Self::Pedestrian => write!(f, "Pedestrian"),
             Self::Car => write!(f, "car"),
             Self::Airplane => write!(f, "airplane"),
@@ -65,9 +78,8 @@ impl std::fmt::Display for Profile {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct User {
     /// Custom user [Profile] which is application dependent.
-    /// This is disregarded by solvers dedicated to static applications.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub profile: Option<Profile>,
+    pub profile: Profile,
 
     /// Receiver clock prediction perturbation (instantaneous bias) in seconds.
     /// Standard values are:
@@ -88,12 +100,7 @@ pub struct User {
 
 impl std::fmt::Display for User {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(profile) = self.profile {
-            write!(f, "Profile=\"{}\" ", profile)?;
-        } else {
-            write!(f, "Profile=Static ")?;
-        }
-
+        write!(f, "Profile=\"{}\" ", self.profile)?;
         write!(f, "clock-sigma={}s", self.clock_sigma_s)
     }
 }
