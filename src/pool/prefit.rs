@@ -1,6 +1,6 @@
 use crate::{
     pool::Pool,
-    prelude::{Config, Method, TimeScale, EphemerisSource, OrbitSource},
+    prelude::{Config, EphemerisSource, Method, OrbitSource, TimeScale},
     time::AbsoluteTime,
 };
 

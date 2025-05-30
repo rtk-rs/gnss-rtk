@@ -47,7 +47,7 @@ pub struct Ephemeris {
     pub cis_cic_rad: (f64, f64),
 
     /// Sine / Cosine (in meters)
-    pub crs_crc_m: (f64, f64)
+    pub crs_crc_m: (f64, f64),
 }
 
 /// [EphemerisSource] to provie [Ephemeris] data and contribute to the solving process.

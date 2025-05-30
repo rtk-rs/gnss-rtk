@@ -1,7 +1,4 @@
-use crate::{
-    carrier::Carrier,
-    prelude::SV,
-};
+use crate::{carrier::Carrier, prelude::SV};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Ambiguity {
@@ -42,4 +39,3 @@ impl std::fmt::Display for Ambiguity {
         write!(f, "{}({})={}", self.sv, self.carrier, self.value)
     }
 }
-

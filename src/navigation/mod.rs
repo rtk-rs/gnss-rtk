@@ -20,7 +20,6 @@ pub(crate) mod state;
 use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix};
 
 use crate::{
-    user::UserProfile,
     navigation::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
@@ -28,8 +27,9 @@ use crate::{
         postfit::PostfitKf,
         state::State,
     },
-    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, Duration},
+    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame},
     rtk::RTKBase,
+    user::UserParameters,
 };
 
 pub use solutions::PVTSolution;
@@ -178,7 +178,7 @@ where
     /// Iterates mutable [Navigation] filter.
     /// ## Input
     /// - t: sampling [Epoch]
-    /// - profile: [UserProfile]
+    /// - params: [UserParameters]
     /// - past_state: past [State]
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
@@ -187,7 +187,7 @@ where
     pub fn solving<B: Bias, R: RTKBase>(
         &mut self,
         t: Epoch,
-        profile: UserProfile,
+        params: UserParameters,
         past_state: &State<D>,
         candidates: &[Candidate],
         size: usize,
@@ -200,8 +200,8 @@ where
             Some(past_t) => t - past_t,
             None => Duration::ZERO,
         };
-        
-        let q_k = profile.q_matrix::<D>(dt);
+
+        let q_k = params.q_matrix::<D>(dt);
 
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, size, rtk_base, bias, q_k)?;
@@ -259,7 +259,7 @@ where
         state: &State<D>,
         candidates: &[Candidate],
         size: usize,
-        rtk_base: &RTK,
+        _: &RTK,
         bias: &B,
         q_k: OMatrix<f64, D, D>,
     ) -> Result<(), Error> {
@@ -412,7 +412,7 @@ where
         t: Epoch,
         candidates: &[Candidate],
         size: usize,
-        rtk_base: &RTK,
+        _: &RTK,
         bias: &B,
         q_k: OMatrix<f64, D, D>,
     ) -> Result<(), Error> {

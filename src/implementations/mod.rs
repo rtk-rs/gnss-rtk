@@ -1,28 +1,29 @@
-use anise::{
-    prelude::{Almanac, Frame},
-};
+use anise::prelude::{Almanac, Frame};
 
 use crate::{
     bias::Bias,
     candidate::Candidate,
-    cfg::{Config},
-    navigation::{PVTSolution},
+    cfg::Config,
+    ephemeris::EphemerisSource,
+    navigation::PVTSolution,
     orbit::OrbitSource,
     prelude::{Epoch, Error, Rc},
-    rtk::{RTKBase},
-    time::AbsoluteTime,
-    user::UserProfile,
+    rtk::RTKBase,
     solver::Solver,
-    ephemeris::EphemerisSource,
+    time::AbsoluteTime,
+    user::{UserParameters, UserProfile},
 };
 
-use nalgebra::{U4};
+use nalgebra::U4;
 
 // kinematic implementations
 mod kinematic;
 pub use kinematic::KinematicSolver;
 
 /// [StaticSolver] to resolve [PVTSolution]s without dynamics.
+/// This solver is particularly suited for static applications.
+/// It can still be used to locate moving targets, but the dynamics
+/// of the system are not modeled nor predicted.
 ///
 /// ## Generics:
 /// - EPH: [EphemerisSource], possible Ephemeris provider.
@@ -33,7 +34,8 @@ pub struct StaticSolver<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: Ab
     solver: Solver<U4, EPH, ORB, B, TIM>,
 }
 
-impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> StaticSolver<EPH, ORB, B, TIM>
+impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
+    StaticSolver<EPH, ORB, B, TIM>
 {
     /// Creates a new [StaticSolver] with possible initial position.
     ///
@@ -72,7 +74,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> StaticS
                     bias,
                     initial_ecef_m,
                 )
-            }
+            },
         }
     }
 
@@ -109,18 +111,18 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> StaticS
                     bias,
                     None,
                 )
-            }
+            },
         }
     }
 
     /// [PVTSolution] solving attempt using PPP technique (no reference).
-    /// Use this when no [RTKBase] may be accessed. 
+    /// Use this when no [RTKBase] may be accessed.
     /// Switch to RTK at any point in your session, when at least one [RTKBase] becomes
     /// accessible.
     ///
     /// ## Input
     /// - epoch: [Epoch] of measurement
-    /// - profile: [UserProfile]
+    /// - params: [UserParameters]
     /// - candidates: proposed [Candidate]s (= measurements)
     /// - rtk_base: possible [RTKBase] we will connect to
     ///
@@ -129,10 +131,10 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> StaticS
     pub fn ppp_solving(
         &mut self,
         epoch: Epoch,
-        profile: UserProfile,
+        params: UserParameters,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
-        self.solver.ppp_solving(epoch, profile, candidates)
+        self.solver.ppp_solving(epoch, params, candidates)
     }
 
     /// [PVTSolution] solving attempt using RTK technique and a single reference
@@ -141,7 +143,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> StaticS
     ///
     /// ## Input
     /// - epoch: [Epoch] of measurement
-    /// - profile: [UserProfile]
+    /// - params: [UserParameters]
     /// - candidates: proposed [Candidate]s (= measurements)
     /// - base: [RTKBase] implementation, that must provide enough information
     /// for this to proceed. You may catch RTK related issues and
@@ -152,21 +154,15 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> StaticS
     pub fn rtk_solving<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
-        profile: UserProfile,
+        params: UserParameters,
         candidates: &[Candidate],
         base: &RTK,
     ) -> Result<PVTSolution, Error> {
-        self.solver.rtk_solving(
-            epoch,
-            profile,
-            candidates,
-            base,
-        )
+        self.solver.rtk_solving(epoch, params, candidates, base)
     }
 
     /// Reset this [StaticSolver].
     pub fn reset(&mut self) {
         self.solver.reset();
     }
-
 }

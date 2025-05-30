@@ -10,10 +10,7 @@ mod solver;
 pub use crate::{
     carrier::Signal,
     cfg::solver::SolverOpts,
-    cfg::{
-        method::Method,
-        modeling::Modeling,
-    },
+    cfg::{method::Method, modeling::Modeling},
     prelude::TimeScale,
 };
 

@@ -9,15 +9,14 @@ use crate::{
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
-    cfg::{Config},
+    cfg::Config,
+    ephemeris::EphemerisSource,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
-    prelude::{Epoch, Error, Rc},
-    rtk::{RTKBase, NullRTK},
+    prelude::{Epoch, Error, Rc, UserParameters},
+    rtk::{NullRTK, RTKBase},
     time::AbsoluteTime,
-    user::UserProfile,
-    ephemeris::EphemerisSource,
 };
 
 use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
@@ -61,7 +60,8 @@ where
     absolute_time: TIM,
 }
 
-impl<D: DimName, EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<D, EPH, ORB, B, T>
+impl<D: DimName, EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime>
+    Solver<D, EPH, ORB, B, T>
 where
     DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
@@ -121,13 +121,13 @@ where
     }
 
     /// [PVTSolution] solving attempt using PPP technique (no reference).
-    /// Use this when no [RTKBase] may be accessed. 
+    /// Use this when no [RTKBase] may be accessed.
     /// Switch to RTK at any point in your session, when at least one [RTKBase] becomes
     /// accessible.
     ///
     /// ## Input
     /// - epoch: [Epoch] of measurement
-    /// - profile: [UserProfile]
+    /// - params: [UserProfile]
     /// - candidates: proposed [Candidate]s (= measurements)
     /// - rtk_base: possible [RTKBase] we will connect to
     ///
@@ -136,11 +136,11 @@ where
     pub fn ppp_solving(
         &mut self,
         epoch: Epoch,
-        profile: UserProfile,
+        params: UserParameters,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
         let null_base = NullRTK {};
-        let solution = self.solving::<NullRTK>(epoch, profile, candidates, &null_base, false)?;
+        let solution = self.solving::<NullRTK>(epoch, params, candidates, &null_base, false)?;
         Ok(solution)
     }
 
@@ -161,29 +161,22 @@ where
     pub fn rtk_solving<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
-        profile: UserProfile,
+        params: UserParameters,
         candidates: &[Candidate],
         base: &RTK,
     ) -> Result<PVTSolution, Error> {
-        self.solving(
-            epoch,
-            profile,
-            candidates,
-            base,
-            true,
-        )
+        self.solving(epoch, params, candidates, base, true)
     }
 
     /// [PVTSolution] solving attempt.
     fn solving<RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        profile: UserProfile,
+        params: UserParameters,
         pool: &[Candidate],
         rtk_base: &RTK,
         uses_rtk: bool,
     ) -> Result<PVTSolution, Error> {
-
         let ts = self.cfg.timescale;
 
         let min_required = self.min_sv_required();
@@ -192,7 +185,7 @@ where
             // no need to proceed further
             return Err(Error::NotEnoughCandidates);
         }
-        
+
         assert!(!uses_rtk, "RTK navigation is under development");
 
         self.pool.new_epoch(pool);
@@ -253,7 +246,7 @@ where
 
         self.pool
             .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state)
-            .map_err(|e|{
+            .map_err(|e| {
                 error!("{} - postfit error {}", t, e);
                 Error::PostfitPrenav
             })?;
@@ -267,7 +260,7 @@ where
         // Solving attempt
         match self.navigation.solving(
             t,
-            profile,
+            params,
             &state,
             &self.pool.candidates(),
             pool_size,

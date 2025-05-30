@@ -8,7 +8,7 @@ use anise::{
 
 use crate::{
     constants::SPEED_OF_LIGHT_M_S,
-    navigation::{Apriori, Navigation, ambiguity::Ambiguity},
+    navigation::{ambiguity::Ambiguity, Apriori, Navigation},
     prelude::Orbit,
 };
 
@@ -63,7 +63,7 @@ where
         let position_vel_m = self.position_velocity_ecef_m();
         let (offset, drift) = self.clock_profile_s();
 
-        if self.x_amb.is_empty()  {
+        if self.x_amb.is_empty() {
             write!(
                 f,
                 "{} dt={:.11E}s drift={:.11E}s/s {}",

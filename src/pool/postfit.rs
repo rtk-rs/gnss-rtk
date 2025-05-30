@@ -4,7 +4,7 @@ use crate::{
     constants::{EARTH_GRAVITATION, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
     navigation::state::State,
     pool::Pool,
-    prelude::{Almanac, Frame, Vector3, SUN_J2000, EphemerisSource, OrbitSource, EARTH_J2000},
+    prelude::{Almanac, EphemerisSource, Frame, OrbitSource, Vector3, EARTH_J2000, SUN_J2000},
 };
 
 use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
@@ -23,7 +23,8 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
         frame: Frame,
         cfg: &Config,
         state: &State<D>,
-    ) -> AlmanacResult<()> where
+    ) -> AlmanacResult<()>
+    where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
@@ -53,15 +54,15 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
         &mut self,
         almanac: &Almanac,
         state: &State<D>,
-    ) -> AlmanacResult<()> where
+    ) -> AlmanacResult<()>
+    where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
-
         let epoch = self.inner[0].t;
-    
+
         let earth_sun = almanac.transform(SUN_J2000, EARTH_J2000, epoch, None)?;
 
         let r_sun = Vector3::new(
@@ -71,13 +72,17 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
         );
 
         for cd in self.inner.iter_mut() {
-            let prev_correction = self.past.iter().filter_map(|past| {
-                if past.sv == cd.sv {
-                    Some(past.windup)
-                } else {
-                    None
-                }
-            }).reduce(|k, _| k);
+            let prev_correction = self
+                .past
+                .iter()
+                .filter_map(|past| {
+                    if past.sv == cd.sv {
+                        Some(past.windup)
+                    } else {
+                        None
+                    }
+                })
+                .reduce(|k, _| k);
 
             cd.phase_windup_correction(state, r_sun, prev_correction);
         }

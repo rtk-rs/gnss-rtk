@@ -5,8 +5,8 @@ use log::debug;
 use crate::{
     ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
     constants::SPEED_OF_LIGHT_M_S,
-    prelude::{Almanac, Config, Constellation, Duration, Epoch, Error, Orbit, Vector3, SV},
     navigation::state::State,
+    prelude::{Almanac, Config, Constellation, Duration, Epoch, Error, Orbit, Vector3, SV},
 };
 
 use anise::errors::AlmanacResult;
@@ -207,26 +207,28 @@ impl Candidate {
         }
     }
 
-    /// Computes phase windup correction term. 
-    pub(crate) fn phase_windup_correction<D: DimName>(&mut self, rx_state: &State<D>, r_sun: Vector3<f64>, past_correction: Option<f64>) where
+    /// Computes phase windup correction term.
+    pub(crate) fn phase_windup_correction<D: DimName>(
+        &mut self,
+        rx_state: &State<D>,
+        r_sun: Vector3<f64>,
+        past_correction: Option<f64>,
+    ) where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
-        let sv_state = self.orbit
-            .expect("phase windup - unresolved state");
+        let sv_state = self.orbit.expect("phase windup - unresolved state");
 
-        let r_sv = sv_state.to_cartesian_pos_vel() 
-            * 1.0E3;
-        
+        let r_sv = sv_state.to_cartesian_pos_vel() * 1.0E3;
+
         // todo self.yaw_attitude();
-        
+
         let r_rx = rx_state.position_ecef_m();
         let r_sv = Vector3::new(r_sv[0], r_sv[1], r_sv[2]);
         let r_rr_rs = r_rx - r_sv;
         let e_r_rs = r_rr_rs.norm();
-
 
         self.windup = 0.0;
     }

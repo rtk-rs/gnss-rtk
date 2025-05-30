@@ -1,9 +1,4 @@
-use crate::{
-    prelude::{
-        Candidate, Epoch, 
-        SV,
-    },
-};
+use crate::prelude::{Candidate, Epoch, SV};
 
 /// Any [RTKBase] provides remote data by implementing the [RemoteSource] trait.
 pub trait RTKBase {

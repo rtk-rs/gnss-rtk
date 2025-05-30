@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
     constants::EARTH_ANGULAR_VEL_RAD,
-    prelude::{Candidate, Config, Duration, Epoch, Frame, Orbit, OrbitSource, Rc, SV, Ephemeris, EphemerisSource},
+    prelude::{
+        Candidate, Config, Duration, Ephemeris, EphemerisSource, Epoch, Frame, Orbit, OrbitSource,
+        Rc, SV,
+    },
     smoothing::Smoother,
 };
 
@@ -20,7 +23,7 @@ pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource> {
 
     /// Current [Candidate]s pool
     inner: Vec<Candidate>,
-    
+
     /// Previous [Candidate]s pool
     past: Vec<Candidate>,
 
@@ -32,10 +35,10 @@ pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource> {
 
     /// [EphemerisSource]
     eph_source: Rc<EPH>,
-    
+
     /// [Ephemeris] Buffer
     eph_buffer: HashMap<SV, Ephemeris>,
-    
+
     /// [AmbiguitySolver]
     solver: HashMap<SV, AmbiguitySolver>,
 }
@@ -64,7 +67,12 @@ fn orbit_rotation(t: Epoch, dt: Duration, orbit: &Orbit, modeling: bool, frame: 
 
 impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
     /// Allocate new [Pool]
-    pub fn allocate(smoothing_win_len: usize, earth_cef: Frame, eph_source: Rc<EPH>, orb_source: Rc<ORB>) -> Self {
+    pub fn allocate(
+        smoothing_win_len: usize,
+        earth_cef: Frame,
+        eph_source: Rc<EPH>,
+        orb_source: Rc<ORB>,
+    ) -> Self {
         Self {
             earth_cef,
             eph_source,
@@ -116,14 +124,13 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
 
     /// Determine orbital states
     pub fn orbital_states(&mut self, cfg: &Config) {
-
         self.ephemeris_update();
 
         self.inner.retain_mut(|cd| match cd.tx_epoch(cfg) {
             Ok(_) => {
                 // direct state determination
                 let mut determined = false;
-                
+
                 if let Some(orbit) = &self.orb_source.state_at(cd.t_tx, cd.sv, self.earth_cef) {
                     let orbit = orbit_rotation(
                         cd.t,

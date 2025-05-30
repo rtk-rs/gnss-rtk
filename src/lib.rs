@@ -16,15 +16,15 @@ mod bias;
 mod candidate;
 mod carrier;
 mod cfg;
+mod ephemeris;
+mod implementations;
 mod navigation;
 mod orbit;
 mod pool;
+mod rtk;
 mod smoothing;
 mod time;
-mod rtk;
-mod ephemeris;
 mod user;
-mod implementations;
 
 pub(crate) mod constants;
 pub(crate) mod solver;
@@ -41,17 +41,14 @@ pub mod prelude {
         carrier::{Carrier, Signal},
         cfg::{Config, Method},
         constants::SPEED_OF_LIGHT_M_S,
+        ephemeris::{Ephemeris, EphemerisSource},
         error::Error,
+        implementations::{KinematicSolver, StaticSolver},
         navigation::PVTSolution,
         orbit::OrbitSource,
         rtk::RTKBase,
         time::AbsoluteTime,
-        ephemeris::{Ephemeris, EphemerisSource},
-        user::{UserProfile, UserPreset},
-        implementations::{
-            StaticSolver,
-            KinematicSolver,
-        },
+        user::{UserParameters, UserProfile},
     };
 
     // std types

@@ -1,7 +1,7 @@
-use log::{error, debug};
+use log::{debug, error};
 use nalgebra::{Rotation3, Vector3};
 
-use crate::prelude::{Epoch, Frame, Orbit, Ephemeris, Duration};
+use crate::prelude::{Duration, Ephemeris, Epoch, Frame, Orbit};
 
 impl Ephemeris {
     /// Returns True if this [Ephemeris] frame is still valid
@@ -11,17 +11,16 @@ impl Ephemeris {
 
     /// Returns ToE in seconds of week
     pub fn weekly_toe_seconds(&self) -> f64 {
-        (self.toe.to_time_of_week().1 as f64)/1.0E9
+        (self.toe.to_time_of_week().1 as f64) / 1.0E9
     }
-    
+
     /// Returns ToC in seconds of week
     pub fn weekly_toc_seconds(&self) -> f64 {
-        (self.toc.to_time_of_week().1 as f64)/1.0E9
+        (self.toc.to_time_of_week().1 as f64) / 1.0E9
     }
 
     /// Resolves Kepler equations from [Ephemeris]
     pub fn resolve_state(&self, epoch: Epoch, frame: Frame) -> Option<Orbit> {
-
         // constants
         const GM_M3_S2: f64 = 3.986004418E14;
         const OMEGA_EARTH: f64 = 7.2921151467E-5;
@@ -73,7 +72,8 @@ impl Ephemeris {
         let u_k = phi + cuc * cos_2phi + cus * sin_2phi;
         let r_k = a * (1.0 - e * cos_e_k) + crc * cos_2phi + crs * sin_2phi;
         let i_k = i0 + idot * t_k + cic * cos_2phi + cis * sin_2phi;
-        let omega_k = omega0 + (omega_dot - OMEGA_EARTH) * t_k - OMEGA_EARTH * self.weekly_toe_seconds();
+        let omega_k =
+            omega0 + (omega_dot - OMEGA_EARTH) * t_k - OMEGA_EARTH * self.weekly_toe_seconds();
 
         let (x, y, z) = (r_k * u_k.cos(), r_k * u_k.sin(), 0.0);
 
@@ -91,8 +91,11 @@ impl Ephemeris {
             xyz_ecef[2] / 1000.0,
         );
 
-        debug!("{}({}) - kepler solving x_km={}, y_km={} z_km={} t_k={}", epoch, self.sv, x_km, y_km, z_km, t_k);
-        
+        debug!(
+            "{}({}) - kepler solving x_km={}, y_km={} z_km={} t_k={}",
+            epoch, self.sv, x_km, y_km, z_km, t_k
+        );
+
         Some(Orbit::from_position(x_km, y_km, z_km, epoch, frame))
     }
 }
