@@ -1,8 +1,0 @@
-[package]
-name = "spp"
-version = "0.0.1"
-authors = ["Guillaume W. Bres <guillaume.bressaix@gmail.com>"]
-edition = "2021"
-
-[dependencies]
-gnss_rtk = { path = "../../gnss-rtk" }
