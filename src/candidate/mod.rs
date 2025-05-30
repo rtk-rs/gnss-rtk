@@ -6,9 +6,12 @@ use crate::{
     ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
     constants::SPEED_OF_LIGHT_M_S,
     prelude::{Almanac, Config, Constellation, Duration, Epoch, Error, Orbit, Vector3, SV},
+    navigation::state::State,
 };
 
 use anise::errors::AlmanacResult;
+
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 mod bias;
 mod ppp;
@@ -45,7 +48,7 @@ pub struct Candidate {
     pub(crate) tgd: Option<Duration>,
 
     /// Windup term in signal cycles
-    pub(crate) wind_up: f64,
+    pub(crate) windup: f64,
 
     /// [ClockCorrection]
     pub(crate) clock_corr: Option<ClockCorrection>,
@@ -84,7 +87,7 @@ impl Candidate {
             tgd: Default::default(),
             dt_tx: Default::default(),
             orbit: Default::default(),
-            wind_up: Default::default(),
+            windup: Default::default(),
             azimuth_deg: Default::default(),
             elevation_deg: Default::default(),
             clock_corr: Default::default(),
@@ -204,33 +207,28 @@ impl Candidate {
         }
     }
 
-    /// Computes phase windup term. Self should be fully resolved, otherwse
-    /// will panic.
-    pub(crate) fn windup_correction(&mut self, _: Vector3<f64>, _: Vector3<f64>) -> f64 {
-        0.0
-        // let state = self.state.unwrap();
-        // let r_sv = state.to_ecef();
+    /// Computes phase windup correction term. 
+    pub(crate) fn phase_windup_correction<D: DimName>(&mut self, rx_state: &State<D>, r_sun: Vector3<f64>, past_correction: Option<f64>) where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    {
+        let sv_state = self.orbit
+            .expect("phase windup - unresolved state");
 
-        // let norm = (
-        //     (sun[0] - r_sv[0]).powi(2)
-        //     + (sun[1] - r_sv[1]).powi(2)
-        //     + (sun[2] - r_sv[2]).powi(2)
-        // ).sqrt();
+        let r_sv = sv_state.to_cartesian_pos_vel() 
+            * 1.0E3;
+        
+        // todo self.yaw_attitude();
+        
+        let r_rx = rx_state.position_ecef_m();
+        let r_sv = Vector3::new(r_sv[0], r_sv[1], r_sv[2]);
+        let r_rr_rs = r_rx - r_sv;
+        let e_r_rs = r_rr_rs.norm();
 
-        // let e = (r_sun - r_sv_mc ) / norm;
-        // let j = k.cross(e);
-        // let i = j.cross(k);
 
-        // let d_prime_norm = d_prime.norm();
-        // let d_norm = d.norm();
-        // let psi = pho * (d_prime.cross(d));
-        // let dphi = d_prime.dot(d) / d_prime.norm() / d.norm();
-
-        // let n = (self.delta_phi.unwrap_or(0.0) / 2.0 / PI).round();
-        // self.delta_phi = dphi + 2.0 * n;
-
-        // self.delta_phi
-        // self.wind_up =
+        self.windup = 0.0;
     }
 
     /// Computes signal transmission instant, as [Epoch]

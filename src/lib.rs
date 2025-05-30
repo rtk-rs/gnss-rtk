@@ -21,10 +21,12 @@ mod orbit;
 mod pool;
 mod smoothing;
 mod time;
+mod rtk;
+mod ephemeris;
+mod user;
+mod implementations;
 
 pub(crate) mod constants;
-pub(crate) mod ppp;
-pub(crate) mod rtk;
 pub(crate) mod solver;
 
 #[cfg(test)]
@@ -37,14 +39,19 @@ pub mod prelude {
         bias::{Bias, BiasRuntime, IonosphereBias, IonosphereModel, KbModel, TroposphereModel},
         candidate::{Candidate, ClockCorrection, Observation},
         carrier::{Carrier, Signal},
-        cfg::{Config, Method, Profile, User},
+        cfg::{Config, Method},
         constants::SPEED_OF_LIGHT_M_S,
         error::Error,
         navigation::PVTSolution,
         orbit::OrbitSource,
-        ppp::PPP,
-        rtk::{RTKBase, RTK},
+        rtk::RTKBase,
         time::AbsoluteTime,
+        ephemeris::{Ephemeris, EphemerisSource},
+        user::{UserProfile, UserPreset},
+        implementations::{
+            StaticSolver,
+            KinematicSolver,
+        },
     };
 
     // std types

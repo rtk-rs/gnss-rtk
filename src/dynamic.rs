@@ -120,6 +120,38 @@ where
         }
     }
 
+    /// Creates a new [Solver] with no a apriori knowledge.
+    /// In this case, the solver will have to initialize itself.
+    ///
+    /// ## Input
+    /// - almanac: provided valid [Almanac]
+    /// - earth_cef: [Frame] that must be an ECEF
+    /// - cfg: solver [Config]uration
+    /// - eph_source: [EphemerisSource] implementation, serves as "raw" / indirect
+    /// orbit provider.
+    /// - orbit_source: [OrbitSource] implementation to provide [Orbit]al states directly
+    /// - bias: external [Bias] model implementation, to improve overall accuracy.
+    pub fn new_survey(
+        almanac: Almanac,
+        earth_cef: Frame,
+        cfg: Config,
+        eph_source: Rc<EPH>,
+        orbit_source: Rc<ORB>,
+        time_source: T,
+        bias: B,
+    ) -> Self {
+        Self::new(
+            almanac,
+            earth_cef,
+            cfg,
+            eph_source,
+            orbit_source,
+            time_source,
+            bias,
+            None,
+        )
+    }
+
     /// [PVTSolution] solving attempt using PPP technique (no reference).
     /// Use this when no [RTKBase] may be accessed. 
     /// Switch to RTK at any point in your session, when at least one [RTKBase] becomes
@@ -230,7 +262,7 @@ where
                     });
 
                     debug!("{} - initial state: {}", t, state);
-                    self.navigation.state = state.clone();
+                    self.navigation.state = state;
                     state
                 },
                 None => {
@@ -245,18 +277,14 @@ where
                     });
 
                     debug!("{} - initial state: {}", t, state);
-                    self.navigation.state = state.clone();
+                    self.navigation.state = state;
                     state
                 },
             }
         };
 
         self.pool
-            .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state)
-            .map_err(|e|{
-                error!("{} - postfit error {}", t, e);
-                Error::PostfitPrenav
-            })?;
+            .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state);
 
         let pool_size = self.pool.len();
 

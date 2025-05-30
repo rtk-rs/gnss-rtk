@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{debug, error};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -14,12 +14,13 @@ mod kalman;
 mod postfit;
 mod sv;
 
+pub(crate) mod ambiguity;
 pub(crate) mod state;
 
 use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix};
 
 use crate::{
-    cfg::User,
+    user::UserProfile,
     navigation::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
@@ -27,7 +28,7 @@ use crate::{
         postfit::PostfitKf,
         state::State,
     },
-    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, SPEED_OF_LIGHT_M_S},
+    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, Duration},
     rtk::RTKBase,
 };
 
@@ -61,9 +62,6 @@ where
 
     /// F
     f_k: OMatrix<f64, D, D>,
-
-    /// Q
-    q_k: OMatrix<f64, D, D>,
 
     /// X
     x_k: DVector<f64>,
@@ -114,26 +112,24 @@ where
     pub fn new(cfg: &Config, frame: Frame) -> Self {
         match D::USIZE {
             4 | 7 => {},
-            u => panic!("non supported dimensions: {}", u),
+            u => panic!("Dim={} is not supported by the navigation core", u),
         }
 
         let mut f_k = OMatrix::<f64, D, D>::zeros();
-        let mut q_k = OMatrix::<f64, D, D>::zeros();
 
         if D::USIZE == 4 {
             for i in 0..=2 {
                 f_k[(i, i)] = 1.0;
             }
+        } else if D::USIZE == 7 {
+            // TODO
+            for i in 0..=2 {
+                f_k[(i, i)] = 1.0;
+            }
         }
-
-        // TODO: improve this model
-        q_k[(0, 0)] = 1.0;
-        q_k[(1, 1)] = 1.0;
-        q_k[(2, 2)] = 1.0;
 
         Self {
             f_k,
-            q_k,
             frame,
             postfit: None,
             cfg: cfg.clone(),
@@ -147,8 +143,8 @@ where
             indexes: Vec::with_capacity(8),
             x_k: DVector::zeros(D::USIZE),
             dop: DilutionOfPrecision::default(),
-            g_k: DMatrix::<f64>::zeros(4, 4),
-            w_k: DMatrix::<f64>::zeros(4, 4),
+            g_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
+            w_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
             p_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
         }
     }
@@ -175,14 +171,14 @@ where
     }
 
     /// Returns clock index
-    pub(crate) fn clock_index() -> usize {
+    pub const fn clock_index() -> usize {
         D::USIZE - 1
     }
 
     /// Iterates mutable [Navigation] filter.
     /// ## Input
     /// - t: sampling [Epoch]
-    /// - user: [User] profile
+    /// - profile: [UserProfile]
     /// - past_state: past [State]
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
@@ -191,7 +187,7 @@ where
     pub fn solving<B: Bias, R: RTKBase>(
         &mut self,
         t: Epoch,
-        user: User,
+        profile: UserProfile,
         past_state: &State<D>,
         candidates: &[Candidate],
         size: usize,
@@ -200,13 +196,17 @@ where
     ) -> Result<(), Error> {
         self.clear();
 
-        self.q_k[(Self::clock_index(), Self::clock_index())] =
-            (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+        let dt = match self.prev_epoch {
+            Some(past_t) => t - past_t,
+            None => Duration::ZERO,
+        };
+        
+        let q_k = profile.q_matrix::<D>(dt);
 
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias)?;
+            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias, q_k)?;
         } else {
-            self.kf_run(t, candidates, size, rtk_base, bias)?;
+            self.kf_run(t, candidates, size, rtk_base, bias, q_k)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -261,6 +261,7 @@ where
         size: usize,
         rtk_base: &RTK,
         bias: &B,
+        q_k: OMatrix<f64, D, D>,
     ) -> Result<(), Error> {
         let nb_iter = 10;
 
@@ -312,7 +313,6 @@ where
         for _ in 0..nb_iter {
             let y_len = self.y_k_vec.len();
 
-            //self.y_k.resize_mut(y_len, 0.0); // TODO: vector
             self.w_k.resize_mut(y_len, y_len, 0.0);
 
             for i in 0..y_len {
@@ -398,12 +398,11 @@ where
 
         let initial_estimate = KfEstimate::from_dynamic(self.x_k.clone(), self.p_k.clone());
 
-        self.kalman.initialize(self.f_k, self.q_k, initial_estimate);
+        self.kalman.initialize(self.f_k, q_k, initial_estimate);
 
         self.state = pending;
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
-
         Ok(())
     }
 
@@ -415,6 +414,7 @@ where
         size: usize,
         rtk_base: &RTK,
         bias: &B,
+        q_k: OMatrix<f64, D, D>,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
 
@@ -485,7 +485,7 @@ where
 
         let estimate = self
             .kalman
-            .run(&self.f_k, &self.g_k, &self.w_k, &self.q_k, &y_k)?;
+            .run(&self.f_k, &self.g_k, &self.w_k, &q_k, &y_k)?;
 
         debug!("state correction: dx={}", estimate.x);
 

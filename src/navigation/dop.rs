@@ -7,10 +7,13 @@ use crate::navigation::state::State;
 pub(crate) struct DilutionOfPrecision {
     /// Geometric DOP
     pub gdop: f64,
+    
     /// Horizontal DOP
     pub hdop: f64,
+    
     /// Vertical DOP
     pub vdop: f64,
+
     /// Temporal DOP
     pub tdop: f64,
 }

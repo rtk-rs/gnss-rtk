@@ -8,26 +8,29 @@ use anise::{
 
 use crate::{
     constants::SPEED_OF_LIGHT_M_S,
-    navigation::{Apriori, Navigation},
+    navigation::{Apriori, Navigation, ambiguity::Ambiguity},
     prelude::Orbit,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct State<D: DimName>
 where
     DefaultAllocator: Allocator<D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
 {
-    /// [Epoch] of resolution
+    /// [Epoch]
     pub t: Epoch,
 
-    /// Internal [Vector4]
+    /// Internal [OVector]
     x: OVector<f64, D>,
+
+    /// Internal [DVector]
+    x_amb: DVector<Ambiguity>,
 
     /// Clock drift (s.s⁻¹)
     clock_drift_s_s: f64,
 
-    /// Geodeticy position (ddeg, ddeg, km above mean sea level)
+    /// Geodetic position (ddeg, ddeg, km above mean sea level)
     pub lat_long_alt_deg_deg_km: (f64, f64, f64),
 }
 
@@ -43,6 +46,7 @@ where
             t: Default::default(),
             x: OVector::<f64, D>::zeros(),
             clock_drift_s_s: Default::default(),
+            x_amb: DVector::<Ambiguity>::zeros(D::USIZE),
             lat_long_alt_deg_deg_km: Default::default(),
         }
     }
@@ -59,11 +63,19 @@ where
         let position_vel_m = self.position_velocity_ecef_m();
         let (offset, drift) = self.clock_profile_s();
 
-        write!(
-            f,
-            "{} dt={:.11E}s drift={:.11E}s/s",
-            position_vel_m, offset, drift,
-        )
+        if self.x_amb.is_empty()  {
+            write!(
+                f,
+                "{} dt={:.11E}s drift={:.11E}s/s {}",
+                position_vel_m, offset, drift, self.x_amb,
+            )
+        } else {
+            write!(
+                f,
+                "{} dt={:.11E}s drift={:.11E}s/s",
+                position_vel_m, offset, drift,
+            )
+        }
     }
 }
 
@@ -108,6 +120,7 @@ where
             t: orbit.epoch,
             clock_drift_s_s: 0.0_f64,
             lat_long_alt_deg_deg_km: latlongalt,
+            x_amb: DVector::<Ambiguity>::zeros(D::USIZE),
         })
     }
 

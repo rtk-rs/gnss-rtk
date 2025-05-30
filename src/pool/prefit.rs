@@ -1,12 +1,12 @@
 use crate::{
     pool::Pool,
-    prelude::{Config, Method, TimeScale},
+    prelude::{Config, Method, TimeScale, EphemerisSource, OrbitSource},
     time::AbsoluteTime,
 };
 
 use log::{debug, error};
 
-impl Pool {
+impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
     /// Apply Pre fit criterias
     pub fn pre_fit<T: AbsoluteTime>(&mut self, cfg: &Config, absolute_time: &T) {
         if let Some(min_snr) = cfg.min_snr {

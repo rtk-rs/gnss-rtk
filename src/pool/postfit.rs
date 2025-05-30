@@ -4,7 +4,7 @@ use crate::{
     constants::{EARTH_GRAVITATION, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
     navigation::state::State,
     pool::Pool,
-    prelude::{Almanac, Frame, Vector3, SUN_J2000},
+    prelude::{Almanac, Frame, Vector3, SUN_J2000, EphemerisSource, OrbitSource, EARTH_J2000},
 };
 
 use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
@@ -13,7 +13,9 @@ use log::{debug, error, info};
 
 use hifitime::Unit;
 
-impl Pool {
+use anise::errors::AlmanacResult;
+
+impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
     /// Apply Post fit criterias
     pub fn post_fit<D: DimName>(
         &mut self,
@@ -21,7 +23,7 @@ impl Pool {
         frame: Frame,
         cfg: &Config,
         state: &State<D>,
-    ) where
+    ) -> AlmanacResult<()> where
         DefaultAllocator: Allocator<D> + Allocator<D, D>,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
@@ -31,6 +33,10 @@ impl Pool {
         self.post_fit_velocities(cfg.modeling.relativistic_clock_bias);
         self.post_fit_eclipse(almanac, cfg.max_eclipse_rate_percent);
 
+        if cfg.method == Method::PPP {
+            self.post_fit_phase_windup(almanac, state)?;
+        }
+
         if cfg.code_smoothing > 0 || cfg.method == Method::PPP {
             self.post_fit_ambiguity_solving();
         }
@@ -38,6 +44,45 @@ impl Pool {
         if cfg.code_smoothing > 0 {
             self.post_fit_code_smoothing();
         }
+
+        Ok(())
+    }
+
+    /// Post fit phase windup correction
+    fn post_fit_phase_windup<D: DimName>(
+        &mut self,
+        almanac: &Almanac,
+        state: &State<D>,
+    ) -> AlmanacResult<()> where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    {
+
+        let epoch = self.inner[0].t;
+    
+        let earth_sun = almanac.transform(SUN_J2000, EARTH_J2000, epoch, None)?;
+
+        let r_sun = Vector3::new(
+            earth_sun.radius_km.x * 1.0E3,
+            earth_sun.radius_km.y * 1.0E3,
+            earth_sun.radius_km.z * 1.0E3,
+        );
+
+        for cd in self.inner.iter_mut() {
+            let prev_correction = self.past.iter().filter_map(|past| {
+                if past.sv == cd.sv {
+                    Some(past.windup)
+                } else {
+                    None
+                }
+            }).reduce(|k, _| k);
+
+            cd.phase_windup_correction(state, r_sun, prev_correction);
+        }
+
+        Ok(())
     }
 
     /// Apply Attitudes Post fit
