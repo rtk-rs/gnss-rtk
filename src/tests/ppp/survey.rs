@@ -3,9 +3,8 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    ppp::PPP,
-    prelude::{Almanac, Config, Epoch, Error, Frame, User},
-    tests::{bias::NullBias, time::NullTime, CandidatesBuilder, OrbitsData},
+    prelude::{Almanac, Config, Epoch, Error, Frame, StaticSolver, UserParameters},
+    tests::{bias::NullBias, ephemeris::NullEph, time::NullTime, CandidatesBuilder, OrbitsData},
 };
 
 #[fixture]
@@ -29,29 +28,31 @@ fn build_initial_apriori() -> Apriori {
 #[test]
 fn static_ppp_survey() {
     let default_cfg = Config::default();
-    let default_user = User::default();
+    let default_params = UserParameters::default();
 
     let almanac = build_almanac();
     let earth_frame = build_earth_frame();
 
     let null_bias = NullBias {};
     let null_time = NullTime {};
+    let null_eph = NullEph {};
 
     let orbits_data = OrbitsData::new(earth_frame);
 
     let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
     let candidates = CandidatesBuilder::build_at(t0_gpst);
 
-    let mut solver = PPP::new_survey(
+    let mut solver = StaticSolver::new_survey(
         almanac,
         earth_frame,
         default_cfg,
+        null_eph.into(),
         orbits_data.into(),
         null_time,
         null_bias,
     );
 
-    let status = solver.resolve(default_user, t0_gpst, &candidates);
+    let status = solver.ppp_solving(t0_gpst, default_params, &candidates);
 
     match status {
         Err(Error::InvalidatedFirstSolution) => {},

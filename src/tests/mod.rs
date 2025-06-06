@@ -6,6 +6,7 @@ use anise::{
 use crate::navigation::apriori::Apriori;
 
 pub mod bias;
+pub mod ephemeris;
 
 mod bancroft;
 mod candidate;

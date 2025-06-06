@@ -32,7 +32,7 @@ where
         Self { p, x }
     }
 
-    /// Create new [KfEstimate]
+    /// Create new [KfEstimate] from dynamic Matrices
     pub fn from_dynamic(x: DVector<f64>, p: DMatrix<f64>) -> Self {
         assert_eq!(
             p.nrows(),
@@ -62,7 +62,7 @@ where
         }
     }
 
-    /// Create new [KfEstimate]
+    /// Create new [KfEstimate] from static Matrices
     pub fn from_static(x: OVector<f64, S>, p: OMatrix<f64, S, S>) -> Self {
         Self { p, x }
     }

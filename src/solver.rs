@@ -9,12 +9,13 @@ use crate::{
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
-    cfg::{Config, User},
+    cfg::Config,
+    ephemeris::EphemerisSource,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
-    prelude::{Epoch, Error, Rc},
-    rtk::RTKBase,
+    prelude::{Epoch, Error, Rc, UserParameters},
+    rtk::{NullRTK, RTKBase},
     time::AbsoluteTime,
 };
 
@@ -25,7 +26,7 @@ use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 /// - O: [OrbitSource], custom Orbit provider.
 /// - B: custom [Bias] model.
 /// - T: [AbsoluteTime] source for correct absolute time
-pub struct Solver<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime>
+pub struct Solver<D: DimName, EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
 where
     DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
@@ -40,17 +41,14 @@ where
     /// [Frame]
     earth_cef: Frame,
 
-    /// [OrbitSource]
-    orbit_source: Rc<O>,
-
     /// [Bias] model implementation
     bias: B,
 
     /// Pool
-    pool: Pool,
+    pool: Pool<EPH, ORB>,
 
     /// To invalidate first solution
-    first_solution: bool,
+    first_fix: bool,
 
     /// [Navigation] solver
     navigation: Navigation<D>,
@@ -59,10 +57,11 @@ where
     initial_ecef_m: Option<Vector3>,
 
     /// [AbsoluteTime] implementation
-    absolute_time: T,
+    absolute_time: TIM,
 }
 
-impl<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<D, O, B, T>
+impl<D: DimName, EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime>
+    Solver<D, EPH, ORB, B, T>
 where
     DefaultAllocator: Allocator<D> + Allocator<D, D>,
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
@@ -86,7 +85,8 @@ where
         almanac: Almanac,
         earth_cef: Frame,
         cfg: Config,
-        orbit_source: Rc<O>,
+        eph_source: Rc<EPH>,
+        orbit_source: Rc<ORB>,
         absolute_time: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
@@ -112,30 +112,70 @@ where
             almanac,
             earth_cef,
             navigation,
-            orbit_source,
             absolute_time,
             initial_ecef_m,
             cfg: cfg.clone(),
-            first_solution: true,
-            pool: Pool::allocate(cfg.code_smoothing, earth_cef),
+            first_fix: true,
+            pool: Pool::allocate(cfg.code_smoothing, earth_cef, eph_source, orbit_source),
         }
     }
 
-    /// [PVTSolution] solving attempt.
+    /// [PVTSolution] solving attempt using PPP technique (no reference).
+    /// Use this when no [RTKBase] may be accessed.
+    /// Switch to RTK at any point in your session, when at least one [RTKBase] becomes
+    /// accessible.
+    ///
     /// ## Input
-    /// - t: [Epoch] of observation
-    /// - user: [User] parameters that we will adapt to
-    /// - pool: proposed [Candidate]s
+    /// - epoch: [Epoch] of measurement
+    /// - params: [UserProfile]
+    /// - candidates: proposed [Candidate]s (= measurements)
     /// - rtk_base: possible [RTKBase] we will connect to
     ///
     /// ## Output
     /// - [PVTSolution].
-    pub fn resolve<RTK: RTKBase>(
+    pub fn ppp_solving(
+        &mut self,
+        epoch: Epoch,
+        params: UserParameters,
+        candidates: &[Candidate],
+    ) -> Result<PVTSolution, Error> {
+        let null_base = NullRTK {};
+        let solution = self.solving::<NullRTK>(epoch, params, candidates, &null_base, false)?;
+        Ok(solution)
+    }
+
+    /// [PVTSolution] solving attempt using RTK technique and a single reference
+    /// site. Switch to PPP at any point in your session, when access to remote
+    /// site is lost.
+    ///
+    /// ## Input
+    /// - epoch: [Epoch] of measurement
+    /// - profile: [UserProfile]
+    /// - candidates: proposed [Candidate]s (= measurements)
+    /// - base: [RTKBase] implementation, that must provide enough information
+    /// for this to proceed. You may catch RTK related issues and
+    /// retry using PPP technique.
+    ///
+    /// ## Output
+    /// - [PVTSolution].
+    pub fn rtk_solving<RTK: RTKBase>(
+        &mut self,
+        epoch: Epoch,
+        params: UserParameters,
+        candidates: &[Candidate],
+        base: &RTK,
+    ) -> Result<PVTSolution, Error> {
+        self.solving(epoch, params, candidates, base, true)
+    }
+
+    /// [PVTSolution] solving attempt.
+    fn solving<RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        user: User,
+        params: UserParameters,
         pool: &[Candidate],
         rtk_base: &RTK,
+        uses_rtk: bool,
     ) -> Result<PVTSolution, Error> {
         let ts = self.cfg.timescale;
 
@@ -145,6 +185,8 @@ where
             // no need to proceed further
             return Err(Error::NotEnoughCandidates);
         }
+
+        assert!(!uses_rtk, "RTK navigation is under development");
 
         self.pool.new_epoch(pool);
         self.pool.pre_fit(&self.cfg, &self.absolute_time);
@@ -166,9 +208,7 @@ where
             corrected
         };
 
-        let orbit_source = &self.orbit_source;
-
-        self.pool.orbital_states(&self.cfg, orbit_source);
+        self.pool.orbital_states(&self.cfg);
 
         // current state
         let state = if self.navigation.initialized {
@@ -183,7 +223,7 @@ where
                     });
 
                     debug!("{} - initial state: {}", t, state);
-                    self.navigation.state = state;
+                    self.navigation.state = state.clone();
                     state
                 },
                 None => {
@@ -198,14 +238,18 @@ where
                     });
 
                     debug!("{} - initial state: {}", t, state);
-                    self.navigation.state = state;
+                    self.navigation.state = state.clone();
                     state
                 },
             }
         };
 
         self.pool
-            .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state);
+            .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state)
+            .map_err(|e| {
+                error!("{} - postfit error {}", t, e);
+                Error::PostfitPrenav
+            })?;
 
         let pool_size = self.pool.len();
 
@@ -216,7 +260,7 @@ where
         // Solving attempt
         match self.navigation.solving(
             t,
-            user,
+            params,
             &state,
             &self.pool.candidates(),
             pool_size,
@@ -244,8 +288,8 @@ where
             self.navigation.state = state;
         }
 
-        if self.first_solution {
-            self.first_solution = false;
+        if self.first_fix {
+            self.first_fix = false;
             Err(Error::InvalidatedFirstSolution)
         } else {
             Ok(solution)

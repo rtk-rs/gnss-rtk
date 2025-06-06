@@ -3,10 +3,10 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    ppp::PPP,
-    prelude::{Almanac, Config, Epoch, Error, Frame, User},
+    prelude::{Almanac, Config, Epoch, Error, Frame, StaticSolver, UserParameters},
     tests::{
-        bias::NullBias, time::NullTime, CandidatesBuilder, OrbitsData, REFERENCE_COORDS_ECEF_M,
+        bias::NullBias, ephemeris::NullEph, time::NullTime, CandidatesBuilder, OrbitsData,
+        REFERENCE_COORDS_ECEF_M,
     },
 };
 
@@ -31,30 +31,32 @@ fn build_initial_apriori() -> Apriori {
 #[test]
 fn static_ppp_with_preset() {
     let default_cfg = Config::default();
-    let default_user = User::default();
+    let default_params = UserParameters::default();
 
     let almanac = build_almanac();
     let earth_frame = build_earth_frame();
 
     let null_bias = NullBias {};
     let null_time = NullTime {};
+    let null_eph = NullEph {};
 
     let orbits_data = OrbitsData::new(earth_frame);
 
     let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
     let candidates = CandidatesBuilder::build_at(t0_gpst);
 
-    let mut solver = PPP::new(
+    let mut solver = StaticSolver::new(
         almanac,
         earth_frame,
         default_cfg,
+        null_eph.into(),
         orbits_data.into(),
         null_time,
         null_bias,
         Some(REFERENCE_COORDS_ECEF_M),
     );
 
-    let status = solver.resolve(default_user, t0_gpst, &candidates);
+    let status = solver.ppp_solving(t0_gpst, default_params, &candidates);
 
     match status {
         Err(Error::InvalidatedFirstSolution) => {},
