@@ -22,16 +22,12 @@ use crate::{
 use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 /// [Solver] to resolve [PVTSolution]s.
+///
 /// ## Generics:
-/// - O: [OrbitSource], custom Orbit provider.
+/// - ORB: [OrbitSource], custom Orbit provider.
 /// - B: custom [Bias] model.
-/// - T: [AbsoluteTime] source for correct absolute time
-pub struct Solver<D: DimName, EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+/// - TIM: [AbsoluteTime] source for correct absolute time
+pub struct Solver<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> {
     /// Solver [Config]uration preset
     pub cfg: Config,
 
@@ -51,7 +47,7 @@ where
     first_fix: bool,
 
     /// [Navigation] solver
-    navigation: Navigation<D>,
+    navigation: Navigation,
 
     /// Possible initial position
     initial_ecef_m: Option<Vector3>,
@@ -60,13 +56,7 @@ where
     absolute_time: TIM,
 }
 
-impl<D: DimName, EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime>
-    Solver<D, EPH, ORB, B, T>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EPH, ORB, B, T> {
     /// Creates a new [Solver] for either direct or differential navigation,
     /// with possible apriori knowledge.
     ///
@@ -91,7 +81,6 @@ where
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
-        // Analyze preset
         if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
             panic!("RF cable delay compensation is incorrectly defined!");
         }

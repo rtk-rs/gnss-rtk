@@ -3,7 +3,7 @@ use crate::prelude::{Duration, SPEED_OF_LIGHT_M_S};
 
 use std::f64::consts::PI;
 
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName, OMatrix};
+use nalgebra::{allocator::Allocator, DMatrix, DefaultAllocator, DimName, OMatrix};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -170,27 +170,29 @@ impl UserParameters {
         }
     }
 
-    pub(crate) fn q_matrix<D: DimName>(&self, dt: Duration) -> OMatrix<f64, D, D>
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    {
-        let mut q_k = OMatrix::<f64, D, D>::zeros();
+    /// Allocates a (usize, usize) covariance [DMatrix]
+    pub(crate) fn q_matrix(&self, size: usize, dt: Duration) -> DMatrix<f64> {
+        assert!(size > 3, "internal error: requested invalid Q dimension");
+
+        let mut q_k = DMatrix::<f64>::zeros(size, size);
         let dt_s = dt.to_seconds();
         let dt_s3 = dt_s.powi(3);
 
+        // TODO
         q_k[(0, 0)] = self.accel_psd * dt_s3 / 3.0;
 
+        // TODO
         q_k[(0, 0)] = 1.0;
         q_k[(1, 1)] = 1.0;
         q_k[(2, 2)] = 1.0;
 
-        if D::USIZE == 4 {
-            q_k[(3, 3)] = SPEED_OF_LIGHT_M_S.powi(2)
-                * (self.clock_psd * dt_s + self.clock_drift_psd * dt_s3 / 3.0);
-            //  self.q_k[(Self::clock_index(), Self::clock_index())] =
-            //      (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
-            q_k[(3, 3)] = (100e-3 * SPEED_OF_LIGHT_M_S).powi(2);
-        }
+        // TODO
+        q_k[(3, 3)] = SPEED_OF_LIGHT_M_S.powi(2)
+            * (self.clock_psd * dt_s + self.clock_drift_psd * dt_s3 / 3.0);
+
+        //  self.q_k[(Self::clock_index(), Self::clock_index())] =
+        //      (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+        q_k[(3, 3)] = (100e-3 * SPEED_OF_LIGHT_M_S).powi(2);
 
         q_k
     }

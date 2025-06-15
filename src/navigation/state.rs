@@ -1,4 +1,4 @@
-use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector};
+use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, U4};
 
 use anise::{
     astro::PhysicsResult,
@@ -13,16 +13,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct State<D: DimName>
-where
-    DefaultAllocator: Allocator<D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-{
+pub struct State {
     /// [Epoch]
     pub t: Epoch,
 
     /// Internal [OVector]
-    x: OVector<f64, D>,
+    x: OVector<f64, U4>,
 
     /// [Ambiguity] [DVector]
     ambiguities: DVector<Ambiguity>,
@@ -34,31 +30,19 @@ where
     pub lat_long_alt_deg_deg_km: (f64, f64, f64),
 }
 
-impl<D: DimName> Default for State<D>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+impl Default for State {
     fn default() -> Self {
         Self {
             t: Default::default(),
-            x: OVector::<f64, D>::zeros(),
+            x: OVector::<f64, U4>::zeros(),
             clock_drift_s_s: Default::default(),
-            ambiguities: DVector::<Ambiguity>::zeros(D::USIZE),
+            ambiguities: DVector::<Ambiguity>::zeros(U4::USIZE),
             lat_long_alt_deg_deg_km: Default::default(),
         }
     }
 }
 
-impl<D: DimName> std::fmt::Display for State<D>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+impl std::fmt::Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let position_vel_m = self.position_velocity_ecef_m();
         let (offset, drift) = self.clock_profile_s();
@@ -79,13 +63,7 @@ where
     }
 }
 
-impl<D: DimName> State<D>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+impl State {
     /// Create new [State] initialized from [Apriori]
     pub fn from_apriori(apriori: &Apriori) -> PhysicsResult<Self> {
         let orbit = apriori.to_orbit();
@@ -101,17 +79,12 @@ where
 
     /// Create new [State] from [Orbit]al solution.
     pub fn from_orbit(orbit: &Orbit) -> PhysicsResult<Self> {
-        assert!(
-            D::USIZE > 3,
-            "internal error: state minimal dimension implementation!"
-        );
-
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let latlongalt = orbit.latlongalt()?;
 
-        let mut x = OVector::<f64, D>::zeros();
+        let mut x = OVector::<f64, U4>::zeros();
 
-        for i in 0..3 {
+        for i in 0..U4::USIZE - 1 {
             x[i] = pos_vel_m[i];
         }
 
@@ -120,7 +93,7 @@ where
             t: orbit.epoch,
             clock_drift_s_s: 0.0_f64,
             lat_long_alt_deg_deg_km: latlongalt,
-            ambiguities: DVector::<Ambiguity>::zeros(D::USIZE),
+            ambiguities: DVector::<Ambiguity>::zeros(U4::USIZE),
         })
     }
 
@@ -131,13 +104,11 @@ where
 
     /// Returns position and velocity in ECEF meters as [Vector6]
     pub fn position_velocity_ecef_m(&self) -> Vector6 {
-        match D::USIZE {
-            4 => Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0),
-            7 => Vector6::new(
-                self.x[0], self.x[1], self.x[2], self.x[3], self.x[4], self.x[5],
-            ),
-            _ => unreachable!("invalid dimensions!"),
-        }
+        Vector6::new(
+            self.x[0], self.x[1], self.x[2], 0.0, // TODO
+            0.0, // TODO
+            0.0, // TODO
+        )
     }
 
     /// Returns estimated clock (offset, drift) in seconds and s.s⁻¹.
@@ -158,7 +129,8 @@ where
         pending_t: Epoch,
         dx: &DVector<f64>,
     ) -> PhysicsResult<()> {
-        assert_eq!(dx.len(), D::USIZE, "invalid correction dimensions!");
+        let nrows = dx.nrows();
+        assert_eq!(nrows, U4::USIZE, "invalid state dim={}!", nrows);
 
         let dt = (pending_t - self.t).to_seconds();
 
@@ -168,7 +140,7 @@ where
                 / dt;
         }
 
-        for i in 0..D::USIZE {
+        for i in 0..U4::USIZE {
             if i == Navigation::clock_index() {
                 self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
             } else {
@@ -186,8 +158,8 @@ where
     }
 
     /// Temporal update
-    pub fn postfit_update_mut(&mut self, frame: Frame, dx: Vector6) -> PhysicsResult<()> {
-        for i in 0..D::USIZE {
+    pub fn postfit_update_mut(&mut self, frame: Frame, dx: DVector<f64>) -> PhysicsResult<()> {
+        for i in 0..dx.nrows() {
             if i != Navigation::clock_index() {
                 self.x[i] = dx[i];
             }
@@ -247,7 +219,7 @@ mod test {
         let earth_frame = build_earth_frame();
         let apriori = build_reference_apriori();
 
-        let initial_state = State::<U4>::from_apriori(&apriori).unwrap_or_else(|e| {
+        let initial_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
             panic!(
                 "Failed to build initial state from reference apriori: {}",
                 e
@@ -350,8 +322,7 @@ mod test {
         dx[0] = 1.0;
         dx[1] = 2.0;
         dx[2] = 3.0;
-
-        dx[Navigation::<U4>::clock_index()] = 4.0;
+        dx[Navigation::clock_index()] = 4.0;
 
         let new_t = state.t + Duration::from_seconds(30.0);
 
@@ -393,7 +364,7 @@ mod test {
     fn state_u4_from_reference_orbital_state() {
         let orbit = build_reference_orbit();
 
-        let state = State::<U4>::from_orbit(&orbit).unwrap_or_else(|e| {
+        let state = State::from_orbit(&orbit).unwrap_or_else(|e| {
             panic!("Failed to build initial state from reference orbit: {}", e)
         });
 

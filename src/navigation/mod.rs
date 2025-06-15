@@ -43,32 +43,32 @@ pub(crate) struct Navigation {
     /// [Frame]
     frame: Frame,
 
-    /// Y allocation
-    y_k_vec: Vec<f64>,
-
-    /// W allocation
-    w_k_vec: Vec<f64>,
-
-    /// W
-    w_k: DMatrix<f64>,
-
-    /// G
-    g_k: DMatrix<f64>,
-
-    /// F
-    f_k: DMatrix<f64>,
-
     /// X
-    x_k: DVector<f64>,
+    x_vec: Vec<f64>,
+
+    /// Y
+    y_vec: Vec<f64>,
+
+    /// W_diag
+    w_diag: Vec<f64>,
+
+    /// W_mat
+    w_mat: DMatrix<f64>,
+
+    /// F_diag
+    f_diag: Vec<f64>,
+
+    /// F_mat
+    f_mat: DMatrix<f64>,
 
     /// P
-    p_k: DMatrix<f64>,
+    p_mat: DMatrix<f64>,
+
+    /// indexes storage
+    indexes: Vec<usize>,
 
     /// [Kalman]
     kalman: Kalman,
-
-    /// contribution allocation
-    indexes: Vec<usize>,
 
     /// [SVContribution]s
     pub sv: Vec<SVContribution>,
@@ -100,21 +100,7 @@ impl Navigation {
     /// ## Returns
     /// - [Navigation], [Error]
     pub fn new(cfg: &Config, frame: Frame) -> Self {
-        let mut f_k = OMatrix::<f64, D, D>::zeros();
-
-        if D::USIZE == 4 {
-            for i in 0..=2 {
-                f_k[(i, i)] = 1.0;
-            }
-        } else if D::USIZE == 7 {
-            // TODO
-            for i in 0..=2 {
-                f_k[(i, i)] = 1.0;
-            }
-        }
-
         Self {
-            f_k,
             frame,
             postfit: None,
             cfg: cfg.clone(),
@@ -122,15 +108,15 @@ impl Navigation {
             initialized: false,
             state: State::default(),
             sv: Vec::with_capacity(8),
-            kalman: Kalman::new(U4::USIZE),
-            y_k_vec: Vec::with_capacity(8),
-            w_k_vec: Vec::with_capacity(8),
-            indexes: Vec::with_capacity(8),
-            x_k: DVector::zeros(D::USIZE),
             dop: DilutionOfPrecision::default(),
-            g_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
-            w_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
-            p_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
+            kalman: Kalman::new(U4::USIZE),
+            x_vec: Vec::with_capacity(U4::USIZE),
+            y_vec: Vec::with_capacity(U4::USIZE),
+            w_diag: Vec::with_capacity(U4::USIZE),
+            f_diag: Vec::with_capacity(U4::USIZE),
+            indexes: Vec::with_capacity(U4::USIZE),
+            w_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
+            f_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
         }
     }
 
@@ -144,6 +130,7 @@ impl Navigation {
     /// ready to consume a first measurement.
     pub fn reset(&mut self) {
         self.clear();
+
         self.kalman.reset();
 
         if self.postfit.is_some() {
@@ -152,12 +139,13 @@ impl Navigation {
 
         self.prev_epoch = None;
         self.initialized = false;
+
         self.dop = DilutionOfPrecision::default();
     }
 
     /// Returns clock index
     pub const fn clock_index() -> usize {
-        D::USIZE - 1
+        U4::USIZE - 1
     }
 
     /// Iterates mutable [Navigation] filter.
@@ -173,7 +161,7 @@ impl Navigation {
         &mut self,
         t: Epoch,
         params: UserParameters,
-        past_state: &State<D>,
+        past_state: &State,
         candidates: &[Candidate],
         size: usize,
         rtk_base: &R,
@@ -186,12 +174,10 @@ impl Navigation {
             None => Duration::ZERO,
         };
 
-        let q_k = params.q_matrix::<D>(dt);
-
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias, q_k)?;
+            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias)?;
         } else {
-            self.kf_run(t, candidates, size, rtk_base, bias, q_k)?;
+            self.kf_run(t, candidates, size, rtk_base, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -233,30 +219,36 @@ impl Navigation {
     fn clear(&mut self) {
         self.sv.clear();
         self.indexes.clear();
-        self.y_k_vec.clear();
-        self.w_k_vec.clear();
+
+        self.y_vec.clear();
+        self.w_diag.clear();
+        self.f_diag.clear();
+
+        self.w_mat = DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE);
+        self.f_mat = DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE);
     }
 
     /// Filter first iteration.
     pub fn kf_initialization<B: Bias, RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        state: &State<D>,
+        state: &State,
         candidates: &[Candidate],
         size: usize,
         _: &RTK,
         bias: &B,
-        q_k: OMatrix<f64, D, D>,
     ) -> Result<(), Error> {
         let nb_iter = 10;
 
+        let mut row = 0;
         let mut pending = state.clone();
 
-        // measurement
+        // measurements
         for i in 0..size {
             let mut contrib = SVContribution::default();
 
             contrib.sv = candidates[i].sv;
+
             let position_m = pending.position_ecef_m();
 
             match candidates[i].vector_contribution(
@@ -268,9 +260,11 @@ impl Navigation {
                 bias,
             ) {
                 Ok((y_i, r_i, dr_i)) => {
-                    self.y_k_vec.push(y_i);
-                    self.w_k_vec.push(1.0 / r_i);
+                    self.y_vec.push(y_i);
+                    self.w_diag.push(1.0); // TODO
+
                     self.indexes.push(i);
+
                     self.sv.push(contrib);
 
                     if self.cfg.modeling.relativistic_path_range {
@@ -286,27 +280,22 @@ impl Navigation {
             }
         }
 
-        let y_len = self.indexes.len();
+        let nrows = self.y_vec.nrows();
 
-        if y_len < D::USIZE {
+        if nrows < U4::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        self.g_k.resize_mut(y_len, D::USIZE, 0.0);
-
         // run
         for _ in 0..nb_iter {
-            let y_len = self.y_k_vec.len();
+            let nrows = self.y_vec.nrows();
+            self.w_mat.resize_mut(nrows, nrows, 0.0);
 
-            self.w_k.resize_mut(y_len, y_len, 0.0);
-
-            for i in 0..y_len {
-                self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
+            for i in 0..nrows {
+                self.w_mat[(i, i)] = 1.0; // TODO
             }
 
-            let y_k = DVector::from_row_slice(&self.y_k_vec);
-
-            // form g_k
+            // form G
             for (i, index) in self.indexes.iter().enumerate() {
                 let dr_i = self.sv[i].relativistic_path_range_m;
 
@@ -399,7 +388,6 @@ impl Navigation {
         size: usize,
         _: &RTK,
         bias: &B,
-        q_k: OMatrix<f64, D, D>,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
 

@@ -32,18 +32,13 @@ pub struct PostfitKf {
 
 impl PostfitKf {
     /// Builds new [PostfitKf] from initial [State]
-    pub fn new<D: DimName>(
-        state: &State<D>,
+    pub fn new(
+        state: &State,
         state_pos_std_dev_m: f64,
         state_vel_std_dev_m_s: f64,
         meas_pos_std_dev_m: f64,
         meas_vel_std_dev_m_s: f64,
-    ) -> Self
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D> + Allocator<U6> + Allocator<U6, U6>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    ) -> Self {
         let r_diag = [
             meas_pos_std_dev_m.powi(2),
             meas_pos_std_dev_m.powi(2),
@@ -83,19 +78,15 @@ impl PostfitKf {
         }
     }
 
-    /// Run [PostfitKf] filter
-    /// - sampling_interval: [Duration]
+    /// Run [PostfitKf] filter.
+    ///
+    /// ## Input
     /// - state: new [State]
-    pub fn run<D: DimName>(
-        &mut self,
-        state: &State<D>,
-        sampling_interval: Duration,
-    ) -> Result<KfEstimate, Error>
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D> + Allocator<U6> + Allocator<U6, U6>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    /// - sampling_interval: [Duration]
+    ///
+    /// ## Output
+    /// - estimate: [KfEstimate]
+    pub fn run(&mut self, state: &State, sampling_interval: Duration) -> Result<KfEstimate, Error> {
         let dt_s = sampling_interval.to_seconds();
 
         self.f_k[(0, 3)] = dt_s;
