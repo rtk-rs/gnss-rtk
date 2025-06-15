@@ -27,7 +27,7 @@ use crate::{
         postfit::PostfitKf,
         state::State,
     },
-    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame},
+    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, Method},
     rtk::RTKBase,
     user::UserParameters,
 };
@@ -46,8 +46,11 @@ pub(crate) struct Navigation {
     /// X
     x_vec: DVector<f64>,
 
-    /// Y
-    y_vec: Vec<f64>,
+    /// PR vec
+    pr_vec: Vec<f64>,
+
+    /// CP vec
+    cp_vec: Vec<f64>,
 
     /// W_diag
     w_diag: Vec<f64>,
@@ -113,7 +116,8 @@ impl Navigation {
             sv: Vec::with_capacity(8),
             dop: DilutionOfPrecision::default(),
             kalman: Kalman::new(U4::USIZE),
-            y_vec: Vec::with_capacity(U4::USIZE),
+            pr_vec: Vec::with_capacity(U4::USIZE),
+            cp_vec: Vec::with_capacity(U4::USIZE),
             w_diag: Vec::with_capacity(U4::USIZE),
             f_diag: Vec::with_capacity(U4::USIZE),
             indexes: Vec::with_capacity(U4::USIZE),
@@ -226,7 +230,9 @@ impl Navigation {
         self.sv.clear();
         self.indexes.clear();
 
-        self.y_vec.clear();
+        self.pr_vec.clear();
+        self.cp_vec.clear();
+
         self.w_diag.clear();
         self.f_diag.clear();
 
@@ -234,7 +240,7 @@ impl Navigation {
         self.f_mat = DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE);
     }
 
-    /// Filter first iteration.
+    /// Arming internal core.
     pub fn kf_initialization<B: Bias, RTK: RTKBase>(
         &mut self,
         t: Epoch,
@@ -247,7 +253,6 @@ impl Navigation {
     ) -> Result<(), Error> {
         let nb_iter = 10;
 
-        let mut row = 0;
         let mut pending = state.clone();
 
         // measurements
@@ -266,8 +271,13 @@ impl Navigation {
                 &mut contrib,
                 bias,
             ) {
-                Ok((y_i, r_i, dr_i)) => {
-                    self.y_vec.push(y_i);
+                Ok(vec) => {
+                    self.pr_vec.push(vec.pr);
+
+                    if let Some(cp) = vec.cp {
+                        self.cp_vec.push(cp);
+                    }
+
                     self.w_diag.push(1.0); // TODO
 
                     self.sv.push(contrib);
@@ -276,7 +286,7 @@ impl Navigation {
                     if self.cfg.modeling.relativistic_path_range {
                         debug!(
                             "{}({}) - relativistic path range: {:.3}m",
-                            t, candidates[i].sv, dr_i
+                            t, candidates[i].sv, vec.dr
                         );
                     }
                 },
@@ -286,24 +296,38 @@ impl Navigation {
             }
         }
 
-        let nrows = self.y_vec.len();
+        let nrows = self.pr_vec.len();
 
+        // verifications prior moving forward
         if nrows < U4::USIZE {
-            // physical limitations: do not propose
+            // maths limitations: do not propose
             return Err(Error::MatrixMinimalDimension);
+        }
+
+        if self.cfg.method == Method::PPP {
+            // dimensions must match: do not propose
+            if self.cp_vec.len() != nrows {
+                return Err(Error::MissingPhaseRangeMeasurements);
+            }
         }
 
         // run
         for _ in 0..nb_iter {
-            let nrows = self.y_vec.len();
+            let mut nrows = self.pr_vec.len();
+            let mut ndf = 4;
+
+            if self.cfg.method == Method::PPP {
+                ndf += self.cp_vec.len();
+                nrows *= 2;
+            }
 
             self.w_mat.resize_mut(nrows, nrows, 0.0);
+            self.g_mat.resize_mut(nrows, ndf, 0.0);
 
+            // form W
             for i in 0..nrows {
                 self.w_mat[(i, i)] = 1.0; // TODO: improve model
             }
-
-            self.g_mat.resize_mut(nrows, 4, 0.0); // TODO: state dimension
 
             // form G
             for (i, index) in self.indexes.iter().enumerate() {
@@ -314,14 +338,31 @@ impl Navigation {
                 let (dx, dy, dz) =
                     candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
-                self.g_mat[(i, 0)] = dx;
-                self.g_mat[(i, 1)] = dy;
-                self.g_mat[(i, 2)] = dz;
-
                 self.g_mat[(i, Self::clock_index())] = 1.0;
+
+                if self.cfg.method == Method::PPP {
+                    self.g_mat[(2 * i, 0)] = dx;
+                    self.g_mat[(2 * i, 1)] = dy;
+                    self.g_mat[(2 * i, 2)] = dz;
+                    self.g_mat[(2 * i, Self::clock_index())] = 1.0;
+
+                    self.g_mat[(2 * i + 1, 0)] = dx;
+                    self.g_mat[(2 * i + 1, 1)] = dy;
+                    self.g_mat[(2 * i + 1, 2)] = dz;
+                    self.g_mat[(2 * i + 1, Self::clock_index())] = 1.0;
+                    self.g_mat[(2 * i + 1, Self::clock_index() + i + 1)] = 1.0;
+                } else {
+                    self.g_mat[(i, 0)] = dx;
+                    self.g_mat[(i, 1)] = dy;
+                    self.g_mat[(i, 2)] = dz;
+                    self.g_mat[(i, Self::clock_index())] = 1.0;
+                }
             }
 
-            debug!("G: {} W: {} Y: {:#?}", self.g_mat, self.w_mat, self.y_vec);
+            debug!(
+                "G: {} W: {} PR: {:#?} CP: {:#?}",
+                self.g_mat, self.w_mat, self.pr_vec, self.cp_vec
+            );
 
             // run
             let gt = self.g_mat.transpose();
@@ -333,13 +374,27 @@ impl Navigation {
             let gt_w_g_inv_gt = gt_w_g_inv.clone() * gt.clone();
             let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.w_mat.clone();
 
-            let y = DVector::<f64>::from_row_slice(&self.y_vec);
+            let mut y = DVector::<f64>::zeros(nrows);
 
-            debug!("Y={}", y);
+            let n_sup = if self.cfg.method == Method::PPP {
+                nrows / 2
+            } else {
+                nrows
+            };
+
+            for i in 0..n_sup {
+                if self.cfg.method == Method::PPP {
+                    y[2 * i] = self.pr_vec[i];
+                    y[2 * i + 1] = self.cp_vec[i];
+                } else {
+                    y[i] = self.pr_vec[i];
+                }
+            }
+
+            debug!("Y: {}", y);
 
             self.x_vec = gt_w_g_inv_gt_w * y;
             self.p_mat = gt_w_g_inv.clone();
-
             debug!("state correction: dx={}", self.x_vec);
 
             pending
@@ -357,7 +412,8 @@ impl Navigation {
             debug!("{} - pending state {}", t, pending);
 
             // update models
-            self.y_vec.clear();
+            self.pr_vec.clear();
+            self.cp_vec.clear();
             self.w_diag.clear();
 
             self.indexes.retain(|i| {
@@ -373,8 +429,13 @@ impl Navigation {
                     &mut unused,
                     bias,
                 ) {
-                    Ok((y_i, r_i, _)) => {
-                        self.y_vec.push(y_i);
+                    Ok(vec) => {
+                        self.pr_vec.push(vec.pr);
+
+                        if let Some(cp) = vec.cp {
+                            self.cp_vec.push(cp);
+                        }
+
                         self.w_diag.push(1.0); // TODO
                         true
                     },

@@ -55,8 +55,8 @@ impl DilutionOfPrecision {
     pub fn new(state: &State, g_gt_inv: DMatrix<f64>) -> Self {
         let (nrows, ncols) = (g_gt_inv.nrows(), g_gt_inv.ncols());
 
+        assert!(nrows >= U4::USIZE, "invalid (G.G)⁻¹ dimensions");
         assert_eq!(nrows, ncols, "invalid dimensions: (G.G)⁻¹ is not square");
-        assert_eq!(nrows, U4::USIZE, "invalid (G.G)⁻¹ dimensions");
 
         let (lat_rad, long_rad) = (
             state.lat_long_alt_deg_deg_km.0.to_radians(),

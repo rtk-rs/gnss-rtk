@@ -130,7 +130,8 @@ impl State {
         dx: &DVector<f64>,
     ) -> PhysicsResult<()> {
         let nrows = dx.nrows();
-        assert_eq!(nrows, U4::USIZE, "invalid state dim={}!", nrows);
+
+        assert!(nrows >= U4::USIZE, "invalid state dim={}!", nrows);
 
         let dt = (pending_t - self.t).to_seconds();
 
