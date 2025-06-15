@@ -104,7 +104,7 @@ impl OrbitsData {
 }
 
 impl OrbitSource for OrbitsData {
-    fn next_at(&self, epoch: Epoch, sv: SV, _: Frame) -> Option<Orbit> {
+    fn state_at(&self, epoch: Epoch, sv: SV, _: Frame) -> Option<Orbit> {
         let orbit = self
             .map
             .iter()

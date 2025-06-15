@@ -6,16 +6,11 @@ use serde::{Deserialize, Serialize};
 mod method;
 mod modeling;
 mod solver;
-mod user;
 
 pub use crate::{
     carrier::Signal,
     cfg::solver::SolverOpts,
-    cfg::{
-        method::Method,
-        modeling::Modeling,
-        user::{Profile, User},
-    },
+    cfg::{method::Method, modeling::Modeling},
     prelude::TimeScale,
 };
 
@@ -24,6 +19,7 @@ pub use crate::{
 pub enum Error {
     #[error("invalid troposphere model")]
     InvalidTroposphereModel,
+
     #[error("invalid user profile")]
     InvalidUserProfile,
 }

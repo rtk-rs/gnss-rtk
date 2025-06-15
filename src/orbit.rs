@@ -1,15 +1,15 @@
 use crate::prelude::{Epoch, Frame, Orbit, SV};
 
-/// Any [Orbit] provider should be declared as [OrbitSource] to propose [SV] that
-/// will contribute to the solutions.
+/// Any [Orbit] provider should implement the [OrbitSource] trait to provide
+/// information that will contribute to the solving process.
 pub trait OrbitSource {
-    /// Provide Antenna Phase Center coordinates at requested [Epoch] for proposed [SV].
-    /// The [Orbit] should be constructed using the [Frame] that the solver is internally using.
+    /// Provide [Orbit]al state to help the solving process.
     ///
-    /// If you don't have such information, simply return [None] and this [SV] will not
-    /// contribute to the next solution.
+    /// The state should represent the Antenna Phase Center coordinates of requested
+    /// [SV] at requested [Epoch], and should be expressed in the proposed [Frame].
     ///
-    /// Because GNSS-RTK is synchronous and you should provide measurements in chronological order,
-    /// and this is the latest [Epoch] processed for this [SV].
-    fn next_at(&self, epoch: Epoch, sv: SV, fr: Frame) -> Option<Orbit>;
+    /// GNSS-RTK is fully synchronous and _physically_ expects measurements
+    /// in chronological order. The requests issued here follow the provided measurements,
+    /// therefore arrive in chronological order.
+    fn state_at(&self, epoch: Epoch, sv: SV, fr: Frame) -> Option<Orbit>;
 }

@@ -8,6 +8,21 @@ use crate::{
     prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Method, Signal, Vector3},
 };
 
+#[derive(Debug, Copy, Clone, Default)]
+pub(crate) struct VectorContribution {
+    /// Pseudo range contribution, always
+    pub pr: f64,
+
+    /// Carrier phase contribution, only in PPP
+    pub cp: Option<f64>,
+
+    /// relativistic path range
+    pub dr: f64,
+
+    /// sigma
+    pub sigma: f64,
+}
+
 impl Candidate {
     /// Measurement vector contribution.
     /// This will pass if
@@ -32,11 +47,12 @@ impl Candidate {
         rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
         contribution: &mut SVContribution,
         bias: &B,
-    ) -> Result<(f64, f64, f64), Error> {
+    ) -> Result<VectorContribution, Error> {
         let mu = EARTH_GRAVITATION;
 
         let mut dr = 0.0;
         let mut bias_m = 0.0;
+        let mut ret = VectorContribution::default();
 
         let (x0_m, y0_m, z0_m) = (x0_y0_z0_m[0], x0_y0_z0_m[1], x0_y0_z0_m[2]);
 
@@ -59,11 +75,11 @@ impl Candidate {
 
             let r_sat_0 = r_0 - r_sat;
 
-            dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+            ret.dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
-            rho += dr;
-            contribution.relativistic_path_range_m = dr;
+            rho += ret.dr;
+            contribution.relativistic_path_range_m = ret.dr;
         } else {
             contribution.relativistic_path_range_m = 0.0_f64;
         }
@@ -71,29 +87,28 @@ impl Candidate {
         let (frequency_hz, range_m) = match cfg.method {
             Method::SPP => {
                 let (carrier, pr) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
-
                 contribution.signal = Signal::Single(carrier);
-
                 (carrier.frequency_hz(), pr)
             },
-            Method::CPP => {
+            Method::CPP | Method::PPP => {
                 let comb = self
                     .code_if_combination()
                     .ok_or(Error::PseudoRangeCombination)?;
 
                 contribution.signal = Signal::Dual((comb.lhs, comb.rhs));
-
                 (comb.rhs.frequency_hz(), comb.value)
             },
+        };
+
+        let cp = match cfg.method {
             Method::PPP => {
                 let comb = self
-                    .code_if_combination()
+                    .phase_if_combination()
                     .ok_or(Error::PhaseRangeCombination)?;
 
-                contribution.signal = Signal::Dual((comb.lhs, comb.rhs));
-
-                (comb.rhs.frequency_hz(), comb.value)
+                Some(comb.value)
             },
+            _ => None,
         };
 
         if cfg.modeling.sv_clock_bias {
@@ -158,7 +173,20 @@ impl Candidate {
             }
         }
 
-        Ok((range_m - rho - bias_m, 1.0, dr))
+        let pr = range_m - rho - bias_m;
+
+        let cp = if let Some(cp) = cp {
+            Some(cp - rho - bias_m) // TODO lambda_n * windup
+        } else {
+            None
+        };
+
+        Ok(VectorContribution {
+            cp,
+            pr,
+            sigma: 1.0, // TODO
+            dr,
+        })
     }
 
     /// Matrix contribution.

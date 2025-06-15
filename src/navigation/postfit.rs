@@ -14,36 +14,31 @@ use crate::{
 
 #[derive(Clone)]
 pub struct PostfitKf {
-    /// F [Matrix6]
+    /// F [OMatrix]
     f_k: OMatrix<f64, U6, U6>,
 
-    /// G [DMatrix]
-    g_k: DMatrix<f64>,
+    /// G [OMatrix]
+    g_k: OMatrix<f64, U6, U6>,
 
-    /// W [DMatrix]
-    w_k: DMatrix<f64>,
+    /// W [OMatrix]
+    w_k: OMatrix<f64, U6, U6>,
 
-    /// Q [OMatrix6]
+    /// Q [OMatrix]
     q_k: OMatrix<f64, U6, U6>,
 
     /// [Kalman] filter
-    kalman: Kalman<U6>,
+    kalman: Kalman,
 }
 
 impl PostfitKf {
     /// Builds new [PostfitKf] from initial [State]
-    pub fn new<D: DimName>(
-        state: &State<D>,
+    pub fn new(
+        state: &State,
         state_pos_std_dev_m: f64,
         state_vel_std_dev_m_s: f64,
         meas_pos_std_dev_m: f64,
         meas_vel_std_dev_m_s: f64,
-    ) -> Self
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D> + Allocator<U6> + Allocator<U6, U6>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    ) -> Self {
         let r_diag = [
             meas_pos_std_dev_m.powi(2),
             meas_pos_std_dev_m.powi(2),
@@ -67,45 +62,41 @@ impl PostfitKf {
         let q_k = Matrix6::from_diagonal(&q_diag);
         let p_0 = Matrix6::from_diagonal(&q_diag);
         let f_k = Matrix6::identity();
+        let g_k = Matrix6::identity();
+        let w_k = Matrix6::identity();
 
-        let mut kalman = Kalman::new();
+        let mut kalman = Kalman::new(U6::USIZE);
 
-        let initial_estimate = KfEstimate::from_static(x_0, p_0);
-
-        kalman.initialize(f_k, q_k, initial_estimate);
+        kalman.initialize_from_static(f_k, q_k, KfEstimate::from_static(x_0, p_0));
 
         Self {
             f_k,
             q_k,
+            g_k,
+            w_k,
             kalman,
-            w_k: DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0])),
-            g_k: DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0])),
         }
     }
 
-    /// Run [PostfitKf] filter
-    /// - sampling_interval: [Duration]
+    /// Run [PostfitKf] filter.
+    ///
+    /// ## Input
     /// - state: new [State]
-    pub fn run<D: DimName>(
-        &mut self,
-        state: &State<D>,
-        sampling_interval: Duration,
-    ) -> Result<KfEstimate<U6>, Error>
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D> + Allocator<U6> + Allocator<U6, U6>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    /// - sampling_interval: [Duration]
+    ///
+    /// ## Output
+    /// - estimate: [KfEstimate]
+    pub fn run(&mut self, state: &State, sampling_interval: Duration) -> Result<KfEstimate, Error> {
         let dt_s = sampling_interval.to_seconds();
 
         self.f_k[(0, 3)] = dt_s;
         self.f_k[(1, 4)] = dt_s;
         self.f_k[(2, 5)] = dt_s;
 
-        let y_k = DVector::from_row_slice((&state.position_velocity_ecef_m()).into());
+        let y_k = state.position_velocity_ecef_m();
 
         self.kalman
-            .run(&self.f_k, &self.g_k, &self.w_k, &self.q_k, &y_k)
+            .run_static(&self.f_k, &self.g_k, &self.w_k, &self.q_k, &y_k)
     }
 
     /// Reset this [PostfitKf]

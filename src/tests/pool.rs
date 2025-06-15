@@ -1,7 +1,7 @@
 use crate::{
     pool::Pool,
     prelude::{Config, Epoch, Frame, TimeScale},
-    tests::{data::CandidatesBuilder, init_logger, time::NullTime, OrbitsData},
+    tests::{data::CandidatesBuilder, ephemeris::NullEph, init_logger, time::NullTime, OrbitsData},
 };
 
 use std::rc::Rc;
@@ -26,7 +26,9 @@ fn build_orbit_source() -> OrbitsData {
 fn test_simple_pool_fit() {
     init_logger();
 
+    let null_eph = NullEph {};
     let null_time = NullTime {};
+
     let default_cfg = Config::default();
 
     let earth_frame = build_earth_frame();
@@ -36,7 +38,7 @@ fn test_simple_pool_fit() {
 
     let candidates = CandidatesBuilder::build_at(t0_gpst);
 
-    let mut pool = Pool::allocate(0, earth_frame);
+    let mut pool = Pool::allocate(0, earth_frame, null_eph.into(), orbits_data);
 
     pool.new_epoch(&candidates);
 
@@ -48,7 +50,7 @@ fn test_simple_pool_fit() {
 
     pool.pre_fit(&default_cfg, &null_time);
 
-    pool.orbital_states(&default_cfg, &orbits_data);
+    pool.orbital_states(&default_cfg);
 
     assert_eq!(
         pool.candidates().len(),
@@ -61,6 +63,7 @@ fn test_simple_pool_fit() {
 fn test_pool_gst_preference() {
     init_logger();
 
+    let null_eph = NullEph {};
     let null_time = NullTime {};
 
     let mut default_cfg = Config::default();
@@ -73,7 +76,7 @@ fn test_pool_gst_preference() {
 
     let candidates = CandidatesBuilder::build_at(t0_gpst);
 
-    let mut pool = Pool::allocate(0, earth_frame);
+    let mut pool = Pool::allocate(0, earth_frame, null_eph.into(), orbits_data);
 
     pool.new_epoch(&candidates);
     pool.pre_fit(&default_cfg, &null_time);
@@ -94,7 +97,7 @@ fn test_pool_gst_preference() {
         );
     }
 
-    pool.orbital_states(&default_cfg, &orbits_data);
+    pool.orbital_states(&default_cfg);
 
     for cd in pool.candidates().iter() {
         assert_eq!(
