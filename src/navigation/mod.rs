@@ -399,6 +399,7 @@ impl Navigation {
         self.state = pending;
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+
         Ok(())
     }
 

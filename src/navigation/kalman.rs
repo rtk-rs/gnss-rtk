@@ -170,7 +170,6 @@ impl Kalman {
         assert_eq!(y_rows, w_rows, "invalid Y/W dimensions!");
         assert_eq!(y_rows, f_rows, "invalid Y/F dimensions!");
 
-        // TODO: le nb de colone de G c'est la taille du vecteur d'état
         // assert_eq!(
         //     g_k.ncols(),
         //     S::USIZE,

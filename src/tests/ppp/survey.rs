@@ -3,8 +3,11 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    prelude::{Almanac, Config, Epoch, Error, Frame, StaticSolver, UserParameters},
-    tests::{bias::NullBias, ephemeris::NullEph, time::NullTime, CandidatesBuilder, OrbitsData},
+    prelude::{Almanac, Config, Epoch, Error, Frame, Method, StaticSolver, UserParameters},
+    tests::{
+        bias::NullBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
+        OrbitsData,
+    },
 };
 
 #[fixture]
@@ -27,7 +30,10 @@ fn build_initial_apriori() -> Apriori {
 
 #[test]
 fn static_ppp() {
-    let default_cfg = Config::default();
+    init_logger();
+
+    let cfg = Config::default().with_navigation_method(Method::PPP);
+
     let default_params = UserParameters::default();
 
     let almanac = build_almanac();
@@ -45,7 +51,7 @@ fn static_ppp() {
     let mut solver = StaticSolver::new_survey(
         almanac,
         earth_frame,
-        default_cfg,
+        cfg,
         null_eph.into(),
         orbits_data.into(),
         null_time,
