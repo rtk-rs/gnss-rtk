@@ -29,8 +29,8 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
-fn static_ppp() {
-    let cfg = Config::default().with_navigation_method(Method::PPP);
+fn static_cpp() {
+    let cfg = Config::default().with_navigation_method(Method::CPP);
 
     let default_params = UserParameters::default();
 
@@ -61,7 +61,7 @@ fn static_ppp() {
 
     match status {
         Err(Error::InvalidatedFirstSolution) => {},
-        Err(e) => panic!("Static PPP process failed with invalid error: {}", e),
+        Err(e) => panic!("Static CPP process failed with invalid error: {}", e),
         Ok(_) => panic!("first solution should be invalidated"),
     }
 

@@ -303,6 +303,8 @@ impl Navigation {
                 self.w_mat[(i, i)] = 1.0; // TODO: improve model
             }
 
+            self.g_mat.resize_mut(nrows, nrows, 0.0);
+
             // form G
             for (i, index) in self.indexes.iter().enumerate() {
                 let dr_i = self.sv[i].relativistic_path_range_m;

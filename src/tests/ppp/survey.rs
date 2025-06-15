@@ -26,7 +26,7 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
-fn static_ppp_survey() {
+fn static_ppp() {
     let default_cfg = Config::default();
     let default_params = UserParameters::default();
 
@@ -56,7 +56,7 @@ fn static_ppp_survey() {
 
     match status {
         Err(Error::InvalidatedFirstSolution) => {},
-        Err(e) => panic!("Static PPP resolution failed with invalid error: {}", e),
+        Err(e) => panic!("Static PPP process failed with invalid error: {}", e),
         Ok(_) => panic!("first solution should be invalidated"),
     }
 

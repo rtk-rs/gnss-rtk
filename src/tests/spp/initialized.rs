@@ -1,60 +1,74 @@
-// use crate::{
-//     prelude::{Almanac, Config, Epoch, Method, Solver, EARTH_J2000},
-//     tests::{init_logger, orbits::OrbitDataSet, signals::SignalSource, REFERENCE_COORDS_ECEF_M},
-// };
+use rstest::*;
+use std::str::FromStr;
 
-// use log::info;
+use crate::{
+    navigation::apriori::Apriori,
+    prelude::{Almanac, Config, Epoch, Error, Frame, Method, StaticSolver, UserParameters},
+    tests::{
+        bias::NullBias, ephemeris::NullEph, time::NullTime, CandidatesBuilder, OrbitsData,
+        REFERENCE_COORDS_ECEF_M,
+    },
+};
 
-// use std::str::FromStr;
+#[fixture]
+fn build_almanac() -> Almanac {
+    use crate::tests::test_almanac;
+    test_almanac()
+}
 
-// use rinex::prelude::Rinex;
-// use sp3::prelude::SP3;
+#[fixture]
+fn build_earth_frame() -> Frame {
+    use crate::tests::test_earth_frame;
+    test_earth_frame()
+}
 
-// #[test]
-// fn gps_l1() {
-//     init_logger();
+#[fixture]
+fn build_initial_apriori() -> Apriori {
+    use crate::tests::test_reference_apriori;
+    test_reference_apriori()
+}
 
-//     let almanac = Almanac::until_2035().unwrap();
-//     let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+#[test]
+fn static_spp() {
+    let cfg = Config::default().with_navigation_method(Method::SPP);
 
-//     let mut cfg = Config::default();
+    let default_params = UserParameters::default();
 
-//     cfg.method = Method::SPP;
-//     cfg.min_sv_elev = None;
-//     cfg.min_snr = None;
+    let almanac = build_almanac();
+    let earth_frame = build_earth_frame();
 
-//     let rinex = Rinex::from_gzip_file("data/ESBC00DNK_R_20201770000_01D_30S_MO.crx.gz").unwrap();
+    let null_bias = NullBias {};
+    let null_time = NullTime {};
+    let null_eph = NullEph {};
 
-//     let mut source = SignalSource::from_rinex_gps(&rinex);
+    let orbits_data = OrbitsData::new(earth_frame);
 
-//     let sp3 = SP3::from_gzip_file("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz").unwrap();
+    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+    let candidates = CandidatesBuilder::build_at(t0_gpst);
 
-//     let gps_orbits =
-//         OrbitDataSet::from_sp3("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz", &almanac);
+    let mut solver = StaticSolver::new(
+        almanac,
+        earth_frame,
+        cfg,
+        null_eph.into(),
+        orbits_data.into(),
+        null_time,
+        null_bias,
+        Some(REFERENCE_COORDS_ECEF_M),
+    );
 
-//     let mut solver = Solver::new(cfg, gps_orbits, Some(REFERENCE_COORDS_ECEF_M))
-//         .unwrap_or_else(|e| panic!("Failed to deploy with default setup: {}", e));
+    let status = solver.ppp_solving(t0_gpst, default_params, &candidates);
 
-//     for t_gpst_str in ["2020-06-25T00:00:00 GPST"] {
-//         let t_gpst = Epoch::from_str(t_gpst_str).unwrap();
+    match status {
+        Err(Error::InvalidatedFirstSolution) => {},
+        Err(e) => panic!("Static SPP process failed with invalid error: {}", e),
+        Ok(_) => panic!("first solution should be invalidated"),
+    }
 
-//         let pool = source.next().unwrap();
+    // TODO continue
+    // let t1_gpst = Epoch::from_str("2020-06-25T00:15:00 GPST").unwrap();
+    // let candidates = CandidatesBuilder::build_at(t1_gpst);
 
-//         // verify data correctness
-//         for cd in pool.iter() {
-//             assert_eq!(cd.t, t_gpst, "invalid test setup!");
-//         }
-
-//         let sv = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
-//         info!("Testing: {} ({}x SV)", t_gpst, sv.len());
-
-//         match solver.resolve(t_gpst, &pool) {
-//             Ok((t, pvt)) => {
-//                 panic!("t={} | pvt: {:?}", t, pvt);
-//             },
-//             Err(e) => {
-//                 panic!("err={}", e);
-//             },
-//         }
-//     }
-// }
+    // let pvt = solver.resolve(default_user, t1_gpst, &candidates)
+    //     .unwrap();
+}

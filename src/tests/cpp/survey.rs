@@ -4,10 +4,7 @@ use std::str::FromStr;
 use crate::{
     navigation::apriori::Apriori,
     prelude::{Almanac, Config, Epoch, Error, Frame, Method, StaticSolver, UserParameters},
-    tests::{
-        bias::NullBias, ephemeris::NullEph, time::NullTime, CandidatesBuilder, OrbitsData,
-        REFERENCE_COORDS_ECEF_M,
-    },
+    tests::{bias::NullBias, ephemeris::NullEph, time::NullTime, CandidatesBuilder, OrbitsData},
 };
 
 #[fixture]
@@ -29,8 +26,8 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
-fn static_ppp() {
-    let cfg = Config::default().with_navigation_method(Method::PPP);
+fn static_cpp() {
+    let cfg = Config::default().with_navigation_method(Method::CPP);
 
     let default_params = UserParameters::default();
 
@@ -46,7 +43,7 @@ fn static_ppp() {
     let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
     let candidates = CandidatesBuilder::build_at(t0_gpst);
 
-    let mut solver = StaticSolver::new(
+    let mut solver = StaticSolver::new_survey(
         almanac,
         earth_frame,
         cfg,
@@ -54,14 +51,13 @@ fn static_ppp() {
         orbits_data.into(),
         null_time,
         null_bias,
-        Some(REFERENCE_COORDS_ECEF_M),
     );
 
     let status = solver.ppp_solving(t0_gpst, default_params, &candidates);
 
     match status {
         Err(Error::InvalidatedFirstSolution) => {},
-        Err(e) => panic!("Static PPP process failed with invalid error: {}", e),
+        Err(e) => panic!("Static CPP process failed with invalid error: {}", e),
         Ok(_) => panic!("first solution should be invalidated"),
     }
 
