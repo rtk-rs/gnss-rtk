@@ -48,7 +48,7 @@ pub mod prelude {
         orbit::OrbitSource,
         rtk::RTKBase,
         time::AbsoluteTime,
-        user::{UserParameters, UserProfile},
+        user::{ClockProfile, UserParameters, UserProfile},
     };
 
     // std types

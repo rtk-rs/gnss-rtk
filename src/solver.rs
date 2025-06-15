@@ -121,9 +121,6 @@ where
     }
 
     /// [PVTSolution] solving attempt using PPP technique (no reference).
-    /// Use this when no [RTKBase] may be accessed.
-    /// Switch to RTK at any point in your session, when at least one [RTKBase] becomes
-    /// accessible.
     ///
     /// ## Input
     /// - epoch: [Epoch] of measurement
@@ -147,6 +144,8 @@ where
     /// [PVTSolution] solving attempt using RTK technique and a single reference
     /// site. Switch to PPP at any point in your session, when access to remote
     /// site is lost.
+    ///
+    /// :warning: This operation is not validated as of today.
     ///
     /// ## Input
     /// - epoch: [Epoch] of measurement

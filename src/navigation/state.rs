@@ -24,8 +24,8 @@ where
     /// Internal [OVector]
     x: OVector<f64, D>,
 
-    /// Internal [DVector]
-    x_amb: DVector<Ambiguity>,
+    /// [Ambiguity] [DVector]
+    ambiguities: DVector<Ambiguity>,
 
     /// Clock drift (s.s⁻¹)
     clock_drift_s_s: f64,
@@ -46,7 +46,7 @@ where
             t: Default::default(),
             x: OVector::<f64, D>::zeros(),
             clock_drift_s_s: Default::default(),
-            x_amb: DVector::<Ambiguity>::zeros(D::USIZE),
+            ambiguities: DVector::<Ambiguity>::zeros(D::USIZE),
             lat_long_alt_deg_deg_km: Default::default(),
         }
     }
@@ -63,11 +63,11 @@ where
         let position_vel_m = self.position_velocity_ecef_m();
         let (offset, drift) = self.clock_profile_s();
 
-        if self.x_amb.is_empty() {
+        if self.ambiguities.is_empty() {
             write!(
                 f,
                 "{} dt={:.11E}s drift={:.11E}s/s {}",
-                position_vel_m, offset, drift, self.x_amb,
+                position_vel_m, offset, drift, self.ambiguities,
             )
         } else {
             write!(
@@ -120,7 +120,7 @@ where
             t: orbit.epoch,
             clock_drift_s_s: 0.0_f64,
             lat_long_alt_deg_deg_km: latlongalt,
-            x_amb: DVector::<Ambiguity>::zeros(D::USIZE),
+            ambiguities: DVector::<Ambiguity>::zeros(D::USIZE),
         })
     }
 

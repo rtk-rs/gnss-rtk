@@ -17,7 +17,7 @@ mod sv;
 pub(crate) mod ambiguity;
 pub(crate) mod state;
 
-use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix};
+use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, U4};
 
 use crate::{
     navigation::{
@@ -36,12 +36,7 @@ pub use solutions::PVTSolution;
 pub use sv::SVContribution;
 
 /// [Navigation] Solver
-pub(crate) struct Navigation<D: DimName>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+pub(crate) struct Navigation {
     /// [Config] preset
     cfg: Config,
 
@@ -61,7 +56,7 @@ where
     g_k: DMatrix<f64>,
 
     /// F
-    f_k: OMatrix<f64, D, D>,
+    f_k: DMatrix<f64>,
 
     /// X
     x_k: DVector<f64>,
@@ -70,7 +65,7 @@ where
     p_k: DMatrix<f64>,
 
     /// [Kalman]
-    kalman: Kalman<D>,
+    kalman: Kalman,
 
     /// contribution allocation
     indexes: Vec<usize>,
@@ -85,7 +80,7 @@ where
     pub initialized: bool,
 
     /// Current [State]
-    pub state: State<D>,
+    pub state: State,
 
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
@@ -94,12 +89,7 @@ where
     prev_epoch: Option<Epoch>,
 }
 
-impl<D: DimName> Navigation<D>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+impl Navigation {
     /// Creates new [Navigation] solver.
     /// ## Input
     /// - cfg: [Config] preset
@@ -110,11 +100,6 @@ where
     /// ## Returns
     /// - [Navigation], [Error]
     pub fn new(cfg: &Config, frame: Frame) -> Self {
-        match D::USIZE {
-            4 | 7 => {},
-            u => panic!("Dim={} is not supported by the navigation core", u),
-        }
-
         let mut f_k = OMatrix::<f64, D, D>::zeros();
 
         if D::USIZE == 4 {
@@ -137,7 +122,7 @@ where
             initialized: false,
             state: State::default(),
             sv: Vec::with_capacity(8),
-            kalman: Kalman::<D>::new(),
+            kalman: Kalman::new(U4::USIZE),
             y_k_vec: Vec::with_capacity(8),
             w_k_vec: Vec::with_capacity(8),
             indexes: Vec::with_capacity(8),
