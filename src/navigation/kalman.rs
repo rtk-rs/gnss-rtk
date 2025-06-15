@@ -32,6 +32,13 @@ impl KfEstimate {
         }
     }
 
+    pub fn new(x: &DVector<f64>, p: &DMatrix<f64>) -> Self {
+        Self {
+            p: p.clone(),
+            x: x.clone(),
+        }
+    }
+
     // /// Create new [KfEstimate] from dynamic Matrices
     // pub fn new(x: DVector<f64>, p: DMatrix<f64>) -> Self {
 
@@ -99,7 +106,7 @@ impl Kalman {
     }
 
     /// Initialize this [Kalman] filter
-    pub fn initialize(&mut self, f_k: DMatrix<f64>, q_k: DMatrix<f64>, estimate: KfEstimate) {
+    pub fn initialize(&mut self, f_k: &DMatrix<f64>, q_k: DMatrix<f64>, estimate: KfEstimate) {
         let (f_rows, f_cols) = (f_k.nrows(), f_k.ncols());
         let (q_rows, q_cols) = (q_k.nrows(), q_k.ncols());
 

@@ -14,8 +14,6 @@ use crate::{
     user::{UserParameters, UserProfile},
 };
 
-use nalgebra::U4;
-
 // kinematic implementations
 mod kinematic;
 pub use kinematic::KinematicSolver;
@@ -31,7 +29,7 @@ pub use kinematic::KinematicSolver;
 /// - B: [Bias] model.
 /// - TIM: [AbsoluteTime] source for correct absolute time
 pub struct StaticSolver<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> {
-    solver: Solver<U4, EPH, ORB, B, TIM>,
+    solver: Solver<EPH, ORB, B, TIM>,
 }
 
 impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
@@ -64,7 +62,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
     ) -> Self {
         Self {
             solver: {
-                Solver::<U4, EPH, ORB, B, TIM>::new(
+                Solver::<EPH, ORB, B, TIM>::new(
                     almanac,
                     earth_cef,
                     cfg,
@@ -101,7 +99,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
     ) -> Self {
         Self {
             solver: {
-                Solver::<U4, EPH, ORB, B, TIM>::new(
+                Solver::<EPH, ORB, B, TIM>::new(
                     almanac,
                     earth_cef,
                     cfg,

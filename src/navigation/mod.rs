@@ -44,7 +44,7 @@ pub(crate) struct Navigation {
     frame: Frame,
 
     /// X
-    x_vec: Vec<f64>,
+    x_vec: DVector<f64>,
 
     /// Y
     y_vec: Vec<f64>,
@@ -60,6 +60,9 @@ pub(crate) struct Navigation {
 
     /// F_mat
     f_mat: DMatrix<f64>,
+
+    /// G_mat
+    g_mat: DMatrix<f64>,
 
     /// P
     p_mat: DMatrix<f64>,
@@ -110,13 +113,15 @@ impl Navigation {
             sv: Vec::with_capacity(8),
             dop: DilutionOfPrecision::default(),
             kalman: Kalman::new(U4::USIZE),
-            x_vec: Vec::with_capacity(U4::USIZE),
             y_vec: Vec::with_capacity(U4::USIZE),
             w_diag: Vec::with_capacity(U4::USIZE),
             f_diag: Vec::with_capacity(U4::USIZE),
             indexes: Vec::with_capacity(U4::USIZE),
+            x_vec: DVector::<f64>::zeros(U4::USIZE),
             w_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
+            g_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
             f_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
+            p_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
         }
     }
 
@@ -175,9 +180,10 @@ impl Navigation {
         };
 
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias)?;
+            self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
         } else {
-            self.kf_run(t, candidates, size, rtk_base, bias)?;
+            unreachable!("kf::run: NOT YET");
+            // self.kf_run(t, candidates, size, rtk_base, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -234,6 +240,7 @@ impl Navigation {
         t: Epoch,
         state: &State,
         candidates: &[Candidate],
+        params: UserParameters,
         size: usize,
         _: &RTK,
         bias: &B,
@@ -280,19 +287,20 @@ impl Navigation {
             }
         }
 
-        let nrows = self.y_vec.nrows();
+        let nrows = self.y_vec.len();
 
         if nrows < U4::USIZE {
+            // physical limitations: do not propose
             return Err(Error::MatrixMinimalDimension);
         }
 
         // run
         for _ in 0..nb_iter {
-            let nrows = self.y_vec.nrows();
+            let nrows = self.y_vec.len();
             self.w_mat.resize_mut(nrows, nrows, 0.0);
 
             for i in 0..nrows {
-                self.w_mat[(i, i)] = 1.0; // TODO
+                self.w_mat[(i, i)] = 1.0; // TODO: improve model
             }
 
             // form G
@@ -304,42 +312,44 @@ impl Navigation {
                 let (dx, dy, dz) =
                     candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
-                self.g_k[(i, 0)] = dx;
-                self.g_k[(i, 1)] = dy;
-                self.g_k[(i, 2)] = dz;
-
-                self.g_k[(i, Self::clock_index())] = 1.0;
+                self.g_mat[(i, 0)] = dx;
+                self.g_mat[(i, 1)] = dy;
+                self.g_mat[(i, 2)] = dz;
+                self.g_mat[(i, Self::clock_index())] = 1.0;
             }
 
             // run
-            let gt = self.g_k.transpose();
-            let gt_g = gt.clone() * self.g_k.clone();
-            let gt_w = gt.clone() * self.w_k.clone();
-            let gt_w_g = gt_w * self.g_k.clone();
+            let gt = self.g_mat.transpose();
+            let gt_g = gt.clone() * self.g_mat.clone();
+            let gt_w = gt.clone() * self.g_mat.clone();
+            let gt_w_g = gt_w * self.g_mat.clone();
             let gt_w_g_inv = gt_w_g.try_inverse().ok_or(Error::MatrixInversion)?;
             let gt_w_g_inv_gt = gt_w_g_inv.clone() * gt.clone();
-            let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.w_k.clone();
+            let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.g_mat.clone();
 
-            self.x_k = gt_w_g_inv_gt_w * y_k.clone();
-            self.p_k = gt_w_g_inv.clone();
+            let y = DVector::<f64>::from_row_slice(&self.y_vec);
+            self.x_vec = gt_w_g_inv_gt_w * y;
+            self.p_mat = gt_w_g_inv.clone();
 
-            debug!("state correction: dx={}", self.x_k);
+            debug!("state correction: dx={}", self.x_vec);
 
-            pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
-                Error::StateUpdate
-            })?;
+            pending
+                .correct_mut(self.frame, t, &self.x_vec)
+                .map_err(|e| {
+                    error!("{} - state update failed with physical error: {}", t, e);
+                    Error::StateUpdate
+                })?;
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
-            // update latest DoP
+            // DoP update
             self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
             debug!("{} - pending state {}", t, pending);
 
-            // models update
-            self.y_k_vec.clear();
-            self.w_k_vec.clear();
+            // update models
+            self.y_vec.clear();
+            self.w_diag.clear();
 
             self.indexes.retain(|i| {
                 let mut unused = SVContribution::default();
@@ -355,8 +365,8 @@ impl Navigation {
                     bias,
                 ) {
                     Ok((y_i, r_i, _)) => {
-                        self.y_k_vec.push(y_i);
-                        self.w_k_vec.push(1.0 / r_i);
+                        self.y_vec.push(y_i);
+                        self.w_diag.push(1.0); // TODO
                         true
                     },
                     Err(e) => {
@@ -370,9 +380,11 @@ impl Navigation {
         // validation
         self.state_validation()?;
 
-        let initial_estimate = KfEstimate::from_dynamic(self.x_k.clone(), self.p_k.clone());
+        let initial_estimate = KfEstimate::new(&self.x_vec, &self.p_mat);
 
-        self.kalman.initialize(self.f_k, q_k, initial_estimate);
+        let q_mat = params.q_matrix(size, Duration::ZERO);
+
+        self.kalman.initialize(&self.f_mat, q_mat, initial_estimate);
 
         self.state = pending;
         debug!("{} - new state {}", t, self.state);
@@ -380,112 +392,112 @@ impl Navigation {
         Ok(())
     }
 
-    /// [Kalman] filter run
-    pub fn kf_run<B: Bias, RTK: RTKBase>(
-        &mut self,
-        t: Epoch,
-        candidates: &[Candidate],
-        size: usize,
-        _: &RTK,
-        bias: &B,
-    ) -> Result<(), Error> {
-        let mut pending = self.state.clone();
+    // /// [Kalman] filter run
+    // pub fn kf_run<B: Bias, RTK: RTKBase>(
+    //     &mut self,
+    //     t: Epoch,
+    //     candidates: &[Candidate],
+    //     size: usize,
+    //     _: &RTK,
+    //     bias: &B,
+    // ) -> Result<(), Error> {
+    //     let mut pending = self.state.clone();
 
-        // measurement
-        for i in 0..size {
-            let mut contrib = SVContribution::default();
+    //     // measurement
+    //     for i in 0..size {
+    //         let mut contrib = SVContribution::default();
 
-            contrib.sv = candidates[i].sv;
+    //         contrib.sv = candidates[i].sv;
 
-            let pos_m = pending.position_ecef_m();
+    //         let pos_m = pending.position_ecef_m();
 
-            match candidates[i].vector_contribution(
-                t,
-                &self.cfg,
-                pos_m,
-                pending.lat_long_alt_deg_deg_km,
-                &mut contrib,
-                bias,
-            ) {
-                Ok((y_i, r_i, dr_i)) => {
-                    self.y_k_vec.push(y_i);
-                    self.w_k_vec.push(1.0 / r_i);
-                    self.indexes.push(i);
-                    self.sv.push(contrib);
+    //         match candidates[i].vector_contribution(
+    //             t,
+    //             &self.cfg,
+    //             pos_m,
+    //             pending.lat_long_alt_deg_deg_km,
+    //             &mut contrib,
+    //             bias,
+    //         ) {
+    //             Ok((y_i, r_i, dr_i)) => {
+    //                 self.y_k_vec.push(y_i);
+    //                 self.w_k_vec.push(1.0 / r_i);
+    //                 self.indexes.push(i);
+    //                 self.sv.push(contrib);
 
-                    if self.cfg.modeling.relativistic_path_range {
-                        debug!(
-                            "{}({}) - relativistic path range: {:.3}m",
-                            t, candidates[i].sv, dr_i
-                        );
-                    }
-                },
-                Err(e) => {
-                    error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
-                },
-            }
-        }
+    //                 if self.cfg.modeling.relativistic_path_range {
+    //                     debug!(
+    //                         "{}({}) - relativistic path range: {:.3}m",
+    //                         t, candidates[i].sv, dr_i
+    //                     );
+    //                 }
+    //             },
+    //             Err(e) => {
+    //                 error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+    //             },
+    //         }
+    //     }
 
-        let y_len = self.y_k_vec.len();
+    //     let y_len = self.y_k_vec.len();
 
-        if y_len < D::USIZE {
-            return Err(Error::MatrixMinimalDimension);
-        }
+    //     if y_len < D::USIZE {
+    //         return Err(Error::MatrixMinimalDimension);
+    //     }
 
-        let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO vector
+    //     let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO vector
 
-        self.w_k.resize_mut(y_len, y_len, 0.0);
-        self.g_k.resize_mut(y_len, D::USIZE, 0.0);
+    //     self.w_k.resize_mut(y_len, y_len, 0.0);
+    //     self.g_k.resize_mut(y_len, D::USIZE, 0.0);
 
-        for i in 0..y_len {
-            self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
-        }
+    //     for i in 0..y_len {
+    //         self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
+    //     }
 
-        // form g_k
-        for (i, index) in self.indexes.iter().enumerate() {
-            let dr_i = self.sv[i].relativistic_path_range_m;
+    //     // form g_k
+    //     for (i, index) in self.indexes.iter().enumerate() {
+    //         let dr_i = self.sv[i].relativistic_path_range_m;
 
-            let position_m = pending.position_ecef_m();
+    //         let position_m = pending.position_ecef_m();
 
-            let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
+    //         let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
-            self.g_k[(i, 0)] = dx;
-            self.g_k[(i, 1)] = dy;
-            self.g_k[(i, 2)] = dz;
+    //         self.g_k[(i, 0)] = dx;
+    //         self.g_k[(i, 1)] = dy;
+    //         self.g_k[(i, 2)] = dz;
 
-            self.g_k[(i, Self::clock_index())] = 1.0;
-        }
+    //         self.g_k[(i, Self::clock_index())] = 1.0;
+    //     }
 
-        let estimate = self
-            .kalman
-            .run(&self.f_k, &self.g_k, &self.w_k, &q_k, &y_k)?;
+    //     let estimate = self
+    //         .kalman
+    //         .run(&self.f_k, &self.g_k, &self.w_k, &q_k, &y_k)?;
 
-        debug!("state correction: dx={}", estimate.x);
+    //     debug!("state correction: dx={}", estimate.x);
 
-        for i in 0..estimate.x.nrows() {
-            self.x_k[i] = estimate.x[i];
-        }
+    //     for i in 0..estimate.x.nrows() {
+    //         self.x_k[i] = estimate.x[i];
+    //     }
 
-        pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
-            error!("{} - state update failed with physical error: {}", t, e);
-            Error::StateUpdate
-        })?;
+    //     pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
+    //         error!("{} - state update failed with physical error: {}", t, e);
+    //         Error::StateUpdate
+    //     })?;
 
-        let gt_g_inv = (self.g_k.transpose() * self.g_k.clone())
-            .try_inverse()
-            .ok_or(Error::MatrixInversion)?;
+    //     let gt_g_inv = (self.g_k.transpose() * self.g_k.clone())
+    //         .try_inverse()
+    //         .ok_or(Error::MatrixInversion)?;
 
-        // update
-        self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+    //     // update
+    //     self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
-        debug!("{} - new state {}", t, pending);
-        debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+    //     debug!("{} - new state {}", t, pending);
+    //     debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
-        self.state_validation()?;
-        self.state = pending;
+    //     self.state_validation()?;
+    //     self.state = pending;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Validate pending [State]
     fn state_validation(&self) -> Result<(), Error> {
@@ -513,30 +525,16 @@ impl Navigation {
 #[cfg(test)]
 mod test {
     use crate::navigation::{DilutionOfPrecision, Navigation, State};
-    use nalgebra::{DMatrix, DVector, U4, U7, U9};
+    use nalgebra::{DMatrix, DVector, U4};
 
     #[test]
     fn navigation_dimensions_clock_index() {
-        assert_eq!(
-            Navigation::<U4>::clock_index(),
-            3,
-            "invalid clock index for U4"
-        );
-        assert_eq!(
-            Navigation::<U7>::clock_index(),
-            6,
-            "invalid clock index for U7"
-        );
-        assert_eq!(
-            Navigation::<U9>::clock_index(),
-            8,
-            "invalid clock index for U9"
-        );
+        assert_eq!(Navigation::clock_index(), 3, "invalid clock index");
     }
 
     #[test]
     fn dilution_of_navigation_precision() {
-        let state = State::<U4>::default();
+        let state = State::default();
         let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
         let dop = DilutionOfPrecision::new(&state, matrix);
         assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());

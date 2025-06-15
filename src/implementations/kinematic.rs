@@ -13,8 +13,6 @@ use crate::{
     time::AbsoluteTime,
 };
 
-use nalgebra::U7;
-
 /// [KinematicSolver] to resolve [PVTSolution]s with dynamics.
 /// Dedicated to moving targets, the dynamics are modeled and predicted,
 /// as opposed to the [StaticSolver].
@@ -25,7 +23,7 @@ use nalgebra::U7;
 /// - B: [Bias] model.
 /// - TIM: [AbsoluteTime] source for correct absolute time
 pub struct KinematicSolver<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> {
-    solver: Solver<U7, EPH, ORB, B, TIM>,
+    solver: Solver<EPH, ORB, B, TIM>,
 }
 
 impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
@@ -54,7 +52,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
         initial_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
         Self {
-            solver: Solver::<U7, EPH, ORB, B, TIM>::new(
+            solver: Solver::<EPH, ORB, B, TIM>::new(
                 almanac,
                 earth_cef,
                 cfg,
@@ -89,7 +87,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime>
         bias: B,
     ) -> Self {
         Self {
-            solver: Solver::<U7, EPH, ORB, B, TIM>::new(
+            solver: Solver::<EPH, ORB, B, TIM>::new(
                 almanac,
                 earth_cef,
                 cfg,
