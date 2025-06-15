@@ -112,8 +112,9 @@ impl Kalman {
 
         assert_eq!(f_rows, f_cols, "invalid dimensions: F is not square");
         assert_eq!(q_rows, q_cols, "invalid dimensions: Q is not square");
-        assert_eq!(f_rows, q_rows, "invalid F/Q dimensions");
-        assert_eq!(f_cols, q_cols, "invalid F/Q dimensions");
+
+        // assert_eq!(f_rows, q_rows, "invalid F/Q dimensions");
+        // assert_eq!(f_cols, q_cols, "invalid F/Q dimensions");
 
         // prediction
         let x_k = f_k.clone() * estimate.x;

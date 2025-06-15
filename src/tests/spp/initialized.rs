@@ -5,8 +5,8 @@ use crate::{
     navigation::apriori::Apriori,
     prelude::{Almanac, Config, Epoch, Error, Frame, Method, StaticSolver, UserParameters},
     tests::{
-        bias::NullBias, ephemeris::NullEph, time::NullTime, CandidatesBuilder, OrbitsData,
-        REFERENCE_COORDS_ECEF_M,
+        bias::NullBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
+        OrbitsData, REFERENCE_COORDS_ECEF_M,
     },
 };
 
@@ -30,6 +30,8 @@ fn build_initial_apriori() -> Apriori {
 
 #[test]
 fn static_spp() {
+    init_logger();
+
     let cfg = Config::default().with_navigation_method(Method::SPP);
 
     let default_params = UserParameters::default();

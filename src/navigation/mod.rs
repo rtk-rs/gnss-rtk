@@ -270,9 +270,8 @@ impl Navigation {
                     self.y_vec.push(y_i);
                     self.w_diag.push(1.0); // TODO
 
-                    self.indexes.push(i);
-
                     self.sv.push(contrib);
+                    self.indexes.push(i);
 
                     if self.cfg.modeling.relativistic_path_range {
                         debug!(
@@ -297,13 +296,14 @@ impl Navigation {
         // run
         for _ in 0..nb_iter {
             let nrows = self.y_vec.len();
+
             self.w_mat.resize_mut(nrows, nrows, 0.0);
 
             for i in 0..nrows {
                 self.w_mat[(i, i)] = 1.0; // TODO: improve model
             }
 
-            self.g_mat.resize_mut(nrows, nrows, 0.0);
+            self.g_mat.resize_mut(nrows, 4, 0.0); // TODO: state dimension
 
             // form G
             for (i, index) in self.indexes.iter().enumerate() {
@@ -317,19 +317,26 @@ impl Navigation {
                 self.g_mat[(i, 0)] = dx;
                 self.g_mat[(i, 1)] = dy;
                 self.g_mat[(i, 2)] = dz;
+
                 self.g_mat[(i, Self::clock_index())] = 1.0;
             }
+
+            debug!("G: {} W: {} Y: {:#?}", self.g_mat, self.w_mat, self.y_vec);
 
             // run
             let gt = self.g_mat.transpose();
             let gt_g = gt.clone() * self.g_mat.clone();
-            let gt_w = gt.clone() * self.g_mat.clone();
+            let gt_w = gt.clone() * self.w_mat.clone();
+
             let gt_w_g = gt_w * self.g_mat.clone();
             let gt_w_g_inv = gt_w_g.try_inverse().ok_or(Error::MatrixInversion)?;
             let gt_w_g_inv_gt = gt_w_g_inv.clone() * gt.clone();
-            let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.g_mat.clone();
+            let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.w_mat.clone();
 
             let y = DVector::<f64>::from_row_slice(&self.y_vec);
+
+            debug!("Y={}", y);
+
             self.x_vec = gt_w_g_inv_gt_w * y;
             self.p_mat = gt_w_g_inv.clone();
 
@@ -384,7 +391,8 @@ impl Navigation {
 
         let initial_estimate = KfEstimate::new(&self.x_vec, &self.p_mat);
 
-        let q_mat = params.q_matrix(size, Duration::ZERO);
+        let q_mat = params.q_matrix(U4::USIZE, Duration::ZERO); // TODO state dimensions
+        debug!("Q={}", q_mat);
 
         self.kalman.initialize(&self.f_mat, q_mat, initial_estimate);
 
