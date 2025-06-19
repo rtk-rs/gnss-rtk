@@ -160,84 +160,84 @@ impl OrbitsData {
                         sv: E01,
                         epoch: t2_gpst,
                     },
-                    Orbit::from_position(-15578.906571, 13828.422191, 21028.690065, t1_gpst, frame),
+                    Orbit::from_position(-15578.906571, 13828.422191, 21028.690065, t2_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E03,
                         epoch: t2_gpst,
                     },
-                    Orbit::from_position(6089.334963, -19783.358422, 21158.979160, t1_gpst, frame),
+                    Orbit::from_position(6089.334963, -19783.358422, 21158.979160, t2_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E05,
                         epoch: t2_gpst,
                     },
-                    Orbit::from_position(18436.719493, -770.324223, 23154.020400, t1_gpst, frame),
+                    Orbit::from_position(18436.719493, -770.324223, 23154.020400, t2_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E09,
                         epoch: t2_gpst,
                     },
-                    Orbit::from_position(20017.686424, 18382.862213, 11761.922747, t1_gpst, frame),
+                    Orbit::from_position(20017.686424, 18382.862213, 11761.922747, t2_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E13,
                         epoch: t2_gpst,
                     },
-                    Orbit::from_position(-13443.345950, -9101.204022, 24750.808535, t1_gpst, frame),
+                    Orbit::from_position(-13443.345950, -9101.204022, 24750.808535, t2_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E15,
                         epoch: t2_gpst,
                     },
-                    Orbit::from_position(1313.090113, -24357.643799, 16773.179621, t1_gpst, frame),
+                    Orbit::from_position(1313.090113, -24357.643799, 16773.179621, t2_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E24,
                         epoch: t2_gpst,
                     },
-                    Orbit::from_position(25082.310095, 8993.926987, 12865.989009, t1_gpst, frame),
+                    Orbit::from_position(25082.310095, 8993.926987, 12865.989009, t2_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E31,
                         epoch: t2_gpst,
                     },
-                    Orbit::from_position(7059.263844, 16006.140471, 23886.192153, t1_gpst, frame),
+                    Orbit::from_position(7059.263844, 16006.140471, 23886.192153, t2_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E01,
                         epoch: t3_gpst,
                     },
-                    Orbit::from_position(-17408.137167, 13927.983030, 19470.096085, t1_gpst, frame),
+                    Orbit::from_position(-17408.137167, 13927.983030, 19470.096085, t3_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E03,
                         epoch: t3_gpst,
                     },
-                    Orbit::from_position(7098.698927, -18099.833762, 22321.267348, t1_gpst, frame),
+                    Orbit::from_position(7098.698927, -18099.833762, 22321.267348, t3_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E05,
                         epoch: t3_gpst,
                     },
-                    Orbit::from_position(19509.930356, 974.904114, 22249.348845, t1_gpst, frame),
+                    Orbit::from_position(19509.930356, 974.904114, 22249.348845, t3_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E09,
                         epoch: t3_gpst,
                     },
-                    Orbit::from_position(20553.093095, 19169.983128, 9329.608871, t1_gpst, frame),
+                    Orbit::from_position(20553.093095, 19169.983128, 9329.608871, t3_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
@@ -248,7 +248,7 @@ impl OrbitsData {
                         -12411.471925,
                         -11074.923521,
                         24484.357047,
-                        t1_gpst,
+                        t3_gpst,
                         frame,
                     ),
                 ),
@@ -257,49 +257,49 @@ impl OrbitsData {
                         sv: E15,
                         epoch: t3_gpst,
                     },
-                    Orbit::from_position(1887.325160, -25661.135185, 14639.374285, t1_gpst, frame),
+                    Orbit::from_position(1887.325160, -25661.135185, 14639.374285, t3_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E24,
                         epoch: t3_gpst,
                     },
-                    Orbit::from_position(23814.294414, 8933.516592, 15119.417055, t1_gpst, frame),
+                    Orbit::from_position(23814.294414, 8933.516592, 15119.417055, t3_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E31,
                         epoch: t3_gpst,
                     },
-                    Orbit::from_position(4877.703417, 16036.340787, 24404.993554, t1_gpst, frame),
+                    Orbit::from_position(4877.703417, 16036.340787, 24404.993554, t3_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E01,
                         epoch: t4_gpst,
                     },
-                    Orbit::from_position(-19074.795786, 14143.814957, 17669.329791, t1_gpst, frame),
+                    Orbit::from_position(-19074.795786, 14143.814957, 17669.329791, t4_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E03,
                         epoch: t4_gpst,
                     },
-                    Orbit::from_position(8271.797755, -16412.322261, 23205.987823, t1_gpst, frame),
+                    Orbit::from_position(8271.797755, -16412.322261, 23205.987823, t4_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E05,
                         epoch: t4_gpst,
                     },
-                    Orbit::from_position(20643.741422, 2567.147607, 21068.184349, t1_gpst, frame),
+                    Orbit::from_position(20643.741422, 2567.147607, 21068.184349, t4_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E09,
                         epoch: t4_gpst,
                     },
-                    Orbit::from_position(21010.298836, 19735.979210, 6781.401622, t1_gpst, frame),
+                    Orbit::from_position(21010.298836, 19735.979210, 6781.401622, t4_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
@@ -310,7 +310,7 @@ impl OrbitsData {
                         -11540.233821,
                         -13083.511580,
                         23913.427261,
-                        t1_gpst,
+                        t4_gpst,
                         frame,
                     ),
                 ),
@@ -319,21 +319,21 @@ impl OrbitsData {
                         sv: E15,
                         epoch: t4_gpst,
                     },
-                    Orbit::from_position(2284.385592, -26819.485051, 12323.546523, t1_gpst, frame),
+                    Orbit::from_position(2284.385592, -26819.485051, 12323.546523, t4_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E24,
                         epoch: t4_gpst,
                     },
-                    Orbit::from_position(22350.983090, 8979.707681, 17184.581953, t1_gpst, frame),
+                    Orbit::from_position(22350.983090, 8979.707681, 17184.581953, t4_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {
                         sv: E31,
                         epoch: t4_gpst,
                     },
-                    Orbit::from_position(2670.799462, 16224.467677, 24620.497432, t1_gpst, frame),
+                    Orbit::from_position(2670.799462, 16224.467677, 24620.497432, t4_gpst, frame),
                 ),
             ]
             .into_iter(),

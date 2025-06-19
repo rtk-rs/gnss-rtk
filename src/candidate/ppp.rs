@@ -52,7 +52,6 @@ impl Candidate {
 
         let mut dr = 0.0;
         let mut bias_m = 0.0;
-        let mut ret = VectorContribution::default();
 
         let (x0_m, y0_m, z0_m) = (x0_y0_z0_m[0], x0_y0_z0_m[1], x0_y0_z0_m[2]);
 
@@ -75,11 +74,11 @@ impl Candidate {
 
             let r_sat_0 = r_0 - r_sat;
 
-            ret.dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+            dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                 * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
-            rho += ret.dr;
-            contribution.relativistic_path_range_m = ret.dr;
+            rho += dr;
+            contribution.relativistic_path_range_m = dr;
         } else {
             contribution.relativistic_path_range_m = 0.0_f64;
         }

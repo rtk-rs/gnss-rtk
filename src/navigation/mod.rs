@@ -200,7 +200,8 @@ impl Navigation {
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
         } else {
-            self.kf_run(t, past_state, candidates, params, size, rtk_base, bias)?;
+            self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
+            // self.kf_run(t, past_state, candidates, params, size, rtk_base, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -213,15 +214,15 @@ impl Navigation {
                 let dx = postfit.run(&self.state, dt)?;
 
                 // update state
-                self.state
-                    .postfit_update_mut(self.frame, dx.x)
-                    .map_err(|e| {
-                        error!(
-                            "{} - postfit state update failed with physical error: {}",
-                            t, e
-                        );
-                        Error::StateUpdate
-                    })?;
+                // self.state
+                //     .postfit_update_mut(self.frame, dx.x)
+                //     .map_err(|e| {
+                //         error!(
+                //             "{} - postfit state update failed with physical error: {}",
+                //             t, e
+                //         );
+                //         Error::StateUpdate
+                //     })?;
             } else {
                 self.postfit = Some(PostfitKf::new(
                     &self.state,

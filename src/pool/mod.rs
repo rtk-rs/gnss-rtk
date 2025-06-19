@@ -3,7 +3,7 @@ use log::error;
 use std::collections::HashMap;
 
 use crate::{
-    ambiguity::Solver as AmbiguitySolver,
+    // ambiguity::Solver as AmbiguitySolver,
     constants::EARTH_ANGULAR_VEL_RAD,
     prelude::{
         Candidate, Config, Duration, Ephemeris, EphemerisSource, Epoch, Frame, Orbit, OrbitSource,
@@ -38,9 +38,8 @@ pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource> {
 
     /// [Ephemeris] Buffer
     eph_buffer: HashMap<SV, Ephemeris>,
-
-    /// [AmbiguitySolver]
-    solver: HashMap<SV, AmbiguitySolver>,
+    // /// [AmbiguitySolver]
+    // solver: HashMap<SV, AmbiguitySolver>,
 }
 
 fn orbit_rotation(t: Epoch, dt: Duration, orbit: &Orbit, modeling: bool, frame: Frame) -> Orbit {
@@ -79,7 +78,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
             orb_source,
             past: Vec::with_capacity(8),
             inner: Vec::with_capacity(8),
-            solver: HashMap::with_capacity(8),
+            // solver: HashMap::with_capacity(8),
             eph_buffer: HashMap::with_capacity(8),
             smoother: Smoother::new(smoothing_win_len),
         }

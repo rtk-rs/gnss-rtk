@@ -1,5 +1,5 @@
 use crate::{
-    ambiguity::Solver as AmbiguitySolver,
+    // ambiguity::Solver as AmbiguitySolver,
     cfg::{Config, Method},
     constants::{EARTH_GRAVITATION, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
     navigation::state::State,
@@ -33,7 +33,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
         }
 
         if cfg.code_smoothing > 0 || cfg.method == Method::PPP {
-            self.post_fit_ambiguity_solving();
+            // self.post_fit_ambiguity_solving();
         }
 
         if cfg.code_smoothing > 0 {
@@ -198,41 +198,41 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
         });
     }
 
-    fn post_fit_ambiguity_solving(&mut self) {
-        self.inner.retain_mut(|cd| {
-            if let Some(input) = cd.ambiguity_input() {
-                let output = if let Some(solver) = self.solver.get_mut(&cd.sv) {
-                    let out = solver.solve(input);
-                    out
-                } else {
-                    let mut solver = AmbiguitySolver::new();
-                    let out = solver.solve(input);
+    // fn post_fit_ambiguity_solving(&mut self) {
+    //     self.inner.retain_mut(|cd| {
+    //         if let Some(input) = cd.ambiguity_input() {
+    //             let output = if let Some(solver) = self.solver.get_mut(&cd.sv) {
+    //                 let out = solver.solve(input);
+    //                 out
+    //             } else {
+    //                 let mut solver = AmbiguitySolver::new();
+    //                 let out = solver.solve(input);
 
-                    self.solver.insert(cd.sv, solver);
-                    out
-                };
+    //                 self.solver.insert(cd.sv, solver);
+    //                 out
+    //             };
 
-                if let Some(output) = output {
-                    debug!(
-                        "{} ({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w={})",
-                        cd.t, cd.sv, output.n1, 0.0, output.n2, 0.0,
-                    );
+    //             if let Some(output) = output {
+    //                 debug!(
+    //                     "{} ({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w={})",
+    //                     cd.t, cd.sv, output.n1, 0.0, output.n2, 0.0,
+    //                 );
 
-                    cd.update_ambiguities(output);
-                    true
-                } else {
-                    debug!("{}({}) - phase tracking", cd.t, cd.sv);
-                    false
-                }
-            } else {
-                error!(
-                    "{}({}) - phase tracking is not unfeasible (missing observations)",
-                    cd.t, cd.sv
-                );
-                false
-            }
-        });
-    }
+    //                 cd.update_ambiguities(output);
+    //                 true
+    //             } else {
+    //                 debug!("{}({}) - phase tracking", cd.t, cd.sv);
+    //                 false
+    //             }
+    //         } else {
+    //             error!(
+    //                 "{}({}) - phase tracking is not unfeasible (missing observations)",
+    //                 cd.t, cd.sv
+    //             );
+    //             false
+    //         }
+    //     });
+    // }
 
     fn post_fit_code_smoothing(&mut self) {
         for cd in self.inner.iter_mut() {

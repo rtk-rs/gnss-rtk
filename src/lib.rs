@@ -9,8 +9,8 @@ extern crate gnss_rs as gnss;
 pub mod error;
 
 // private modules
-mod ambiguity;
-mod averager;
+// mod ambiguity;
+// mod averager;
 mod bancroft;
 mod bias;
 mod candidate;
