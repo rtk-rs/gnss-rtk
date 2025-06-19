@@ -268,7 +268,7 @@ impl LambdaAR {
         nfixed: usize,
         x_vec: DVector<f64>,
         q_mat: DMatrix<f64>,
-        sv_indexes: &DVector<(SV, usize)>,
+        // sv_indexes: &DVector<(SV, usize)>,
     ) -> Result<(), Error> {
         const MAX_DIST: f64 = 1.0E99;
 
@@ -405,11 +405,9 @@ mod test {
         let ndf = 6;
         let nfixed = 2;
 
-        lambda
-            .run(ndf, nfixed, x, q, &sv_indexes)
-            .unwrap_or_else(|e| {
-                panic!("mlabmda search failed with {}", e);
-            });
+        lambda.run(ndf, nfixed, x, q).unwrap_or_else(|e| {
+            panic!("mlabmda search failed with {}", e);
+        });
 
         // for i in 0..ndf {
         //     for j in 0..ndf {

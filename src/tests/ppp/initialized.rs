@@ -46,9 +46,6 @@ fn static_ppp() {
 
     let orbits_data = OrbitsData::new(earth_frame);
 
-    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
-    let candidates = CandidatesBuilder::build_at(t0_gpst);
-
     let mut solver = StaticSolver::new(
         almanac,
         earth_frame,
@@ -60,19 +57,30 @@ fn static_ppp() {
         Some(REFERENCE_COORDS_ECEF_M),
     );
 
-    let status = solver.ppp_solving(t0_gpst, default_params, &candidates);
+    for (nth, epoch_str) in [
+        "2020-06-25T00:00:00 GPST",
+        "2020-06-25T00:15:00 GPST",
+        "2020-06-25T00:30:00 GPST",
+        "2020-06-25T00:45:00 GPST",
+        "2020-06-25T01:00:00 GPST",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let t_gpst = Epoch::from_str(epoch_str).unwrap();
+        let candidates = CandidatesBuilder::build_at(t_gpst);
+        assert!(
+            candidates.len() > 0,
+            "no measurements to propose at \"{}\"",
+            epoch_str
+        );
+        let status = solver.ppp_solving(t_gpst, default_params, &candidates);
 
-    match status {
-        Err(e) => panic!("Static PPP process failed with invalid error: {}", e),
-        Ok(pvt) => {
-            info!("1st solution: {:#?}", pvt);
-        },
+        match status {
+            Err(e) => panic!("Static PPP process failed with invalid error: {}", e),
+            Ok(pvt) => {
+                info!("{}th solution {:#?}", nth, pvt);
+            },
+        }
     }
-
-    // TODO continue
-    // let t1_gpst = Epoch::from_str("2020-06-25T00:15:00 GPST").unwrap();
-    // let candidates = CandidatesBuilder::build_at(t1_gpst);
-
-    // let pvt = solver.resolve(default_user, t1_gpst, &candidates)
-    //     .unwrap();
 }

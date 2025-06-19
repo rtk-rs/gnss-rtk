@@ -200,8 +200,7 @@ impl Navigation {
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
         } else {
-            unreachable!("kf::run: NOT YET");
-            // self.kf_run(t, candidates, size, rtk_base, bias)?;
+            self.kf_run(t, past_state, candidates, params, size, rtk_base, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -467,8 +466,9 @@ impl Navigation {
         let initial_estimate = KfEstimate::new(&self.x_vec, &self.p_mat);
 
         let ndf = self.x_vec.nrows();
+
         let q_mat = params.q_matrix(ndf, Duration::ZERO);
-        debug!("Q={}", q_mat);
+        debug!("ndf={} Q={}", ndf, q_mat);
 
         // build F
         self.f_mat = DMatrix::identity(ndf, ndf);
@@ -481,140 +481,244 @@ impl Navigation {
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
         if self.cfg.method == Method::PPP {
-            // let x_vec = x_vec.rows_range(OFFSET..);
-            // let q_mat = q_mat.view_range(OFFSET.., OFFSET..);
-            // self.lambda.search(&self.x_vec, &self.p_mat, &candidates, &self.sv_indexes);
+            let lambda_ndf = nrows - Self::clock_index() - 1;
+
+            let mut lambda_x = DVector::<f64>::zeros(lambda_ndf);
+            let mut lambda_q = DMatrix::<f64>::zeros(lambda_ndf, lambda_ndf);
+
+            for i in 0..lambda_ndf {
+                for j in 0..lambda_ndf {
+                    lambda_q[(i, j)] =
+                        self.p_mat[(i + Self::clock_index() + 1, j + Self::clock_index() + 1)];
+                }
+                lambda_x[i] = self.x_vec[i + Self::clock_index() + 1];
+            }
+
+            match self.lambda.run(lambda_ndf, lambda_ndf, lambda_x, lambda_q) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("lambda search failed with {}", e);
+                    return Err(e);
+                },
+            }
         }
 
         Ok(())
     }
 
-    // /// [Kalman] filter run
-    // pub fn kf_run<B: Bias, RTK: RTKBase>(
-    //     &mut self,
-    //     t: Epoch,
-    //     candidates: &[Candidate],
-    //     size: usize,
-    //     _: &RTK,
-    //     bias: &B,
-    // ) -> Result<(), Error> {
-    //     let mut pending = self.state.clone();
+    /// KF run
+    pub fn kf_run<B: Bias, RTK: RTKBase>(
+        &mut self,
+        t: Epoch,
+        state: &State,
+        candidates: &[Candidate],
+        params: UserParameters,
+        size: usize,
+        _: &RTK,
+        bias: &B,
+    ) -> Result<(), Error> {
+        let mut pending = state.clone();
 
-    //     // measurement
-    //     for i in 0..size {
-    //         let mut contrib = SVContribution::default();
+        // measurements
+        for i in 0..size {
+            let mut contrib = SVContribution::default();
 
-    //         contrib.sv = candidates[i].sv;
+            contrib.sv = candidates[i].sv;
 
-    //         let pos_m = pending.position_ecef_m();
+            let position_m = pending.position_ecef_m();
 
-    //         match candidates[i].vector_contribution(
-    //             t,
-    //             &self.cfg,
-    //             pos_m,
-    //             pending.lat_long_alt_deg_deg_km,
-    //             &mut contrib,
-    //             bias,
-    //         ) {
-    //             Ok((y_i, r_i, dr_i)) => {
-    //                 self.y_k_vec.push(y_i);
-    //                 self.w_k_vec.push(1.0 / r_i);
-    //                 self.indexes.push(i);
-    //                 self.sv.push(contrib);
+            match candidates[i].vector_contribution(
+                t,
+                &self.cfg,
+                position_m,
+                pending.lat_long_alt_deg_deg_km,
+                &mut contrib,
+                bias,
+            ) {
+                Ok(vec) => {
+                    self.pr_vec.push(vec.pr);
 
-    //                 if self.cfg.modeling.relativistic_path_range {
-    //                     debug!(
-    //                         "{}({}) - relativistic path range: {:.3}m",
-    //                         t, candidates[i].sv, dr_i
-    //                     );
-    //                 }
-    //             },
-    //             Err(e) => {
-    //                 error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
-    //             },
-    //         }
-    //     }
+                    if let Some(cp) = vec.cp {
+                        self.cp_vec.push(cp);
+                    }
 
-    //     let y_len = self.y_k_vec.len();
+                    self.w_diag.push(1.0); // TODO
 
-    //     if y_len < D::USIZE {
-    //         return Err(Error::MatrixMinimalDimension);
-    //     }
+                    self.sv.push(contrib);
+                    self.sv_indexes.push((candidates[i].sv, i));
 
-    //     let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO vector
+                    if self.cfg.modeling.relativistic_path_range {
+                        debug!(
+                            "{}({}) - relativistic path range: {:.3}m",
+                            t, candidates[i].sv, vec.dr
+                        );
+                    }
+                },
+                Err(e) => {
+                    error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
+                },
+            }
+        }
 
-    //     self.w_k.resize_mut(y_len, y_len, 0.0);
-    //     self.g_k.resize_mut(y_len, D::USIZE, 0.0);
+        let nrows = self.pr_vec.len();
 
-    //     for i in 0..y_len {
-    //         self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
-    //     }
+        // verifications prior moving forward
+        if nrows < U4::USIZE {
+            // maths limitations: do not propose
+            return Err(Error::MatrixMinimalDimension);
+        }
 
-    //     // form g_k
-    //     for (i, index) in self.indexes.iter().enumerate() {
-    //         let dr_i = self.sv[i].relativistic_path_range_m;
+        if self.cfg.method == Method::PPP {
+            // dimensions must match: do not propose
+            if self.cp_vec.len() != nrows {
+                return Err(Error::MissingPhaseRangeMeasurements);
+            }
+        }
 
-    //         let position_m = pending.position_ecef_m();
+        let mut nrows = self.pr_vec.len();
+        let mut ndf = 4;
 
-    //         let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
+        if self.cfg.method == Method::PPP {
+            ndf += self.cp_vec.len();
+            nrows *= 2;
+        }
 
-    //         self.g_k[(i, 0)] = dx;
-    //         self.g_k[(i, 1)] = dy;
-    //         self.g_k[(i, 2)] = dz;
+        self.w_mat.resize_mut(nrows, nrows, 0.0);
+        self.g_mat.resize_mut(nrows, ndf, 0.0);
 
-    //         self.g_k[(i, Self::clock_index())] = 1.0;
-    //     }
+        // form W
+        for i in 0..ndf {
+            self.w_mat[(i, i)] = 1.0; // TODO: improve model
+        }
 
-    //     let estimate = self
-    //         .kalman
-    //         .run(&self.f_k, &self.g_k, &self.w_k, &q_k, &y_k)?;
+        // form G
+        for (i, (_sv, index)) in self.sv_indexes.iter().enumerate() {
+            let dr_i = self.sv[i].relativistic_path_range_m;
 
-    //     debug!("state correction: dx={}", estimate.x);
+            let position_m = pending.position_ecef_m();
 
-    //     for i in 0..estimate.x.nrows() {
-    //         self.x_k[i] = estimate.x[i];
-    //     }
+            let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
-    //     pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
-    //         error!("{} - state update failed with physical error: {}", t, e);
-    //         Error::StateUpdate
-    //     })?;
+            self.g_mat[(i, Self::clock_index())] = 1.0;
 
-    //     let gt_g_inv = (self.g_k.transpose() * self.g_k.clone())
-    //         .try_inverse()
-    //         .ok_or(Error::MatrixInversion)?;
+            if self.cfg.method == Method::PPP {
+                self.g_mat[(2 * i, 0)] = dx;
+                self.g_mat[(2 * i, 1)] = dy;
+                self.g_mat[(2 * i, 2)] = dz;
+                self.g_mat[(2 * i, Self::clock_index())] = 1.0;
 
-    //     // update
-    //     self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+                self.g_mat[(2 * i + 1, 0)] = dx;
+                self.g_mat[(2 * i + 1, 1)] = dy;
+                self.g_mat[(2 * i + 1, 2)] = dz;
+                self.g_mat[(2 * i + 1, Self::clock_index())] = 1.0;
+                self.g_mat[(2 * i + 1, Self::clock_index() + i + 1)] = 1.0;
+            } else {
+                self.g_mat[(i, 0)] = dx;
+                self.g_mat[(i, 1)] = dy;
+                self.g_mat[(i, 2)] = dz;
+                self.g_mat[(i, Self::clock_index())] = 1.0;
+            }
+        }
 
-    //     debug!("{} - new state {}", t, pending);
-    //     debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+        debug!(
+            "G: {} W: {} PR: {:#?} CP: {:#?}",
+            self.g_mat, self.w_mat, self.pr_vec, self.cp_vec
+        );
 
-    //     self.state_validation()?;
-    //     self.state = pending;
+        // form Y
+        let mut y = DVector::<f64>::zeros(ndf); // TODO improve, idem @LSQ
 
-    //     Ok(())
-    // }
+        let n_sup = if self.cfg.method == Method::PPP {
+            ndf / 2
+        } else {
+            ndf
+        };
+
+        for i in 0..n_sup {
+            if self.cfg.method == Method::PPP {
+                y[2 * i] = self.pr_vec[i];
+                y[2 * i + 1] = self.cp_vec[i];
+            } else {
+                y[i] = self.pr_vec[i];
+            }
+        }
+
+        debug!("Y: {}", y);
+
+        let ndf = self.x_vec.nrows();
+
+        // build F
+        self.f_mat = DMatrix::identity(ndf, ndf);
+
+        // build Q
+        let q_mat = params.q_matrix(ndf, Duration::ZERO);
+
+        debug!("ndf={} F={} Q={}", ndf, self.f_mat, q_mat);
+
+        let estimate = self
+            .kalman
+            .run(&self.f_mat, &self.g_mat, &self.w_mat, &q_mat, &y)?;
+
+        for i in 0..estimate.x.nrows() {
+            self.x_vec[i] = estimate.x[i];
+        }
+
+        debug!("state correction: dx={}", self.x_vec);
+
+        pending
+            .correct_mut(self.frame, t, &self.x_vec)
+            .map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
+
+        let gt_g_inv = (self.g_mat.transpose() * self.g_mat.clone())
+            .try_inverse()
+            .ok_or(Error::MatrixInversion)?;
+
+        // DoP update
+        self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+
+        // validation
+        self.state_validation()?;
+
+        debug!("{} - new state {}", t, pending);
+
+        self.state = pending;
+        debug!("{} - new state {}", t, self.state);
+        debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+
+        if self.cfg.method == Method::PPP {
+            let lambda_ndf = ndf - Self::clock_index() - 1;
+
+            let mut lambda_x = DVector::<f64>::zeros(lambda_ndf);
+            let mut lambda_q = DMatrix::<f64>::zeros(lambda_ndf, lambda_ndf);
+
+            for i in 0..lambda_ndf {
+                for j in 0..lambda_ndf {
+                    lambda_q[(i, j)] =
+                        self.p_mat[(i + Self::clock_index() + 1, j + Self::clock_index() + 1)];
+                }
+                lambda_x[i] = self.x_vec[i + Self::clock_index() + 1];
+            }
+
+            match self.lambda.run(lambda_ndf, lambda_ndf, lambda_x, lambda_q) {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("lambda search failed with {}", e);
+                    return Err(e);
+                },
+            }
+        }
+
+        Ok(())
+    }
 
     /// Validate pending [State]
     fn state_validation(&self) -> Result<(), Error> {
-        // const n: usize = 4; // x, y, z, dt
-
         if self.dop.gdop > self.cfg.solver.max_gdop {
             return Err(Error::MaxGdopExceeded);
         }
-
-        // let m = pres.len();
-
-        // let pres = pres.transpose().dot(pres);
-        // let denom = pres.len() as f64 - 4.0 - 1.0; /// x, y, z ,dt
-        //
-        // let chisqr = chisqr(0.001, m-n-1);
-        //
-        // if pres >= chisqr {
-        //     error!("{} - measurement residual test failed! setup is too noisy ({}/{})", t, pres, chisqr);
-        // }
-
         Ok(())
     }
 }
