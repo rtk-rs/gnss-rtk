@@ -94,20 +94,24 @@ pub enum Error {
     #[error("physical non sense: t_rx is too late")]
     PhysicalNonSenseRxTooLate,
 
-    // /// Solutions may be invalidated and are rejected with [InvalidationCause].
-    // #[error("invalidated solution, cause: {0}")]
-    // InvalidatedSolution(InvalidationCause),
-    /// In pure PPP survey (no RTK, no position apriori knowledge = worst case scenario),
-    /// [Solver] is initiliazed by [Bancroft] algorithm, which requires
-    /// temporary 4x4 navigation and pseudo range sampling (whatever your navigation technique),
-    /// until at least initialization is achieved.
-    #[error("bancroft solver error: invalid input ?")]
+    /// Error during surveying initialization, without apriori knowledge.
+    /// The solver initialization requires a minimum of 4 SV in sight temporarily,
+    /// whatever the navigation technique being used.
+    #[error("survey initialization error: invalid input ?")]
     BancroftError,
 
     /// [Bancroft] initialization process (see [BancroftError]) will wind up here
     /// in case unrealistic or bad signal observation or orbital states were forwarded.
     #[error("bancroft solver error: invalid input (imaginary solution)")]
     BancroftImaginarySolution,
+
+    /// Ambiguity factorization failed
+    #[error("ambiguity factorization error")]
+    AmbiguityFactorization,
+
+    /// Matrix inversion error during ambiguity solving process
+    #[error("ambiguity inverse error")]
+    AmbiguityInverse,
 
     /// PPP navigation technique requires phase ambiguity to be solved prior any attempt.
     /// It is Okay to wind up here for a few iterations, until the ambiguities are fixed

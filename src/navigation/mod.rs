@@ -481,6 +481,8 @@ impl Navigation {
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
         if self.cfg.method == Method::PPP {
+            // let x_vec = x_vec.rows_range(OFFSET..);
+            // let q_mat = q_mat.view_range(OFFSET.., OFFSET..);
             // self.lambda.search(&self.x_vec, &self.p_mat, &candidates, &self.sv_indexes);
         }
 

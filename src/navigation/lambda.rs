@@ -1,16 +1,20 @@
-use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OMatrix, OVector};
+use nalgebra::{
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, OVector,
+};
 
-use crate::prelude::SV;
+use crate::prelude::{Error, SV};
+
+use log::{debug, error};
 
 #[derive(Debug, Default, Clone, PartialEq)]
-struct Ambiguity {
+struct FixedAmbiguity {
     pub sv: SV,
     pub n_int: u64,
 }
 
 #[derive(Default)]
 pub struct LambdaAR {
-    pub n_int: DVector<Ambiguity>,
+    fixed: DVector<FixedAmbiguity>,
 }
 
 impl LambdaAR {
@@ -18,53 +22,71 @@ impl LambdaAR {
 
     /// Reset this [LambdaAR]
     pub fn reset(&mut self) {
-        let ndf = self.n_int.nrows();
+        // let ndf = self.n_int.nrows();
         // self.n_int.set(0.0);
     }
 
     /// Reset this particular [SV]
     pub fn reset_sv(&mut self, sv: SV) {}
 
-    // pub fn resolve(&mut self, x: &DVector<f64>, q: &DMatrix<f64>, candidates: &[Candidate], indexes: &Vec<usize>) {
-
-    //     let mut id = Vec::new();
-    //     for i in indexes.iter() {
-    //         id.push(candidates[*i].sv);
-    //     }
-    //
-    //     const offset : usize = Navigation::clock_index() +1;
-    //     let ndf = x.nrows() - offset;
-
-    //     let mut a = DVector::<f64>::zeros(ndf);
-    //     let mut q = DMatrix::<f64>::zeros(ndf, ndf);
-    //     let mut q_diag = DVector::<f64>::zeros(ndf);
-
-    //     for i in 0..ndf {
-    //         a[i] = x[i + offset];
-    //         for j in 0..ndf {
-    //             // q[(i, j)] = self.p_mat[(i + Self::clock_index(), i + Self::clock_index() +j)];
-    //         }
-    //     }
-    //
-    //     debug!("search - ndf={} - A={} Q={}", ndf, a, q);
-
-    //     let l = q.lower_triangle();
-    //     let lt = l.transpose();
-    //     let q_a = lt * q_diag * l;
-
-    // }
-
-    fn gauss_transform<D: DimName>(
-        i: usize,
-        j: usize,
+    /// Calculates L and D such as Q=L' Diag(D) L
+    fn ld_factorization<D: DimName>(
         ndf: usize,
-        l_mat: &mut OMatrix<f64, D, D>,
-        z_mat: &mut OMatrix<f64, D, D>,
-        a_vec: &mut OVector<f64, D>,
-    ) where
+        q_mat: &OMatrix<f64, D, D>,
+        l_mat: &mut DMatrix<f64>,
+        d_vec: &mut DVector<f64>,
+    ) -> Result<(), Error>
+    where
         DefaultAllocator: Allocator<D>,
         DefaultAllocator: Allocator<D, D>,
     {
+        let mut a = 0.0f64;
+        let mut a_mat = q_mat.clone();
+
+        Ok(())
+    }
+
+    fn reduction(
+        ndf: usize,
+        l_mat: &mut DMatrix<f64>,
+        d_diag: &mut DMatrix<f64>,
+        z_mat: &mut DMatrix<f64>,
+    ) {
+        let mut j = ndf - 2;
+        let mut k = ndf - 2;
+
+        loop {
+            if j == 0 {
+                break;
+            }
+
+            if j <= k {
+                for i in j + 1..ndf {
+                    Self::gauss_transform(i, j, ndf, l_mat, z_mat);
+                }
+            }
+
+            let delta =
+                d_diag[(j, j)] + l_mat[(j + 1, j)] * l_mat[(j + 1, j)] + d_diag[(j + 1, j + 1)];
+
+            if delta + 1E-6 < d_diag[(j + 1, j + 1)] {
+                Self::permutations(ndf, l_mat, d_diag, j, delta, z_mat);
+
+                k = j;
+                j = ndf - 2;
+            } else {
+                j -= 1;
+            }
+        }
+    }
+
+    fn gauss_transform(
+        i: usize,
+        j: usize,
+        ndf: usize,
+        l_mat: &mut DMatrix<f64>,
+        z_mat: &mut DMatrix<f64>,
+    ) {
         let mu = l_mat[(i, j)].floor() + 0.5;
 
         if mu != 0.0 {
@@ -75,122 +97,222 @@ impl LambdaAR {
             for k in 0..ndf {
                 z_mat[(k, j)] -= mu * z_mat[(k, i)];
             }
-
-            a_vec[j] -= mu * a_vec[i];
         }
     }
 
-    // fn permutations<D: DimName>(
-    //     i: usize
-    //     l_mat: &mut OMatrix<f64, D, D>,
-    //     d_mat: &mut OMatrix<f64, D, D>,
-    //     z_mat: &mut OMatrix<f64, D, D>,
-    //     delta: f64,
-    // ) where
-    //     DefaultAllocator: Allocator<D>,
-    //     DefaultAllocator: Allocator<D, D>,
-    // {
-    //     let mut a0;
+    fn permutations(
+        ndf: usize,
+        l_mat: &mut DMatrix<f64>,
+        d_diag: &mut DMatrix<f64>,
+        j: usize,
+        delta: f64,
+        z_mat: &mut DMatrix<f64>,
+    ) {
+        let eta = d_diag[(j, j)] / delta;
+        let lambda = d_diag[(j + 1, j + 1)] * l_mat[(j + 1, j)] / delta;
 
-    //     let eta = d_mat[(i, i)];
-    //     let lambda = d_mat[(i +1, i+1)] * l_mat[(i +1, i)] / delta;
+        d_diag[(j, j)] = eta * d_diag[(j + 1, j + 1)];
+        d_diag[(j + 1, j + 1)] = delta;
 
-    //     d[(i, i)] = eta * d[(i +1, i+1)];
-    //     d[(i +1, i+1)] = delta;
+        for k in 0..=j - 1 {
+            let a0 = l_mat[(j, k)];
+            let a1 = l_mat[(j + 1, k)];
 
-    //     for j in j.. {
-    //         // a0 = l_mat[j + k*n];
-    //         // a1 = l_mat[j +1+k*n];
-    //         // l_mat[j + k*n] -= a0 * l_mat[j +1 +j *n] + a1;
-    //         // l_mat[j +1 + k*n] = a0 * eta + lambda * a1;
-    //     }
+            l_mat[(j, k)] -= l_mat[(j + 1, j)] * a0 + a1;
+            l_mat[(j + 1, k)] = eta * a0 + lambda * a1;
+        }
 
-    //     l_mat[j +1 +j*n] = lamda;
+        l_mat[(j + 1, j)] = lambda;
 
-    //     // swap_columns(&mut l_mat, j+2..n);
-    //     // for k in j+2..n {
-    //     //     // swap l_mat[k+j*n], l_mat[k+(j+1]*n)
-    //     //     // swap z_mat[k+j*n], z_mat[k+(j+1]*n)
-    //     // }
+        for k in j + 2..ndf {
+            l_mat.swap((k, j), (k, j + 1));
+        }
 
-    // }
+        for k in 0..ndf {
+            z_mat.swap((k, j), (k, j + 1));
+        }
+    }
 
-    // pub fn search<D: DimName>(ndf: usize, d_mat: OMatrix<f64, D, D>)
-    // where
-    //     DefaultAllocator: Allocator<D>,
-    //     DefaultAllocator: Allocator<D, D>,
+    fn search(
+        ndf: usize,
+        nfixed: usize,
+        l_mat: DMatrix<f64>,
+        d_diag: DMatrix<f64>,
+        zs_vec: DVector<f64>,
+        zn_mat: &mut DMatrix<f64>,
+        s_vec: &mut DVector<f64>,
+    ) {
+        let mut maxdist = 1E99_f64;
 
-    // {
+        let mut nn = 0usize;
+        let mut imax = 0usize;
 
-    //     const MAX_DIST : f64 = 1.0E99;
-    //     let mut i = 0;
+        let mut s_mat = DMatrix::<f64>::zeros(ndf, ndf);
+        let mut dist_vec = DVector::<f64>::zeros(ndf);
 
-    //     let k = ndf - 1;
+        let mut k = ndf - 1;
 
-    //     loop {
+        let mut zb_vec = zs_vec.clone();
+        let mut z_vec = DVector::<f64>::zeros(ndf);
+        let mut step = DVector::<f64>::zeros(ndf);
 
-    //         if i == Self::MAX_SEARCH {
-    //             error!("decorrelation failed (nth={}}", i);
-    //             break;
-    //         }
+        zb_vec[k] = zs_vec[k];
+        z_vec[k] = zb_vec[k].floor() + 0.5;
 
-    //         for i in 0..Self::MAX_SEARCH {
-    //
-    //             let newdist = dist[k] + y * y/ d_mat[k];
+        let mut y = zb_vec[k] - z_vec[k];
 
-    //             if newdist < MAX_DIST {
-    //                 // case (1): move down
-    //                 if k != 0 {
-    //                     k -= 1;
-    //                     dist[k] = newdist;
-    //
-    //                     for i in 0..k {
-    //                         s[k +i*n] = s[k +1 +i *ndf] + (z[k+1] - zb[k+1]) * l_mat[k +1 +i*ndf];
-    //                     }
+        step[k] = y.signum();
 
-    //                     zb[k] = zs[k] + s[k + k*ndf];
-    //                     z[k] = zb[k].floor() + 0.5;
-    //                     y = zb[k] - z[k];
-    //                     step[k] = sign(y);
-    //                 }
-    //             } else {
-    //                 // case (2): exit or move up
+        for c in 0..Self::MAX_SEARCH {
+            let newdist = dist_vec[k] + y + y / d_diag[(k, k)];
 
-    //             }
+            if newdist < maxdist {
+                if k != 0 {
+                    // Case 1: move down
+                    k -= 1;
+                    dist_vec[k] = newdist;
 
-    //         }
+                    for i in 0..=k {
+                        s_mat[(k, i)] =
+                            s_mat[(k + 1, i)] + (z_vec[k + 1] - zb_vec[k + 1]) * l_mat[(k + 1, i)];
+                    }
 
-    //         // sort by s
-    //         for i in 0..m-1 {
-    //             for j in i+1..m {
-    //                 if s[i] < s[j] {
-    //                     continue;
-    //                 }
+                    zb_vec[k] = zs_vec[k] + s_mat[(k, k)];
+                    z_vec[k] = zb_vec[k].floor() + 0.5;
 
-    //                 // SWAP s[i], s[j]
-    //                 for k in 0..n {
-    //                     // SWAP(zn[k+1*n], zn[k +j*n])
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+                    y = zb_vec[k] - z_vec[k];
+                    step[k] = y.signum();
+                } else {
+                    // Case 2: store the candidate and try next valid integer
+
+                    if nn < nfixed {
+                        if nn == 0 || newdist > s_vec[imax] {
+                            imax = nn;
+                        }
+
+                        for i in 0..ndf {
+                            zn_mat[(i, nn)] = z_vec[i];
+                        }
+
+                        s_vec[nn] = newdist;
+                        nn += 1;
+                    } else {
+                        if newdist < s_vec[imax] {
+                            for i in 0..ndf {
+                                zn_mat[(i, imax)] = z_vec[i];
+                            }
+
+                            s_vec[imax] = newdist;
+
+                            // Cette boucle est à véfier, l133
+                            for i in 0..nfixed {
+                                imax = i;
+                                if s_vec[imax] < s_vec[i] {
+                                    imax = i;
+                                }
+                            }
+                        }
+
+                        maxdist = s_vec[imax];
+                    }
+
+                    z_vec[0] += step[0];
+                    y = zb_vec[0] - z_vec[0];
+                    step[0] = -step[0] - step[0].signum();
+                }
+            } else {
+                // case 3: exit or move up
+
+                if k == ndf - 1 {
+                    break;
+                } else {
+                    k += 1; // move up
+                    z_vec[k] += step[k]; // next valid integer
+                    y = zb_vec[k] - z_vec[k];
+                    step[k] = -step[k] - step[k].signum();
+                }
+            }
+        }
+
+        // sort by s
+        for i in 0..nfixed - 1 {
+            for j in i + 1..nfixed {
+                if s_vec[i] < s_vec[j] {
+                    continue;
+                }
+
+                s_vec.swap_rows(i, j);
+
+                for k in 0..ndf {
+                    zn_mat.swap((k, i), (k, j));
+                }
+            }
+        }
+    }
+
+    /// Runs modified LAMBDA ILS
+    pub fn run(
+        &mut self,
+        ndf: usize,
+        nfixed: usize,
+        x_vec: DVector<f64>,
+        q_mat: DMatrix<f64>,
+        sv_indexes: &DVector<(SV, usize)>,
+    ) -> Result<(), Error> {
+        const MAX_DIST: f64 = 1.0E99;
+
+        let mut z_mat = DMatrix::<f64>::identity(ndf, ndf);
+        let mut s_vec = DVector::<f64>::zeros(nfixed);
+
+        let mut e_mat = DMatrix::<f64>::zeros(ndf, nfixed);
+
+        let ldl = q_mat.clone().udu().ok_or(Error::AmbiguityFactorization)?;
+
+        let mut d_diag = ldl.d_matrix();
+        let mut l_mat = ldl.u.transpose();
+
+        debug!(
+            "search - ndf={} - X={} Q={} L={} D={}",
+            ndf, x_vec, q_mat, l_mat, d_diag
+        );
+
+        Self::reduction(ndf, &mut l_mat, &mut d_diag, &mut z_mat);
+
+        let zs_vec = z_mat.clone() * x_vec;
+
+        debug!("search - z={}", zs_vec);
+
+        Self::search(ndf, nfixed, l_mat, d_diag, zs_vec, &mut e_mat, &mut s_vec);
+
+        debug!("search - E={} S={}", e_mat, s_vec,);
+
+        let z_inv = z_mat.try_inverse().ok_or(Error::AmbiguityInverse)?;
+
+        debug!("search - Z'={}", z_inv,);
+
+        let f_mat = z_inv * e_mat;
+
+        debug!("search - F={}", f_mat,);
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod test {
 
     use super::LambdaAR;
+    use crate::prelude::{Constellation, SV};
+    use crate::tests::init_logger;
 
-    use nalgebra::{DVector, DimName, OMatrix, OVector, U4};
+    use nalgebra::{DMatrix, DVector, DimName, OMatrix, OVector, U4, U6};
 
     #[test]
     fn gauss_transform() {
-        let mut l_mat = OMatrix::<f64, U4, U4>::identity();
-
+        let mut l_mat = DMatrix::<f64>::identity(U6::USIZE, U6::USIZE);
         let mut z_mat = l_mat.clone();
 
-        let mut a = OVector::<f64, U4>::from_row_slice(&[
+        let mut a = OVector::<f64, U6>::from_row_slice(&[
             1585184.171,
             -6716599.430,
             3915742.905,
@@ -199,55 +321,87 @@ mod test {
             989457273.200,
         ]);
 
-        LambdaAR::gauss_transform::<U4>(0, 0, U4::USIZE, &mut l_mat, &mut z_mat, &mut a);
+        for i in 0..U6::USIZE {
+            for j in 0..U6::USIZE {
+                LambdaAR::gauss_transform(i, j, U6::USIZE, &mut l_mat, &mut z_mat);
+            }
+        }
     }
 
-    // #[test]
-    // fn mlambda_search_1() {
-    //     let a = DVector::<f64>::from_row_slice(&[
-    //         1585184.171,
-    //        -6716599.430,
-    //         3915742.905,
-    //         7627233.455,
-    //         9565990.879,
-    //       989457273.200
-    //     ]);
+    #[test]
+    fn mlambda_ils_1() {
+        init_logger();
 
-    //     let q = DMatrix::<f64>::from(&[
-    //         0.227134,   0.112202,   0.112202,   0.112202,   0.112202,   0.103473,
-    //         0.112202,   0.227134,   0.112202,   0.112202,   0.112202,   0.103473,
-    //         0.112202,   0.112202,   0.227134,   0.112202,   0.112202,   0.103473,
-    //         0.112202,   0.112202,   0.112202,   0.227134,   0.112202,   0.103473,
-    //         0.112202,   0.112202,   0.112202,   0.112202,   0.227134,   0.103473,
-    //         0.103473,   0.103473,   0.103473,   0.103473,   0.103473,   0.434339
-    //     ]);
+        let mut lambda = LambdaAR::default();
 
-    //     // static double F1[]={
-    //     //     1585184.000000,  1585184.000000,
-    //     //    -6716599.000000, -6716600.000000,
-    //     //     3915743.000000,  3915743.000000,
-    //     //     7627234.000000,  7627233.000000,
-    //     //     9565991.000000,  9565991.000000,
-    //     //   989457273.000000,989457273.000000
-    //     //   };
+        let g01 = SV::new(Constellation::GPS, 1);
+        let g02 = SV::new(Constellation::GPS, 2);
+        let g03 = SV::new(Constellation::GPS, 3);
+        let g04 = SV::new(Constellation::GPS, 4);
+        let g05 = SV::new(Constellation::GPS, 5);
+        let g06 = SV::new(Constellation::GPS, 6);
 
-    //     let s_1 = DVector::<f64>::from_row_slice(&[
-    //         3.507984,        3.708456,
-    //     ]);
+        let sv_indexes = DVector::<(SV, usize)>::from_row_slice(&[
+            (g01, 0),
+            (g02, 1),
+            (g03, 2),
+            (g04, 3),
+            (g05, 4),
+            (g06, 5),
+        ]);
 
-    //     let ndf = 6;
-    //     let m = 2;
+        let x = DVector::<f64>::from_row_slice(&[
+            1585184.171,
+            -6716599.430,
+            3915742.905,
+            7627233.455,
+            9565990.879,
+            989457273.200,
+        ]);
 
-    //     lambda_search(ndf, m, a, q, f, s);
+        let q = DMatrix::<f64>::from_row_slice(
+            U6::USIZE,
+            U6::USIZE,
+            &[
+                0.227134, 0.112202, 0.112202, 0.112202, 0.112202, 0.103473, 0.112202, 0.227134,
+                0.112202, 0.112202, 0.112202, 0.103473, 0.112202, 0.112202, 0.227134, 0.112202,
+                0.112202, 0.103473, 0.112202, 0.112202, 0.112202, 0.227134, 0.112202, 0.103473,
+                0.112202, 0.112202, 0.112202, 0.112202, 0.227134, 0.103473, 0.103473, 0.103473,
+                0.103473, 0.103473, 0.103473, 0.434339,
+            ],
+        );
 
-    //     for i in 0..ndf {
-    //         for j in 0..ndf {
-    //             assert!((f[(i, j)] - f1[(i, j)].abs()) < 1.0E-4, "lambda-search test#1 failed");
-    //         }
+        // static double F1[]={
+        //     1585184.000000,  1585184.000000,
+        //    -6716599.000000, -6716600.000000,
+        //     3915743.000000,  3915743.000000,
+        //     7627234.000000,  7627233.000000,
+        //     9565991.000000,  9565991.000000,
+        //   989457273.000000,989457273.000000
+        //   };
 
-    //         assert!((s[i] - s1[i]).abs() < 1.0E-4, "lambda-search test#1 failed");
-    //     }
-    // }
+        let s_1 = DVector::<f64>::from_row_slice(&[3.507984, 3.708456]);
+
+        let ndf = 6;
+        let nfixed = 2;
+
+        lambda
+            .run(ndf, nfixed, x, q, &sv_indexes)
+            .unwrap_or_else(|e| {
+                panic!("mlabmda search failed with {}", e);
+            });
+
+        // for i in 0..ndf {
+        //     for j in 0..ndf {
+        //         assert!(
+        //             (f[(i, j)] - f1[(i, j)].abs()) < 1.0E-4,
+        //             "lambda-search test#1 failed"
+        //         );
+        //     }
+
+        //     assert!((s[i] - s1[i]).abs() < 1.0E-4, "lambda-search test#1 failed");
+        // }
+    }
 
     // #[test]
     // fn mlambda_search_2() {
