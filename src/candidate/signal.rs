@@ -8,14 +8,19 @@ use crate::prelude::{Candidate, Carrier};
 pub struct Observation {
     /// [Carrier] frequency.
     pub carrier: Carrier,
+
     /// Pseudo range observation in meters.
     pub pseudo_range_m: Option<f64>,
+
     /// Ambiguous phase range observation, in meters.
     pub phase_range_m: Option<f64>,
+
     /// Possible doppler observation (in Hz/Hz).
     pub doppler: Option<f64>,
+
     /// Possible SNR indication (in dB/Hz).
     pub snr_dbhz: Option<f64>,
+
     /// Phase range ambiguity (in cycles)
     pub(crate) ambiguity: Option<f64>,
 }

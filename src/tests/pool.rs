@@ -12,8 +12,8 @@ use std::str::FromStr;
 
 #[fixture]
 fn build_earth_frame() -> Frame {
-    use crate::tests::test_earth_frame;
-    test_earth_frame()
+    use crate::tests::earth_frame;
+    earth_frame()
 }
 
 #[fixture]

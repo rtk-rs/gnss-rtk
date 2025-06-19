@@ -59,13 +59,14 @@ impl KbModel {
         );
 
         let t_gpst = rtm
-            .t
+            .epoch
             .to_duration_in_time_scale(TimeScale::GPST)
             .to_seconds();
 
         let psi = PI / 2.0 - elev_rad - (fract * elev_rad.cos()).asin();
         let phi_i = (phi_u.sin() * psi.cos() + phi_u.cos() * psi.sin() * azim_rad.cos()).asin();
         let lambda_i = lambda_u + azim_rad.sin() * psi / phi_i.cos();
+
         let phi_m = (phi_i.sin() * PHI_P.sin()
             + phi_i.cos() * PHI_P.cos() * (lambda_i - LAMBDA_P).cos())
         .asin();

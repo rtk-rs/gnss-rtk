@@ -6,21 +6,33 @@ use crate::{
         PVTSolution, Rc, User, SV,
     },
     rtk::{RTKBase, NullRTK},
-    solver::Solver,
 };
 
-/// [PPP] is an advanced navigation solver, capable of solving precise navigation
-/// [PVTSolution]s from either real-time or post-processed data. [PPP] supports
-/// both absolute navigation with [PPP::ppp_solving], differential navigation with
-/// [PPP::rtk_solving]. It can operate with or without apriori knowledge and offers
-/// three navigation strategies, expressed as [Method], that define what you must provide
-/// and the accuracy you can hope for.
-pub struct PPP<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> {
+#[cfg(doc)]
+use crate::solver::Solver;
+
+/// The [Kinematic] solver works exactly like the standard [Solver] 
+/// except that it is particularly suited for dynamic applications:
+/// - the system's dynamics are modeled and predicted
+/// - the state derivatives are resolved for every single solution,
+/// even the very first one
+/// - but it requires doppler shifts observations, at all times,
+/// whatever your navigation strategy. For example 
+/// L1 Only using SPP requires both L1 pseudo range and L1 doppler shifts,
+/// and L1/L5 PPP requires L1+L5 pseudo range, phase and doppler shifts
+/// at all times.
+/// [Kinematic] follows the same principles and operates
+/// similarly, the API is identical: it can navigate
+/// in absolute [Kinematic::ppp_solving], or differential with
+/// [Kinematic::rtk_solving], it can be deployed with or without
+/// apriori knowledge.
+pub struct Kinematic<EPH: EphemerisSoure, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> {
+    
     /// Internal [Solver]
     solver: Solver<EPH, ORB, B, TIM>,
 }
 
-impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
+impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> Kinematic<EPH, ORB, B, TIM> {
     /// Creates a new [PPP] solver for direct absolute navigation,
     /// with possible apriori knowledge. If you know the initial position (a rough estimate will do),
     /// it simplifies the solver deployment. Otherwise, the solver will have to initialize itself.
@@ -100,7 +112,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
     /// - candidates: proposed [Candidate]s
     /// ## Output
     /// - solution: as [PVTSolution]
-    pub fn ppp_solving(
+    pub fn resolve(
         &mut self,
         user: User,
         epoch: Epoch,
@@ -111,19 +123,6 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
 
         Ok(solution)
     }
-
-    // pub fn rtk_solving(
-    //     &mut self,
-    //     user: User,
-    //     epoch: Epoch,
-    //     candidates: &[Candidate],
-    //     rtk: RTK,
-    // ) -> Result<PVTSolution, Error> {
-    //     let null_base = NullRTK {};
-    //     let solution = self.solver.resolve(epoch, user, candidates, &null_base)?;
-
-    //     Ok(solution)
-    // }
 
     /// Reset [PPP] solver. This is usually not needed, even on data gaps.
     /// For the simple reason that a correctly tuned filter will correctly adapt.

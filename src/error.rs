@@ -185,9 +185,6 @@ pub enum Error {
     #[error("rejected solution: GDOP limit exceeded")]
     MaxGdopExceeded,
 
-    #[error("first solution is discarded")]
-    InvalidatedFirstSolution,
-
     /// [Error::MissingPhaseRangeMeasurements] is returned when using PPP
     /// strategy and CP measurements were not associated to PR measurements
     /// (which is mandatory).

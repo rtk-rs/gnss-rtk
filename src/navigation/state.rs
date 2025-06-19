@@ -1,4 +1,11 @@
-use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, U4};
+use nalgebra::{
+    //allocator::Allocator,
+    DVector,
+    // DefaultAllocator,
+    DimName,
+    OVector,
+    U4,
+};
 
 use anise::{
     astro::PhysicsResult,
@@ -183,7 +190,7 @@ mod test {
 
     use crate::{
         navigation::{Apriori, Navigation, State},
-        prelude::{Duration, Epoch, Frame, Orbit, SPEED_OF_LIGHT_M_S},
+        prelude::{Duration, Frame, Orbit, SPEED_OF_LIGHT_M_S},
         tests::REFERENCE_COORDS_ECEF_M,
     };
 
@@ -191,28 +198,23 @@ mod test {
     use nalgebra::{DVector, DimName, U4};
 
     use rstest::*;
-    use std::str::FromStr;
 
     #[fixture]
     fn build_earth_frame() -> Frame {
-        use crate::tests::test_earth_frame;
-        test_earth_frame()
+        use crate::tests::earth_frame;
+        earth_frame()
     }
 
     #[fixture]
     fn build_reference_apriori() -> Apriori {
-        use crate::tests::test_reference_apriori;
-        test_reference_apriori()
+        use crate::tests::reference_apriori_at_ref_epoch;
+        reference_apriori_at_ref_epoch()
     }
 
     #[fixture]
     fn build_reference_orbit() -> Orbit {
-        use crate::tests::{test_earth_frame, test_reference_orbit};
-
-        let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
-        let earth_frame = test_earth_frame();
-
-        test_reference_orbit(t0_gpst, earth_frame)
+        use crate::tests::{earth_frame, reference_orbit_at_ref_epoch};
+        reference_orbit_at_ref_epoch(earth_frame())
     }
 
     #[test]

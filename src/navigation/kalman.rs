@@ -110,19 +110,17 @@ impl Kalman {
         let (f_rows, f_cols) = (f_k.nrows(), f_k.ncols());
         let (q_rows, q_cols) = (q_k.nrows(), q_k.ncols());
 
-        assert_eq!(f_rows, f_cols, "invalid dimensions: F is not square");
-        assert_eq!(q_rows, q_cols, "invalid dimensions: Q is not square");
-
-        // assert_eq!(f_rows, q_rows, "invalid F/Q dimensions");
-        // assert_eq!(f_cols, q_cols, "invalid F/Q dimensions");
+        assert_eq!(f_rows, f_cols, "dimensions: F is not square");
+        assert_eq!(q_rows, q_cols, "dimensions: Q is not square");
+        assert_eq!(f_rows, q_cols, "invalid F/Q dimensions");
+        assert_eq!(f_cols, q_rows, "invalid F/Q dimensions");
 
         // prediction
         let x_k = f_k.clone() * estimate.x;
         let f_k_t = f_k.transpose();
         let p_k = f_k * estimate.p * f_k_t + q_k;
 
-        self.predicted = KfEstimate { x: x_k, p: p_k };
-
+        self.predicted = KfEstimate::new(&x_k, &p_k);
         self.initialized = true;
     }
 

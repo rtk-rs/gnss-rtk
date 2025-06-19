@@ -19,16 +19,15 @@ use crate::{
     time::AbsoluteTime,
 };
 
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
-
 /// [Solver] to resolve [PVTSolution]s.
 ///
 /// ## Generics:
-/// - ORB: [OrbitSource], custom Orbit provider.
+/// - EPH: [EphemerisSource] custom data source. Curreuntly unused: limited to [ORB] only!
+/// - ORB: [OrbitSource], custom Orbit data source.
 /// - B: custom [Bias] model.
 /// - TIM: [AbsoluteTime] source for correct absolute time
 pub struct Solver<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> {
-    /// Solver [Config]uration preset
+    /// Solver [Config]uration
     pub cfg: Config,
 
     /// [Almanac]
@@ -43,17 +42,14 @@ pub struct Solver<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: Absolute
     /// Pool
     pool: Pool<EPH, ORB>,
 
-    /// To invalidate first solution
-    first_fix: bool,
-
     /// [Navigation] solver
     navigation: Navigation,
 
-    /// Possible initial position
-    initial_ecef_m: Option<Vector3>,
-
     /// [AbsoluteTime] implementation
     absolute_time: TIM,
+
+    /// Possible initial position
+    initial_ecef_m: Option<Vector3>,
 }
 
 impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EPH, ORB, B, T> {
@@ -104,7 +100,6 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EP
             absolute_time,
             initial_ecef_m,
             cfg: cfg.clone(),
-            first_fix: true,
             pool: Pool::allocate(cfg.code_smoothing, earth_cef, eph_source, orbit_source),
         }
     }
@@ -113,12 +108,13 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EP
     ///
     /// ## Input
     /// - epoch: [Epoch] of measurement
-    /// - params: [UserProfile]
+    /// - params: [UserParameters]
     /// - candidates: proposed [Candidate]s (= measurements)
     /// - rtk_base: possible [RTKBase] we will connect to
     ///
     /// ## Output
-    /// - [PVTSolution].
+    /// - success: [PVTSolution]
+    /// - failure: [Error]
     pub fn ppp_solving(
         &mut self,
         epoch: Epoch,
@@ -276,12 +272,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EP
             self.navigation.state = state;
         }
 
-        if self.first_fix {
-            self.first_fix = false;
-            Err(Error::InvalidatedFirstSolution)
-        } else {
-            Ok(solution)
-        }
+        Ok(solution)
     }
 
     /// Reset this [Solver].

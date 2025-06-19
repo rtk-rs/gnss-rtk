@@ -52,6 +52,9 @@ pub struct Ephemeris {
 
 /// [EphemerisSource] to provie [Ephemeris] data and contribute to the solving process.
 pub trait EphemerisSource {
+    /// :warning: this is work in progress, it is not possible to navigate using
+    /// ephemeris using current version.
+    ///
     /// Provide [Ephemeris] frame for requested [SV]. Provided [Epoch] is the ongoing
     /// [Epoch] being processed by the solver.
     /// It is possible to navigate without proposing any [Orbit]al state, if you maintain

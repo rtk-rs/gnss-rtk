@@ -11,23 +11,33 @@ pub(crate) mod solutions;
 
 mod dop;
 mod kalman;
+mod lambda;
 mod postfit;
 mod sv;
 
 pub(crate) mod ambiguity;
 pub(crate) mod state;
 
-use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, U4};
+use nalgebra::{
+    //allocator::Allocator,
+    DMatrix,
+    DVector,
+    // DefaultAllocator,
+    DimName,
+    // OMatrix,
+    U4,
+};
 
 use crate::{
     navigation::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
         kalman::{Kalman, KfEstimate},
+        lambda::LambdaAR,
         postfit::PostfitKf,
         state::State,
     },
-    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, Method},
+    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, Method, SV},
     rtk::RTKBase,
     user::UserParameters,
 };
@@ -42,9 +52,6 @@ pub(crate) struct Navigation {
 
     /// [Frame]
     frame: Frame,
-
-    /// X
-    x_vec: DVector<f64>,
 
     /// PR vec
     pr_vec: Vec<f64>,
@@ -67,14 +74,20 @@ pub(crate) struct Navigation {
     /// G_mat
     g_mat: DMatrix<f64>,
 
+    /// X
+    x_vec: DVector<f64>,
+
     /// P
     p_mat: DMatrix<f64>,
 
     /// indexes storage
-    indexes: Vec<usize>,
+    sv_indexes: Vec<(SV, usize)>,
 
     /// [Kalman]
     kalman: Kalman,
+
+    /// [Lambda]
+    lambda: LambdaAR,
 
     /// [SVContribution]s
     pub sv: Vec<SVContribution>,
@@ -116,11 +129,12 @@ impl Navigation {
             sv: Vec::with_capacity(8),
             dop: DilutionOfPrecision::default(),
             kalman: Kalman::new(U4::USIZE),
+            lambda: LambdaAR::default(),
             pr_vec: Vec::with_capacity(U4::USIZE),
             cp_vec: Vec::with_capacity(U4::USIZE),
             w_diag: Vec::with_capacity(U4::USIZE),
             f_diag: Vec::with_capacity(U4::USIZE),
-            indexes: Vec::with_capacity(U4::USIZE),
+            sv_indexes: Vec::with_capacity(U4::USIZE),
             x_vec: DVector::<f64>::zeros(U4::USIZE),
             w_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
             g_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
@@ -228,7 +242,7 @@ impl Navigation {
 
     fn clear(&mut self) {
         self.sv.clear();
-        self.indexes.clear();
+        self.sv_indexes.clear();
 
         self.pr_vec.clear();
         self.cp_vec.clear();
@@ -281,7 +295,7 @@ impl Navigation {
                     self.w_diag.push(1.0); // TODO
 
                     self.sv.push(contrib);
-                    self.indexes.push(i);
+                    self.sv_indexes.push((candidates[i].sv, i));
 
                     if self.cfg.modeling.relativistic_path_range {
                         debug!(
@@ -330,7 +344,7 @@ impl Navigation {
             }
 
             // form G
-            for (i, index) in self.indexes.iter().enumerate() {
+            for (i, (_sv, index)) in self.sv_indexes.iter().enumerate() {
                 let dr_i = self.sv[i].relativistic_path_range_m;
 
                 let position_m = pending.position_ecef_m();
@@ -416,7 +430,7 @@ impl Navigation {
             self.cp_vec.clear();
             self.w_diag.clear();
 
-            self.indexes.retain(|i| {
+            self.sv_indexes.retain(|(_, i)| {
                 let mut unused = SVContribution::default();
 
                 let position_m = pending.position_ecef_m();
@@ -452,14 +466,23 @@ impl Navigation {
 
         let initial_estimate = KfEstimate::new(&self.x_vec, &self.p_mat);
 
-        let q_mat = params.q_matrix(U4::USIZE, Duration::ZERO); // TODO state dimensions
+        let ndf = self.x_vec.nrows();
+        let q_mat = params.q_matrix(ndf, Duration::ZERO);
         debug!("Q={}", q_mat);
+
+        // build F
+        self.f_mat = DMatrix::identity(ndf, ndf);
+        debug!("F={}", self.f_mat);
 
         self.kalman.initialize(&self.f_mat, q_mat, initial_estimate);
 
         self.state = pending;
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
+
+        if self.cfg.method == Method::PPP {
+            // self.lambda.search(&self.x_vec, &self.p_mat, &candidates, &self.sv_indexes);
+        }
 
         Ok(())
     }
@@ -597,7 +620,11 @@ impl Navigation {
 #[cfg(test)]
 mod test {
     use crate::navigation::{DilutionOfPrecision, Navigation, State};
-    use nalgebra::{DMatrix, DVector, U4};
+    use nalgebra::{
+        DMatrix,
+        DVector,
+        //U4,
+    };
 
     #[test]
     fn navigation_dimensions_clock_index() {

@@ -11,7 +11,7 @@ use crate::{
 
 use anise::errors::AlmanacResult;
 
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+// use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 mod bias;
 mod ppp;
@@ -20,6 +20,9 @@ mod signal;
 
 pub mod clock;
 pub(crate) mod combination;
+
+#[cfg(test)]
+mod tests;
 
 pub use crate::{
     candidate::{clock::ClockCorrection, signal::Observation},

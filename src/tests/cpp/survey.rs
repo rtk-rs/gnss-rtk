@@ -1,3 +1,4 @@
+use log::info;
 use rstest::*;
 use std::str::FromStr;
 
@@ -12,20 +13,20 @@ use crate::{
 
 #[fixture]
 fn build_almanac() -> Almanac {
-    use crate::tests::test_almanac;
-    test_almanac()
+    use crate::tests::almanac;
+    almanac()
 }
 
 #[fixture]
 fn build_earth_frame() -> Frame {
-    use crate::tests::test_earth_frame;
-    test_earth_frame()
+    use crate::tests::earth_frame;
+    earth_frame()
 }
 
 #[fixture]
 fn build_initial_apriori() -> Apriori {
-    use crate::tests::test_reference_apriori;
-    test_reference_apriori()
+    use crate::tests::reference_apriori_at_ref_epoch;
+    reference_apriori_at_ref_epoch()
 }
 
 #[test]
@@ -61,9 +62,10 @@ fn static_cpp() {
     let status = solver.ppp_solving(t0_gpst, default_params, &candidates);
 
     match status {
-        Err(Error::InvalidatedFirstSolution) => {},
         Err(e) => panic!("Static CPP process failed with invalid error: {}", e),
-        Ok(_) => panic!("first solution should be invalidated"),
+        Ok(pvt) => {
+            info!("1st solution: {:#?}", pvt);
+        },
     }
 
     // TODO continue

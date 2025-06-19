@@ -11,7 +11,7 @@ use crate::{
     rtk::RTKBase,
     solver::Solver,
     time::AbsoluteTime,
-    user::{UserParameters, UserProfile},
+    user::UserParameters,
 };
 
 // kinematic implementations

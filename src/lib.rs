@@ -25,6 +25,7 @@ mod rtk;
 mod smoothing;
 mod time;
 mod user;
+// mod kinematic;
 
 pub(crate) mod constants;
 pub(crate) mod solver;
@@ -47,6 +48,7 @@ pub mod prelude {
         navigation::PVTSolution,
         orbit::OrbitSource,
         rtk::RTKBase,
+        solver::Solver,
         time::AbsoluteTime,
         user::{ClockProfile, UserParameters, UserProfile},
     };
