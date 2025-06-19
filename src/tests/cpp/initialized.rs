@@ -80,6 +80,34 @@ fn static_cpp() {
             Err(e) => panic!("Static SPP process failed with invalid error: {}", e),
             Ok(pvt) => {
                 info!("{}th solution {:#?}", nth, pvt);
+
+                let (pos_x_m, pos_y_m, pos_z_m) = pvt.pos_m;
+                let (expected_x_m, expected_y_m, expected_z_m) = REFERENCE_COORDS_ECEF_M;
+
+                let (err_x_m, err_y_m, err_z_m) = (
+                    (pos_x_m - expected_x_m).abs(),
+                    (pos_y_m - expected_y_m).abs(),
+                    (pos_z_m - expected_z_m).abs(),
+                );
+
+                assert!(
+                    err_x_m < 1.0,
+                    "epoch={} - x error {} too large",
+                    epoch_str,
+                    err_x_m
+                );
+                assert!(
+                    err_y_m < 1.0,
+                    "epoch={} - y error {} too large",
+                    epoch_str,
+                    err_y_m
+                );
+                assert!(
+                    err_z_m < 1.0,
+                    "epoch={} - z error {} too large",
+                    epoch_str,
+                    err_z_m
+                );
             },
         }
     }
