@@ -29,6 +29,18 @@ impl LambdaAR {
     /// Reset this particular [SV]
     pub fn reset_sv(&mut self, sv: SV) {}
 
+    fn signum(value: f64) -> f64 {
+        if value <= 0.0 {
+            -1.0
+        } else {
+            1.0
+        }
+    }
+
+    fn round(value: f64) -> f64 {
+        (value + 0.5).floor()
+    }
+
     /// Calculates L and D such as Q=L' Diag(D) L
     fn ld_factorization<D: DimName>(
         ndf: usize,
@@ -87,7 +99,7 @@ impl LambdaAR {
         l_mat: &mut DMatrix<f64>,
         z_mat: &mut DMatrix<f64>,
     ) {
-        let mu = l_mat[(i, j)].floor() + 0.5;
+        let mu = Self::round(l_mat[(i, j)]);
 
         if mu != 0.0 {
             for k in i..ndf {
@@ -152,18 +164,18 @@ impl LambdaAR {
 
         let mut k = ndf - 1;
 
-        let mut zb_vec = zs_vec.clone();
+        let mut zb_vec = DVector::<f64>::zeros(ndf);
         let mut z_vec = DVector::<f64>::zeros(ndf);
         let mut step = DVector::<f64>::zeros(ndf);
 
         zb_vec[k] = zs_vec[k];
-        z_vec[k] = zb_vec[k].floor() + 0.5;
+        z_vec[k] = Self::round(zb_vec[k]);
 
         let mut y = zb_vec[k] - z_vec[k];
 
-        step[k] = y.signum();
+        step[k] = Self::signum(y);
 
-        for c in 0..Self::MAX_SEARCH {
+        for _ in 0..Self::MAX_SEARCH {
             let newdist = dist_vec[k] + y + y / d_diag[(k, k)];
 
             if newdist < maxdist {
@@ -178,10 +190,10 @@ impl LambdaAR {
                     }
 
                     zb_vec[k] = zs_vec[k] + s_mat[(k, k)];
-                    z_vec[k] = zb_vec[k].floor() + 0.5;
+                    z_vec[k] = Self::round(zb_vec[k]);
 
                     y = zb_vec[k] - z_vec[k];
-                    step[k] = y.signum();
+                    step[k] = Self::signum(y);
                 } else {
                     // Case 2: store the candidate and try next valid integer
 
@@ -204,7 +216,6 @@ impl LambdaAR {
 
                             s_vec[imax] = newdist;
 
-                            // Cette boucle est à véfier, l133
                             for i in 0..nfixed {
                                 imax = i;
                                 if s_vec[imax] < s_vec[i] {
@@ -216,9 +227,9 @@ impl LambdaAR {
                         maxdist = s_vec[imax];
                     }
 
-                    z_vec[0] += step[0];
+                    z_vec[0] += step[0]; // next valid integer
                     y = zb_vec[0] - z_vec[0];
-                    step[0] = -step[0] - step[0].signum();
+                    step[0] = -step[0] - Self::signum(step[0]);
                 }
             } else {
                 // case 3: exit or move up
@@ -229,7 +240,7 @@ impl LambdaAR {
                     k += 1; // move up
                     z_vec[k] += step[k]; // next valid integer
                     y = zb_vec[k] - z_vec[k];
-                    step[k] = -step[k] - step[k].signum();
+                    step[k] = -step[k] - Self::signum(step[k]);
                 }
             }
         }
@@ -284,15 +295,15 @@ impl LambdaAR {
 
         Self::search(ndf, nfixed, l_mat, d_diag, zs_vec, &mut e_mat, &mut s_vec);
 
-        debug!("search - E={} S={}", e_mat, s_vec,);
+        debug!("search - E={} S={}", e_mat, s_vec);
 
         let z_inv = z_mat.try_inverse().ok_or(Error::AmbiguityInverse)?;
 
-        debug!("search - Z'={}", z_inv,);
+        debug!("search - Z'={}", z_inv);
 
         let f_mat = z_inv * e_mat;
 
-        debug!("search - F={}", f_mat,);
+        debug!("search - F={}", f_mat);
 
         Ok(())
     }
@@ -311,15 +322,14 @@ mod test {
     fn gauss_transform() {
         let mut l_mat = DMatrix::<f64>::identity(U6::USIZE, U6::USIZE);
         let mut z_mat = l_mat.clone();
-
-        let mut a = OVector::<f64, U6>::from_row_slice(&[
-            1585184.171,
-            -6716599.430,
-            3915742.905,
-            7627233.455,
-            9565990.879,
-            989457273.200,
-        ]);
+        // let a = OVector::<f64, U6>::from_row_slice(&[
+        //     1585184.171,
+        //     -6716599.430,
+        //     3915742.905,
+        //     7627233.455,
+        //     9565990.879,
+        //     989457273.200,
+        // ]);
 
         for i in 0..U6::USIZE {
             for j in 0..U6::USIZE {
@@ -371,14 +381,24 @@ mod test {
             ],
         );
 
-        // static double F1[]={
-        //     1585184.000000,  1585184.000000,
-        //    -6716599.000000, -6716600.000000,
-        //     3915743.000000,  3915743.000000,
-        //     7627234.000000,  7627233.000000,
-        //     9565991.000000,  9565991.000000,
-        //   989457273.000000,989457273.000000
-        //   };
+        let f_mat = DMatrix::<f64>::from_row_slice(
+            U6::USIZE,
+            2,
+            &[
+                1585184.000000,
+                1585184.000000,
+                -6716599.000000,
+                -6716600.000000,
+                3915743.000000,
+                3915743.000000,
+                7627234.000000,
+                7627233.000000,
+                9565991.000000,
+                9565991.000000,
+                989457273.000000,
+                989457273.000000,
+            ],
+        );
 
         let s_1 = DVector::<f64>::from_row_slice(&[3.507984, 3.708456]);
 
