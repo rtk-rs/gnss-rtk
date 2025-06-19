@@ -56,7 +56,7 @@ pub fn test_orbits() -> OrbitsData {
     OrbitsData::new(earth_frame)
 }
 
-pub const REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3628427.9118, 562059.0936, 5197872.2150);
+pub const REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3582105.2910, 532589.7313, 5232754.8054);
 
 pub fn reference_epoch() -> Epoch {
     Epoch::from_str("2020-06-25T00:00:00 GPST")

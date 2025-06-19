@@ -1,0 +1,266 @@
+        epoch: 2020-06-24T23:59:42 UTC,
+        pos_m: (
+            3870506.1281970073,
+            631853.4021781243,
+            2993135.347058193,
+        ),
+        lat_long_alt_deg_deg_m: (
+            37.59144314293051,
+            9.271650626348693,
+            -1436781.6655285668,
+        ),
+        timescale: GPST,
+        clock_offset_s: -0.00433712887383826,
+        sv: [
+            SVContribution {
+                sv: SV {
+                    prn: 1,
+                    constellation: Galileo,
+                },
+                signal: Dual(
+                    (
+                        E5b,
+                        L1,
+                    ),
+                ),
+                sv_pos_km: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                sv_vel_km_s: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                elevation_deg: 15.804407744956928,
+                azimuth_deg: 36.68052014701578,
+                relativistic_path_range_m: -0.13634493758658198,
+                tropo_bias: Some(
+                    0.0,
+                ),
+                iono_bias: None,
+                clock_correction: Some(
+                    Duration {
+                        centuries: -1,
+                        nanoseconds: 3155759999999115293,
+                    },
+                ),
+            },
+            SVContribution {
+                sv: SV {
+                    prn: 3,
+                    constellation: Galileo,
+                },
+                signal: Dual(
+                    (
+                        E5b,
+                        L1,
+                    ),
+                ),
+                sv_pos_km: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                sv_vel_km_s: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                elevation_deg: 19.57361539066271,
+                azimuth_deg: 292.2294783962981,
+                relativistic_path_range_m: -0.13633761564549,
+                tropo_bias: Some(
+                    0.0,
+                ),
+                iono_bias: None,
+                clock_correction: Some(
+                    Duration {
+                        centuries: -1,
+                        nanoseconds: 3155759999999686501,
+                    },
+                ),
+            },
+            SVContribution {
+                sv: SV {
+                    prn: 5,
+                    constellation: Galileo,
+                },
+                signal: Dual(
+                    (
+                        E5b,
+                        L1,
+                    ),
+                ),
+                sv_pos_km: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                sv_vel_km_s: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                elevation_deg: 72.20626358748481,
+                azimuth_deg: 278.22880199345735,
+                relativistic_path_range_m: -0.13636605609813812,
+                tropo_bias: Some(
+                    0.0,
+                ),
+                iono_bias: None,
+                clock_correction: Some(
+                    Duration {
+                        centuries: -1,
+                        nanoseconds: 3155759999999631224,
+                    },
+                ),
+            },
+            SVContribution {
+                sv: SV {
+                    prn: 9,
+                    constellation: Galileo,
+                },
+                signal: Dual(
+                    (
+                        E5b,
+                        L1,
+                    ),
+                ),
+                sv_pos_km: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                sv_vel_km_s: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                elevation_deg: 51.11778704855953,
+                azimuth_deg: 121.36663135390206,
+                relativistic_path_range_m: -0.13638656725188875,
+                tropo_bias: Some(
+                    0.0,
+                ),
+                iono_bias: None,
+                clock_correction: Some(
+                    Duration {
+                        centuries: 0,
+                        nanoseconds: 6017693,
+                    },
+                ),
+            },
+            SVContribution {
+                sv: SV {
+                    prn: 15,
+                    constellation: Galileo,
+                },
+                signal: Dual(
+                    (
+                        E5b,
+                        L1,
+                    ),
+                ),
+                sv_pos_km: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                sv_vel_km_s: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                elevation_deg: 17.6644031354376,
+                azimuth_deg: 304.9075092369586,
+                relativistic_path_range_m: -0.13635333249074597,
+                tropo_bias: Some(
+                    0.0,
+                ),
+                iono_bias: None,
+                clock_correction: Some(
+                    Duration {
+                        centuries: 0,
+                        nanoseconds: 862331,
+                    },
+                ),
+            },
+            SVContribution {
+                sv: SV {
+                    prn: 24,
+                    constellation: Galileo,
+                },
+                signal: Dual(
+                    (
+                        E5b,
+                        L1,
+                    ),
+                ),
+                sv_pos_km: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                sv_vel_km_s: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                elevation_deg: 40.35573812319504,
+                azimuth_deg: 164.55359210147364,
+                relativistic_path_range_m: -0.1363167599983378,
+                tropo_bias: Some(
+                    0.0,
+                ),
+                iono_bias: None,
+                clock_correction: Some(
+                    Duration {
+                        centuries: -1,
+                        nanoseconds: 3155759999999487351,
+                    },
+                ),
+            },
+            SVContribution {
+                sv: SV {
+                    prn: 31,
+                    constellation: Galileo,
+                },
+                signal: Dual(
+                    (
+                        E5b,
+                        L1,
+                    ),
+                ),
+                sv_pos_km: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                sv_vel_km_s: (
+                    0.0,
+                    0.0,
+                    0.0,
+                ),
+                elevation_deg: 53.12426432578799,
+                azimuth_deg: 83.9796916257691,
+                relativistic_path_range_m: -0.13636703141416617,
+                tropo_bias: Some(
+                    0.0,
+                ),
+                iono_bias: None,
+                clock_correction: Some(
+                    Duration {
+                        centuries: -1,
+                        nanoseconds: 3155759999999527013,
+                    },
+                ),
+            },
+        ],
+        gdop: 2.985101564730463,
+        vdop: 0.996490447206316,
+        hdop: 1.7448014645759642,
+        tdop: 1.5203358432985632,
+    }
+

@@ -327,10 +327,12 @@ impl Navigation {
         // run
         for _ in 0..nb_iter {
             let mut nrows = self.pr_vec.len();
-            let mut ndf = 4;
+            let lambda_ndf = self.cp_vec.len();
+
+            let mut ndf = U4::USIZE;
 
             if self.cfg.method == Method::PPP {
-                ndf += self.cp_vec.len();
+                ndf += lambda_ndf;
                 nrows *= 2;
             }
 
@@ -387,7 +389,7 @@ impl Navigation {
             let gt_w_g_inv_gt = gt_w_g_inv.clone() * gt.clone();
             let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.w_mat.clone();
 
-            let mut y = DVector::<f64>::zeros(nrows);
+            let mut y = DVector::<f64>::zeros(nrows); // TODO: improve malloc
 
             let n_sup = if self.cfg.method == Method::PPP {
                 nrows / 2
@@ -449,7 +451,7 @@ impl Navigation {
                             self.cp_vec.push(cp);
                         }
 
-                        self.w_diag.push(1.0); // TODO
+                        self.w_diag.push(1.0); // TODO: improve model
                         true
                     },
                     Err(e) => {
@@ -575,11 +577,13 @@ impl Navigation {
             }
         }
 
+        let mut ndf = U4::USIZE;
         let mut nrows = self.pr_vec.len();
-        let mut ndf = 4;
+        let mut lambda_ndf = 0;
 
         if self.cfg.method == Method::PPP {
-            ndf += self.cp_vec.len();
+            lambda_ndf = self.cp_vec.len();
+            ndf += lambda_ndf;
             nrows *= 2;
         }
 
@@ -587,7 +591,7 @@ impl Navigation {
         self.g_mat.resize_mut(nrows, ndf, 0.0);
 
         // form W
-        for i in 0..ndf {
+        for i in 0..nrows {
             self.w_mat[(i, i)] = 1.0; // TODO: improve model
         }
 
@@ -626,15 +630,15 @@ impl Navigation {
         );
 
         // form Y
-        let mut y = DVector::<f64>::zeros(ndf); // TODO improve, idem @LSQ
+        let mut y = DVector::<f64>::zeros(nrows);
 
-        let n_sup = if self.cfg.method == Method::PPP {
-            ndf / 2
+        let n = if self.cfg.method == Method::PPP {
+            nrows / 2
         } else {
-            ndf
+            nrows
         };
 
-        for i in 0..n_sup {
+        for i in 0..n {
             if self.cfg.method == Method::PPP {
                 y[2 * i] = self.pr_vec[i];
                 y[2 * i + 1] = self.cp_vec[i];
@@ -645,11 +649,8 @@ impl Navigation {
 
         debug!("Y: {}", y);
 
-        let ndf = self.x_vec.nrows();
-
         // build F
         self.f_mat = DMatrix::identity(ndf, ndf);
-
         // build Q
         let q_mat = params.q_matrix(ndf, Duration::ZERO);
 
@@ -681,8 +682,6 @@ impl Navigation {
 
         // validation
         self.state_validation()?;
-
-        debug!("{} - new state {}", t, pending);
 
         self.state = pending;
         debug!("{} - new state {}", t, self.state);

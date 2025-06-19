@@ -167,7 +167,9 @@ impl State {
 
     /// Temporal update
     pub fn postfit_update_mut(&mut self, frame: Frame, dx: DVector<f64>) -> PhysicsResult<()> {
-        for i in 0..dx.nrows() {
+        let nrows = std::cmp::min(dx.nrows(), self.x.nrows());
+
+        for i in 0..nrows {
             if i != Navigation::clock_index() {
                 self.x[i] = dx[i];
             }

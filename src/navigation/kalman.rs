@@ -150,29 +150,18 @@ impl Kalman {
         let (g_rows, g_cols) = (g_k.nrows(), g_k.ncols());
         let (f_rows, f_cols) = (f_k.nrows(), f_k.ncols());
         let (q_rows, q_cols) = (q_k.nrows(), q_k.ncols());
+
         let y_rows = y_k.nrows();
 
         if !self.initialized {
             panic!("internal error: filter not initialized!");
         }
 
-        assert_eq!(f_rows, g_rows, "invalid F/G dimensions!");
-        assert_eq!(q_rows, g_rows, "invalid Q/G dimensions!");
-        assert_eq!(w_rows, g_rows, "invalid W/G dimensions!");
-
+        assert_eq!(w_rows, w_cols, "W is not square");
+        assert_eq!(f_rows, f_cols, "F is not square");
         assert_eq!(f_cols, g_cols, "invalid F/G dimensions!");
-        assert_eq!(q_cols, g_cols, "invalid Q/G dimensions!");
-        assert_eq!(w_cols, g_cols, "invalid W/G dimensions!");
-
         assert_eq!(y_rows, g_rows, "invalid Y/G dimensions!");
         assert_eq!(y_rows, w_rows, "invalid Y/W dimensions!");
-        assert_eq!(y_rows, f_rows, "invalid Y/F dimensions!");
-
-        // assert_eq!(
-        //     g_k.ncols(),
-        //     S::USIZE,
-        //     "internal error: invalid G dimensions!"
-        // );
 
         let gt = g_k.transpose();
 

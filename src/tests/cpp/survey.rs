@@ -7,7 +7,7 @@ use crate::{
     prelude::{Almanac, Config, Epoch, Error, Frame, Method, StaticSolver, UserParameters},
     tests::{
         bias::NullBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
-        OrbitsData,
+        OrbitsData, REFERENCE_COORDS_ECEF_M,
     },
 };
 
@@ -46,9 +46,6 @@ fn static_cpp() {
 
     let orbits_data = OrbitsData::new(earth_frame);
 
-    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
-    let candidates = CandidatesBuilder::build_at(t0_gpst);
-
     let mut solver = StaticSolver::new_survey(
         almanac,
         earth_frame,
@@ -59,19 +56,58 @@ fn static_cpp() {
         null_bias,
     );
 
-    let status = solver.ppp_solving(t0_gpst, default_params, &candidates);
+    for (nth, epoch_str) in [
+        "2020-06-25T00:00:00 GPST",
+        "2020-06-25T00:15:00 GPST",
+        "2020-06-25T00:30:00 GPST",
+        "2020-06-25T00:45:00 GPST",
+        "2020-06-25T01:00:00 GPST",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let t_gpst = Epoch::from_str(epoch_str).unwrap();
+        let candidates = CandidatesBuilder::build_at(t_gpst);
+        assert!(
+            candidates.len() > 0,
+            "no measurements to propose at \"{}\"",
+            epoch_str
+        );
+        let status = solver.ppp_solving(t_gpst, default_params, &candidates);
 
-    match status {
-        Err(e) => panic!("Static CPP process failed with invalid error: {}", e),
-        Ok(pvt) => {
-            info!("1st solution: {:#?}", pvt);
-        },
+        match status {
+            Err(e) => panic!("Static SPP process failed with invalid error: {}", e),
+            Ok(pvt) => {
+                info!("{}th solution {:#?}", nth, pvt);
+
+                let (pos_x_m, pos_y_m, pos_z_m) = pvt.pos_m;
+                let (expected_x_m, expected_y_m, expected_z_m) = REFERENCE_COORDS_ECEF_M;
+
+                let (err_x_m, err_y_m, err_z_m) = (
+                    (pos_x_m - expected_x_m).abs(),
+                    (pos_y_m - expected_y_m).abs(),
+                    (pos_z_m - expected_z_m).abs(),
+                );
+
+                assert!(
+                    err_x_m < 1.0,
+                    "epoch={} - x error {} too large",
+                    epoch_str,
+                    err_x_m
+                );
+                assert!(
+                    err_y_m < 1.0,
+                    "epoch={} - y error {} too large",
+                    epoch_str,
+                    err_y_m
+                );
+                assert!(
+                    err_z_m < 1.0,
+                    "epoch={} - z error {} too large",
+                    epoch_str,
+                    err_z_m
+                );
+            },
+        }
     }
-
-    // TODO continue
-    // let t1_gpst = Epoch::from_str("2020-06-25T00:15:00 GPST").unwrap();
-    // let candidates = CandidatesBuilder::build_at(t1_gpst);
-
-    // let pvt = solver.resolve(default_user, t1_gpst, &candidates)
-    //     .unwrap();
 }
