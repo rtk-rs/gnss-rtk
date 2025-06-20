@@ -112,7 +112,7 @@ impl CandidatesBuilder {
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
-                Duration::from_microseconds(-512.649778),
+                Duration::from_microseconds(5385.035201),
             )),
             Candidate::new(
                 E31,
