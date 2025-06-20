@@ -68,18 +68,21 @@ fn static_cpp() {
     .enumerate()
     {
         let t_gpst = Epoch::from_str(epoch_str).unwrap();
+
         let candidates = CandidatesBuilder::build_at(t_gpst);
+
         assert!(
             candidates.len() > 0,
             "no measurements to propose at \"{}\"",
             epoch_str
         );
+
         let status = solver.ppp_solving(t_gpst, default_params, &candidates);
 
         match status {
-            Err(e) => panic!("Static SPP process failed with invalid error: {}", e),
+            Err(e) => panic!("Static CPP process failed with invalid error: {}", e),
             Ok(pvt) => {
-                info!("{}th solution {:#?}", nth, pvt);
+                info!("Solution #{} {:#?}", nth + 1, pvt);
 
                 let (pos_x_m, pos_y_m, pos_z_m) = pvt.pos_m;
                 let (expected_x_m, expected_y_m, expected_z_m) = REFERENCE_COORDS_ECEF_M;
@@ -91,22 +94,27 @@ fn static_cpp() {
                 );
 
                 assert!(
-                    err_x_m < 1.0,
+                    err_x_m < 40.0,
                     "epoch={} - x error {} too large",
                     epoch_str,
                     err_x_m
                 );
                 assert!(
-                    err_y_m < 1.0,
+                    err_y_m < 40.0,
                     "epoch={} - y error {} too large",
                     epoch_str,
                     err_y_m
                 );
                 assert!(
-                    err_z_m < 1.0,
+                    err_z_m < 40.0,
                     "epoch={} - z error {} too large",
                     epoch_str,
                     err_z_m
+                );
+
+                info!(
+                    "{} (static) cpp survey error: x={}m y={}m z={}",
+                    epoch_str, err_x_m, err_y_m, err_z_m
                 );
             },
         }

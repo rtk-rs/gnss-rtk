@@ -60,6 +60,7 @@ const fn default_eclipse_rate_percent() -> f64 {
 pub struct InternalDelay {
     /// Delay [s]
     pub delay: f64,
+
     /// Carrier frequency [Hz]
     pub frequency: f64,
 }

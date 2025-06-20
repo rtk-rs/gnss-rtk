@@ -111,7 +111,7 @@ impl OrbitsData {
                         sv: E03,
                         epoch: t1_gpst,
                     },
-                    Orbit::from_position(5249.050928, -21427.275276, 19733.53934, t1_gpst, frame),
+                    Orbit::from_position(5249.050928, -21427.275276, 19733.539343, t1_gpst, frame),
                 ),
                 (
                     OrbitsDataKey {

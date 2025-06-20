@@ -18,16 +18,7 @@ mod sv;
 pub(crate) mod ambiguity;
 pub(crate) mod state;
 
-use nalgebra::{
-    //allocator::Allocator,
-    DMatrix,
-    DVector,
-    // DefaultAllocator,
-    DimName,
-    U1,
-    // OMatrix,
-    U4,
-};
+use nalgebra::{DMatrix, DVector, DimName, U1, U4};
 
 use crate::{
     navigation::{
@@ -218,9 +209,7 @@ impl Navigation {
                 // TODO rerun
             }
         } else {
-            panic!("TODO");
-            self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
-            // self.kf_run(t, past_state, candidates, params, size, rtk_base, bias)?;
+            self.kf_run(t, candidates, params, size, rtk_base, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -541,14 +530,13 @@ impl Navigation {
     pub fn kf_run<B: Bias, RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        state: &State,
         candidates: &[Candidate],
         params: UserParameters,
         size: usize,
         _: &RTK,
         bias: &B,
     ) -> Result<(), Error> {
-        let mut pending = state.clone();
+        let mut pending = self.state.clone();
 
         // measurements
         for i in 0..size {

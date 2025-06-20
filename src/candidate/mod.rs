@@ -267,6 +267,8 @@ impl Candidate {
         self.t_tx = t_tx;
         self.dt_tx = self.t - self.t_tx;
 
+        debug!("{}({}) tx delay {}", self.sv, self.t, self.dt_tx);
+
         Ok(())
     }
 
