@@ -4,28 +4,21 @@ use crate::prelude::{Error, SV};
 
 use log::debug;
 
-#[derive(Debug, Default, Clone, PartialEq)]
-struct FixedAmbiguity {
-    pub sv: SV,
-    pub n_int: u64,
-}
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct LambdaAR {
-    fixed: DVector<FixedAmbiguity>,
+    /// [FixedAmbiguity]
+    fixed: HashMap<SV, u64>,
 }
 
 impl LambdaAR {
     const MAX_SEARCH: usize = 1_000;
 
-    /// Reset this [LambdaAR]
+    /// Reset this [LambdaAR] completely
     pub fn reset(&mut self) {
-        // let ndf = self.n_int.nrows();
-        // self.n_int.set(0.0);
+        self.fixed.clear();
     }
-
-    /// Reset this particular [SV]
-    pub fn reset_sv(&mut self, sv: SV) {}
 
     fn signum(value: f64) -> f64 {
         if value <= 0.0 {
@@ -66,7 +59,7 @@ impl LambdaAR {
                 Self::permutations(ndf, l_mat, d_diag, j, delta, z_mat);
 
                 k = j;
-                j = ndf - 2;
+                j = ndf - 2; // TODO a verifier
             } else {
                 j -= 1;
             }
@@ -131,7 +124,7 @@ impl LambdaAR {
         nfixed: usize,
         l_mat: DMatrix<f64>,
         d_diag: DMatrix<f64>,
-        zs_vec: DVector<f64>,
+        zs_vec: DMatrix<f64>,
         zn_mat: &mut DMatrix<f64>,
         s_vec: &mut DVector<f64>,
     ) {
@@ -149,7 +142,7 @@ impl LambdaAR {
         let mut z_vec = DVector::<f64>::zeros(ndf);
         let mut step = DVector::<f64>::zeros(ndf);
 
-        zb_vec[k] = zs_vec[k];
+        zb_vec[k] = zs_vec[(k, 1)];
         z_vec[k] = Self::round(zb_vec[k]);
 
         let mut y = zb_vec[k] - z_vec[k];
@@ -170,7 +163,7 @@ impl LambdaAR {
                             s_mat[(k + 1, i)] + (z_vec[k + 1] - zb_vec[k + 1]) * l_mat[(k + 1, i)];
                     }
 
-                    zb_vec[k] = zs_vec[k] + s_mat[(k, k)];
+                    zb_vec[k] = zs_vec[(k, 1)] + s_mat[(k, k)];
                     z_vec[k] = Self::round(zb_vec[k]);
 
                     y = zb_vec[k] - z_vec[k];
@@ -247,10 +240,16 @@ impl LambdaAR {
         &mut self,
         ndf: usize,
         nfixed: usize,
-        x_vec: DVector<f64>,
-        q_mat: DMatrix<f64>,
+        x_vec: &DMatrix<f64>,
+        q_mat: &DMatrix<f64>,
         // sv_indexes: &DVector<(SV, usize)>,
     ) -> Result<(), Error> {
+        let (x_rows, x_cols) = (x_vec.nrows(), x_vec.ncols());
+        let (q_rows, q_cols) = (q_mat.nrows(), q_mat.ncols());
+
+        assert_eq!(x_cols, 1, "X is not a column vector!");
+        assert_eq!(x_rows, q_rows, "invalid X/Q dimensions!");
+
         let mut z_mat = DMatrix::<f64>::identity(ndf, ndf);
         let mut s_vec = DVector::<f64>::zeros(nfixed);
 
@@ -295,7 +294,7 @@ mod test {
     use crate::prelude::{Constellation, SV};
     use crate::tests::init_logger;
 
-    use nalgebra::{DMatrix, DVector, DimName, U10, U6};
+    use nalgebra::{DMatrix, DVector, DimName, U1, U10, U6};
 
     #[test]
     fn gauss_transform() {
@@ -331,14 +330,18 @@ mod test {
         //     (g06, 5),
         // ]);
 
-        let x = DVector::<f64>::from_row_slice(&[
-            1585184.171,
-            -6716599.430,
-            3915742.905,
-            7627233.455,
-            9565990.879,
-            989457273.200,
-        ]);
+        let x = DMatrix::<f64>::from_row_slice(
+            U6::USIZE,
+            U1::USIZE,
+            &[
+                1585184.171,
+                -6716599.430,
+                3915742.905,
+                7627233.455,
+                9565990.879,
+                989457273.200,
+            ],
+        );
 
         let q = DMatrix::<f64>::from_row_slice(
             U6::USIZE,
@@ -376,7 +379,7 @@ mod test {
         let ndf = U6::USIZE;
         let nfixed = 2;
 
-        lambda.run(ndf, nfixed, x, q).unwrap_or_else(|e| {
+        lambda.run(ndf, nfixed, &x, &q).unwrap_or_else(|e| {
             panic!("mlabmda search failed with {}", e);
         });
     }
@@ -387,18 +390,22 @@ mod test {
 
         let mut lambda = LambdaAR::default();
 
-        let a = DVector::<f64>::from_row_slice(&[
-            -13324172.755747,
-            -10668894.713608,
-            -7157225.010770,
-            -6149367.974367,
-            -7454133.571066,
-            -5969200.494550,
-            8336734.058423,
-            6186974.084502,
-            -17549093.883655,
-            -13970158.922370,
-        ]);
+        let a = DMatrix::<f64>::from_row_slice(
+            U10::USIZE,
+            U1::USIZE,
+            &[
+                -13324172.755747,
+                -10668894.713608,
+                -7157225.010770,
+                -6149367.974367,
+                -7454133.571066,
+                -5969200.494550,
+                8336734.058423,
+                6186974.084502,
+                -17549093.883655,
+                -13970158.922370,
+            ],
+        );
 
         let q = DMatrix::<f64>::from_row_slice(
             U10::USIZE,
@@ -438,7 +445,7 @@ mod test {
         let ndf = U10::USIZE;
         let nfixed = 2;
 
-        lambda.run(ndf, nfixed, a, q).unwrap_or_else(|e| {
+        lambda.run(ndf, nfixed, &a, &q).unwrap_or_else(|e| {
             panic!("mlabmda search failed with {}", e);
         });
     }

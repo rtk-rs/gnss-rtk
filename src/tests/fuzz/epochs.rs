@@ -10,8 +10,7 @@ use crate::{
         Almanac, Candidate, Config, Epoch, Error, Frame, Method, StaticSolver, UserParameters,
     },
     tests::{
-        bias::NullBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
-        OrbitsData, TestNumber,
+        ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData, TestNumber,
     },
 };
 

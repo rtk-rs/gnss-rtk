@@ -11,8 +11,7 @@ use crate::{
         UserParameters, SV,
     },
     tests::{
-        bias::NullBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
-        OrbitsData, TestNumber,
+        ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData, TestNumber,
     },
 };
 

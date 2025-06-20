@@ -140,7 +140,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-884.714669),
             )),
-            // OK
             Candidate::new(
                 E03,
                 t1_gpst,
@@ -154,7 +153,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-313.503498),
             )),
-            // OK
             Candidate::new(
                 E05,
                 t1_gpst,
@@ -168,7 +166,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-368.773276),
             )),
-            // OK
             Candidate::new(
                 E09,
                 t1_gpst,
@@ -182,7 +179,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(6017.682886),
             )),
-            // OK
             Candidate::new(
                 E13,
                 t1_gpst,
@@ -196,7 +192,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(401.847317),
             )),
-            // OK
             Candidate::new(
                 E15,
                 t1_gpst,
@@ -210,7 +205,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(862.330144),
             )),
-            // OK
             Candidate::new(
                 E24,
                 t1_gpst,
@@ -224,7 +218,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(5385.017319),
             )),
-            // OK
             Candidate::new(
                 E31,
                 t1_gpst,
@@ -238,7 +231,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-472.988096),
             )),
-            // OK
             Candidate::new(
                 E01,
                 t2_gpst,
@@ -252,7 +244,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-884.721810),
             )),
-            // OK
             Candidate::new(
                 E03,
                 t2_gpst,
@@ -266,7 +257,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-313.507266),
             )),
-            // OK
             Candidate::new(
                 E05,
                 t2_gpst,
@@ -280,7 +270,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-368.770391),
             )),
-            // OK
             Candidate::new(
                 E09,
                 t2_gpst,
@@ -294,7 +283,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(6017.671834),
             )),
-            // OK
             Candidate::new(
                 E13,
                 t2_gpst,
@@ -308,7 +296,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(401.847606),
             )),
-            // OK
             Candidate::new(
                 E15,
                 t2_gpst,
@@ -322,7 +309,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(862.328904),
             )),
-            // OK
             Candidate::new(
                 E24,
                 t2_gpst,
@@ -336,7 +322,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(5384.999417),
             )),
-            // OK
             Candidate::new(
                 E31,
                 t2_gpst,
@@ -350,7 +335,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-472.988276),
             )),
-            // OK
             Candidate::new(
                 E01,
                 t3_gpst,
@@ -364,7 +348,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-884.728967),
             )),
-            // OK
             Candidate::new(
                 E03,
                 t3_gpst,
@@ -378,7 +361,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-313.511002),
             )),
-            // OK
             Candidate::new(
                 E05,
                 t3_gpst,
@@ -392,7 +374,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-368.767474),
             )),
-            // OK
             Candidate::new(
                 E09,
                 t3_gpst,
@@ -406,7 +387,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(6017.660829),
             )),
-            // OK
             Candidate::new(
                 E13,
                 t3_gpst,
@@ -420,7 +400,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(401.847841),
             )),
-            // OK
             Candidate::new(
                 E15,
                 t3_gpst,
@@ -434,7 +413,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(862.327697),
             )),
-            // OK
             Candidate::new(
                 E24,
                 t3_gpst,
@@ -448,7 +426,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(5384.981517),
             )),
-            // OK
             Candidate::new(
                 E31,
                 t3_gpst,
@@ -462,7 +439,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-472.988448),
             )),
-            // OK
             Candidate::new(
                 E01,
                 t4_gpst,
@@ -476,7 +452,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-884.736121),
             )),
-            // OK
             Candidate::new(
                 E03,
                 t4_gpst,
@@ -490,7 +465,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-313.514700),
             )),
-            // OK
             Candidate::new(
                 E05,
                 t4_gpst,
@@ -504,7 +478,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-368.764558),
             )),
-            // OK
             Candidate::new(
                 E09,
                 t4_gpst,
@@ -518,7 +491,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(6017.649787),
             )),
-            // OK
             Candidate::new(
                 E13,
                 t4_gpst,
@@ -532,7 +504,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(401.848117),
             )),
-            // OK
             Candidate::new(
                 E15,
                 t4_gpst,
@@ -546,7 +517,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(862.326442),
             )),
-            // OK
             Candidate::new(
                 E24,
                 t4_gpst,
@@ -560,7 +530,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(5384.963584),
             )),
-            // OK
             Candidate::new(
                 E31,
                 t4_gpst,
@@ -574,7 +543,6 @@ impl CandidatesBuilder {
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-472.988574),
             )),
-            // OK
         ]
         .into_iter()
         .collect::<Vec<_>>()

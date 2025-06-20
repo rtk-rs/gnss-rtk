@@ -24,6 +24,7 @@ use nalgebra::{
     DVector,
     // DefaultAllocator,
     DimName,
+    U1,
     // OMatrix,
     U4,
 };
@@ -86,6 +87,12 @@ pub(crate) struct Navigation {
     /// [Kalman]
     kalman: Kalman,
 
+    /// Lmabda X
+    lambda_x: DMatrix<f64>,
+
+    /// Lmabda Q
+    lambda_q: DMatrix<f64>,
+
     /// [Lambda]
     lambda: LambdaAR,
 
@@ -103,6 +110,9 @@ pub(crate) struct Navigation {
 
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
+
+    /// Pending cs
+    pending_cs: Vec<SV>,
 
     /// Null of first iter
     prev_epoch: Option<Epoch>,
@@ -136,6 +146,9 @@ impl Navigation {
             f_diag: Vec::with_capacity(U4::USIZE),
             sv_indexes: Vec::with_capacity(U4::USIZE),
             x_vec: DVector::<f64>::zeros(U4::USIZE),
+            lambda_x: DMatrix::<f64>::zeros(U4::USIZE, U1::USIZE),
+            lambda_q: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
+            pending_cs: Vec::with_capacity(U4::USIZE),
             w_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
             g_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
             f_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
@@ -162,6 +175,7 @@ impl Navigation {
 
         self.prev_epoch = None;
         self.initialized = false;
+        self.pending_cs.clear();
 
         self.dop = DilutionOfPrecision::default();
     }
@@ -199,7 +213,12 @@ impl Navigation {
 
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
+
+            if self.cfg.method == Method::PPP {
+                // TODO rerun
+            }
         } else {
+            panic!("TODO");
             self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
             // self.kf_run(t, past_state, candidates, params, size, rtk_base, bias)?;
         }
@@ -240,6 +259,7 @@ impl Navigation {
         Ok(())
     }
 
+    /// Resets [Self] before a new run
     fn clear(&mut self) {
         self.sv.clear();
         self.sv_indexes.clear();
@@ -337,15 +357,16 @@ impl Navigation {
                 nrows *= 2;
             }
 
-            self.w_mat.resize_mut(nrows, nrows, 0.0);
-            self.g_mat.resize_mut(nrows, ndf, 0.0);
-
             // form W
+            self.w_mat.resize_mut(nrows, nrows, 0.0);
+
             for i in 0..nrows {
                 self.w_mat[(i, i)] = 1.0; // TODO: improve model
             }
 
             // form G
+            self.g_mat.resize_mut(nrows, ndf, 0.0);
+
             for (i, (_sv, index)) in self.sv_indexes.iter().enumerate() {
                 let dr_i = self.sv[i].relativistic_path_range_m;
 
@@ -468,13 +489,15 @@ impl Navigation {
 
         let initial_estimate = KfEstimate::new(&self.x_vec, &self.p_mat);
 
-        let ndf = self.x_vec.nrows();
+        let ndf = U4::USIZE;
+        let rows = self.x_vec.nrows();
+        let lambda_ndf = self.cp_vec.len();
 
-        let q_mat = params.q_matrix(ndf, Duration::ZERO);
+        let q_mat = params.q_matrix(ndf + lambda_ndf, Duration::ZERO);
         debug!("ndf={} Q={}", ndf, q_mat);
 
         // build F
-        self.f_mat = DMatrix::identity(ndf, ndf);
+        self.f_mat = DMatrix::identity(ndf + lambda_ndf, ndf + lambda_ndf);
         debug!("F={}", self.f_mat);
 
         self.kalman.initialize(&self.f_mat, q_mat, initial_estimate);
@@ -484,21 +507,26 @@ impl Navigation {
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
         if self.cfg.method == Method::PPP {
-            let lambda_ndf = nrows - Self::clock_index() - 1;
-
-            let mut lambda_x = DVector::<f64>::zeros(lambda_ndf);
-            let mut lambda_q = DMatrix::<f64>::zeros(lambda_ndf, lambda_ndf);
+            self.lambda_x.resize_mut(lambda_ndf, 1, 0.0);
+            self.lambda_q.resize_mut(lambda_ndf, lambda_ndf, 0.0);
 
             for i in 0..lambda_ndf {
                 for j in 0..lambda_ndf {
-                    lambda_q[(i, j)] =
+                    // TODO: mauvais indice
+                    // // TODO revoir Q Mat comment elle est construite
+                    self.lambda_q[(i, j)] =
                         self.p_mat[(i + Self::clock_index() + 1, j + Self::clock_index() + 1)];
                 }
-                lambda_x[i] = self.x_vec[i + Self::clock_index() + 1];
+                self.lambda_x[i] = self.x_vec[i + Self::clock_index() + 1];
             }
 
-            match self.lambda.run(lambda_ndf, lambda_ndf, lambda_x, lambda_q) {
-                Ok(_) => {},
+            match self
+                .lambda
+                .run(lambda_ndf, lambda_ndf, &self.lambda_x, &self.lambda_q)
+            {
+                Ok(_) => {
+                    // re-run here
+                },
                 Err(e) => {
                     error!("lambda search failed with {}", e);
                     return Err(e);
@@ -652,6 +680,7 @@ impl Navigation {
 
         // build F
         self.f_mat = DMatrix::identity(ndf, ndf);
+
         // build Q
         let q_mat = params.q_matrix(ndf, Duration::ZERO);
 
@@ -689,20 +718,24 @@ impl Navigation {
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
         if self.cfg.method == Method::PPP {
-            let lambda_ndf = ndf - Self::clock_index() - 1;
-
-            let mut lambda_x = DVector::<f64>::zeros(lambda_ndf);
-            let mut lambda_q = DMatrix::<f64>::zeros(lambda_ndf, lambda_ndf);
+            self.lambda_q.resize_mut(lambda_ndf, lambda_ndf, 0.0);
+            self.lambda_x.resize_mut(lambda_ndf, 1, 0.0);
 
             for i in 0..lambda_ndf {
                 for j in 0..lambda_ndf {
-                    lambda_q[(i, j)] =
+                    // TODO: mauvais indice
+                    // // TODO revoir Q Mat comment elle est construite
+                    self.lambda_q[(i, j)] =
                         self.p_mat[(i + Self::clock_index() + 1, j + Self::clock_index() + 1)];
                 }
-                lambda_x[i] = self.x_vec[i + Self::clock_index() + 1];
+
+                self.lambda_x[i] = self.x_vec[i + Self::clock_index() + 1];
             }
 
-            match self.lambda.run(lambda_ndf, lambda_ndf, lambda_x, lambda_q) {
+            match self
+                .lambda
+                .run(lambda_ndf, lambda_ndf, &self.lambda_x, &self.lambda_q)
+            {
                 Ok(_) => {},
                 Err(e) => {
                     error!("lambda search failed with {}", e);
@@ -719,26 +752,33 @@ impl Navigation {
         if self.dop.gdop > self.cfg.solver.max_gdop {
             return Err(Error::MaxGdopExceeded);
         }
+
         Ok(())
+    }
+
+    /// Notify slip event
+    pub fn notify_cycle_slip(&mut self, sv: &SV) {
+        self.pending_cs.push(*sv);
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::navigation::{DilutionOfPrecision, Navigation, State};
-    use nalgebra::{
-        DMatrix,
-        DVector,
-        //U4,
-    };
+
+    use nalgebra::{DMatrix, DVector, DimName, U4};
 
     #[test]
-    fn navigation_dimensions_clock_index() {
-        assert_eq!(Navigation::clock_index(), 3, "invalid clock index");
+    fn nav_clock_index() {
+        assert_eq!(
+            Navigation::clock_index(),
+            U4::USIZE - 1,
+            "invalid clock index"
+        );
     }
 
     #[test]
-    fn dilution_of_navigation_precision() {
+    fn nav_dop() {
         let state = State::default();
         let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
         let dop = DilutionOfPrecision::new(&state, matrix);

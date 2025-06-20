@@ -32,6 +32,7 @@ impl KfEstimate {
         }
     }
 
+    /// Initializes new [KfEstimate]
     pub fn new(x: &DVector<f64>, p: &DMatrix<f64>) -> Self {
         Self {
             p: p.clone(),
@@ -39,21 +40,7 @@ impl KfEstimate {
         }
     }
 
-    // /// Create new [KfEstimate] from dynamic Matrices
-    // pub fn new(x: DVector<f64>, p: DMatrix<f64>) -> Self {
-
-    //     let rows = x.nrows();
-    //     let (p_rows, p_cols) = (p.nrows(), p.ncols());
-
-    //     assert_eq!(rows, p_rows, "invalid initial x/p dimensions!");
-    //     assert_eq!(rows, p_cols, "invalid initialization: p is not square!");
-
-    //     Self {
-    //         p: p.clone(),
-    //         x: x.clone(),
-    //     }
-    // }
-
+    /// Initializes [KfEstimate] from static matrices
     pub fn from_static<D: DimName>(x: OVector<f64, D>, p: OMatrix<f64, D, D>) -> Self
     where
         D: DimName,
@@ -111,7 +98,6 @@ impl Kalman {
         let (q_rows, q_cols) = (q_k.nrows(), q_k.ncols());
 
         assert_eq!(f_rows, f_cols, "dimensions: F is not square");
-        assert_eq!(q_rows, q_cols, "dimensions: Q is not square");
         assert_eq!(f_rows, q_cols, "invalid F/Q dimensions");
         assert_eq!(f_cols, q_rows, "invalid F/Q dimensions");
 
@@ -159,6 +145,11 @@ impl Kalman {
 
         assert_eq!(w_rows, w_cols, "W is not square");
         assert_eq!(f_rows, f_cols, "F is not square");
+
+        assert_eq!(f_rows, q_cols, "invalid F/Q dimensions");
+        assert_eq!(f_cols, q_rows, "invalid F/Q dimensions");
+
+        assert_eq!(q_cols, g_cols, "invalid Q/G dimensions!");
         assert_eq!(f_cols, g_cols, "invalid F/G dimensions!");
         assert_eq!(y_rows, g_rows, "invalid Y/G dimensions!");
         assert_eq!(y_rows, w_rows, "invalid Y/W dimensions!");

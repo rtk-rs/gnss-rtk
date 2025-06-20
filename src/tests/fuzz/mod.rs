@@ -13,7 +13,7 @@ use crate::{
         UserParameters,
     },
     tests::{
-        bias::NullBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
+        bias::TestBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
         OrbitsData, TestNumber,
     },
 };
@@ -117,7 +117,7 @@ impl FuzzTest {
 
         let default_params = UserParameters::default();
 
-        let null_bias = NullBias {};
+        let bias = TestBias {};
         let null_time = NullTime {};
         let null_eph = NullEph {};
 
@@ -139,7 +139,7 @@ impl FuzzTest {
             null_eph.into(),
             orbits.into(),
             null_time,
-            null_bias,
+            bias,
             apriori,
         );
 

@@ -13,15 +13,19 @@ pub enum TroposphereModel {
 
 #[derive(Copy, Clone, Debug)]
 enum UNB3Param {
-    // pressure in mBar
+    /// Pressure in mBar
     Pressure = 0,
-    // temperature in Kelvin
+
+    /// temperature in Kelvin
     Temperature = 1,
-    // water vapour pressure in mBar
+
+    /// water vapour pressure in mBar
     WaterVapourPressure = 2,
-    // beta is temperature lapse rate (Kelvin/m)
+
+    /// beta is temperature lapse rate (Kelvin/m)
     Beta = 3,
-    // lambda is wvp height factor (N/A)
+
+    /// lambda is wvp height factor (N/A)
     Lambda = 4,
 }
 

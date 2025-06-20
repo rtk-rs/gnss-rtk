@@ -6,7 +6,7 @@ use crate::{
     navigation::apriori::Apriori,
     prelude::{Almanac, Config, Epoch, Error, Frame, Method, StaticSolver, UserParameters},
     tests::{
-        bias::NullBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
+        bias::TestBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
         OrbitsData, REFERENCE_COORDS_ECEF_M,
     },
 };
@@ -40,7 +40,7 @@ fn static_cpp() {
     let almanac = build_almanac();
     let earth_frame = build_earth_frame();
 
-    let null_bias = NullBias {};
+    let bias = TestBias {};
     let null_time = NullTime {};
     let null_eph = NullEph {};
 
@@ -53,7 +53,7 @@ fn static_cpp() {
         null_eph.into(),
         orbits_data.into(),
         null_time,
-        null_bias,
+        bias,
     );
 
     for (nth, epoch_str) in [
