@@ -557,6 +557,10 @@ impl Navigation {
                 Ok(vec) => {
                     self.pr_vec.push(vec.pr);
 
+                    if vec.pr < 0.0 {
+                        panic!("ERROR for {}", candidates[i].sv);
+                    }
+
                     if let Some(cp) = vec.cp {
                         self.cp_vec.push(cp);
                     }

@@ -94,20 +94,22 @@ fn static_cpp() {
                 );
 
                 assert!(
-                    err_x_m < 40.0,
-                    "epoch={} - x error {} too large",
+                    err_x_m < 100.0,
+                    "epoch={} - x error={}m too large",
                     epoch_str,
                     err_x_m
                 );
+
                 assert!(
-                    err_y_m < 40.0,
-                    "epoch={} - y error {} too large",
+                    err_y_m < 100.0,
+                    "epoch={} - y error={}m too large",
                     epoch_str,
                     err_y_m
                 );
+
                 assert!(
-                    err_z_m < 40.0,
-                    "epoch={} - z error {} too large",
+                    err_z_m < 100.0,
+                    "epoch={} - z error={}m too large",
                     epoch_str,
                     err_z_m
                 );

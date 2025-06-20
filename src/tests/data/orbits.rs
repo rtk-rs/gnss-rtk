@@ -345,13 +345,13 @@ impl OrbitsData {
 
 impl OrbitSource for OrbitsData {
     fn state_at(&self, epoch: Epoch, sv: SV, _: Frame) -> Option<Orbit> {
-        let dt_15min = Duration::from_hours(0.25);
+        let dt_1s = Duration::from_seconds(1.0);
 
         let orbit = self
             .map
             .iter()
             .filter_map(|(k, v)| {
-                if k.sv == sv && (k.epoch - epoch).abs() < dt_15min {
+                if k.sv == sv && (k.epoch - epoch).abs() < dt_1s {
                     Some(v)
                 } else {
                     None
