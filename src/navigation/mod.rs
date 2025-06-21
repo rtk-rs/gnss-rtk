@@ -12,6 +12,7 @@ pub(crate) mod solutions;
 mod dop;
 mod kalman;
 mod postfit;
+mod ppp;
 mod sv;
 
 pub(crate) mod state;
@@ -19,15 +20,15 @@ pub(crate) mod state;
 use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix};
 
 use crate::{
-    cfg::User,
     navigation::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
         kalman::{Kalman, KfEstimate},
         postfit::PostfitKf,
+        ppp::PrefitSolver as PPPPrefitSolver,
         state::State,
     },
-    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, SPEED_OF_LIGHT_M_S},
+    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, UserParameters, SPEED_OF_LIGHT_M_S},
     rtk::RTKBase,
 };
 
@@ -82,6 +83,9 @@ where
 
     /// Postfit [Kalman]
     postfit: Option<PostfitKf>,
+
+    /// PPP specific prefit
+    ppp_prefit: Option<PPPPrefitSolver>,
 
     /// True if this filter has been initialized
     pub initialized: bool,
@@ -180,8 +184,9 @@ where
     }
 
     /// Iterates mutable [Navigation] filter.
+    ///
     /// ## Input
-    /// - t: sampling [Epoch]
+    /// - epoch: sampling [Epoch]
     /// - user: [User] profile
     /// - past_state: past [State]
     /// - candidates: proposed [Candidate]s
@@ -190,8 +195,8 @@ where
     /// - bias: external [Bias] implementation
     pub fn solving<B: Bias, R: RTKBase>(
         &mut self,
-        t: Epoch,
-        user: User,
+        epoch: Epoch,
+        params: UserParameters,
         past_state: &State<D>,
         candidates: &[Candidate],
         size: usize,
@@ -200,13 +205,25 @@ where
     ) -> Result<(), Error> {
         self.clear();
 
+        // TODO: il y a un pb
+        // il faut que l'état interne au ppp_prefit soit MaJ egalement
+        // par le postfit KF et possiblement invalidé ou validé par ailleurs
+
+        if let Some(ppp_prefit) = &mut self.ppp_prefit {
+            ppp_prefit.run(epoch, candidates, size)?;
+        }
+
+        // TODO Q model
+        // self.q_k[(Self::clock_index(), Self::clock_index())] =
+        //     (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+
         self.q_k[(Self::clock_index(), Self::clock_index())] =
-            (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+            (100e-3 * SPEED_OF_LIGHT_M_S).powi(2);
 
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias)?;
+            self.kf_initialization(epoch, past_state, candidates, size, rtk_base, bias)?;
         } else {
-            self.kf_run(t, candidates, size, rtk_base, bias)?;
+            self.kf_run(epoch, candidates, size, rtk_base, bias)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -215,7 +232,7 @@ where
                     .prev_epoch
                     .expect("internal error: undetermined past epoch");
 
-                let dt = t - prev_epoch;
+                let dt = epoch - prev_epoch;
                 let dx = postfit.run(&self.state, dt)?;
 
                 // update state
@@ -224,7 +241,7 @@ where
                     .map_err(|e| {
                         error!(
                             "{} - postfit state update failed with physical error: {}",
-                            t, e
+                            epoch, e
                         );
                         Error::StateUpdate
                     })?;
@@ -239,7 +256,7 @@ where
             }
         }
 
-        self.prev_epoch = Some(t);
+        self.prev_epoch = Some(epoch);
         self.initialized = true;
 
         Ok(())
@@ -281,16 +298,16 @@ where
                 &mut contrib,
                 bias,
             ) {
-                Ok((y_i, r_i, dr_i)) => {
-                    self.y_k_vec.push(y_i);
-                    self.w_k_vec.push(1.0 / r_i);
+                Ok(vec) => {
+                    self.y_k_vec.push(vec.pr);
+                    self.w_k_vec.push(1.0); // TODO
                     self.indexes.push(i);
                     self.sv.push(contrib);
 
                     if self.cfg.modeling.relativistic_path_range {
                         debug!(
                             "{}({}) - relativistic path range: {:.3}m",
-                            t, candidates[i].sv, dr_i
+                            t, candidates[i].sv, vec.dr,
                         );
                     }
                 },
@@ -380,9 +397,9 @@ where
                     &mut unused,
                     bias,
                 ) {
-                    Ok((y_i, r_i, _)) => {
-                        self.y_k_vec.push(y_i);
-                        self.w_k_vec.push(1.0 / r_i);
+                    Ok(vec) => {
+                        self.y_k_vec.push(vec.pr);
+                        self.w_k_vec.push(1.0); // TODO
                         true
                     },
                     Err(e) => {
@@ -434,16 +451,16 @@ where
                 &mut contrib,
                 bias,
             ) {
-                Ok((y_i, r_i, dr_i)) => {
-                    self.y_k_vec.push(y_i);
-                    self.w_k_vec.push(1.0 / r_i);
+                Ok(vec) => {
+                    self.y_k_vec.push(vec.pr);
+                    self.w_k_vec.push(1.0); // TODO
                     self.indexes.push(i);
                     self.sv.push(contrib);
 
                     if self.cfg.modeling.relativistic_path_range {
                         debug!(
                             "{}({}) - relativistic path range: {:.3}m",
-                            t, candidates[i].sv, dr_i
+                            t, candidates[i].sv, vec.dr,
                         );
                     }
                 },

@@ -6,22 +6,30 @@ use crate::{bias::BiasRuntime, cfg::Error};
 /// [TroposphereModel]s that we propose, but you can also implement your own.
 #[derive(Default, Copy, Clone, Debug)]
 pub enum TroposphereModel {
+    /// This [TroposphereModel] uses an elevation and altitude dependent equation
     #[default]
     Niel,
+
+    /// This [TroposphereModel] uses a simplistic regional climate model
+    /// which adapts to the season
     UNB3,
 }
 
 #[derive(Copy, Clone, Debug)]
 enum UNB3Param {
-    // pressure in mBar
+    /// Pressure in mBar
     Pressure = 0,
-    // temperature in Kelvin
+
+    /// temperature in Kelvin
     Temperature = 1,
-    // water vapour pressure in mBar
+
+    /// water vapour pressure in mBar
     WaterVapourPressure = 2,
-    // beta is temperature lapse rate (Kelvin/m)
+
+    /// beta is temperature lapse rate (Kelvin/m)
     Beta = 3,
-    // lambda is wvp height factor (N/A)
+
+    /// lambda is wvp height factor (N/A)
     Lambda = 4,
 }
 
@@ -46,7 +54,7 @@ impl TroposphereModel {
         const G: f64 = 9.80665_f64;
         const G_M: f64 = 9.784_f64;
 
-        let day_of_year = rtm.t.day_of_year();
+        let day_of_year = rtm.epoch.day_of_year();
         let (lat_ddeg, _, h) = rtm.rx_lat_long_alt_deg_deg_km;
 
         let mut lat = 15.0_f64;
@@ -87,16 +95,16 @@ impl TroposphereModel {
 
         debug!(
             "{}: unb3 - [beta: {:.3}, p: {:.3}, temp: {:.3}, e: {:.3}, lambda: {:.3}",
-            rtm.t, beta, p, temp, e, lambda
+            rtm.epoch, beta, p, temp, e, lambda
         );
 
         debug!(
             "{}: unb3 - zdd(h=0) {:.3} zwd(h=0) {:.3}",
-            rtm.t, z0_zdd, z0_zwd,
+            rtm.epoch, z0_zdd, z0_zwd,
         );
         debug!(
             "{}: unb3 - zdd(h={:.3}) {} zwd(h={:.3}) {:.3}",
-            rtm.t, h, zdd, h, zwd
+            rtm.epoch, h, zdd, h, zwd
         );
 
         (zwd, zdd)

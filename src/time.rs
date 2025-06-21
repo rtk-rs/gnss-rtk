@@ -5,13 +5,14 @@ use crate::prelude::{Epoch, TimeScale};
 /// Correct implementation of this trait allows the temporal solution to follow
 /// the desired [TimeScale] behavior.
 pub trait AbsoluteTime {
-    /// Inform your solver that we're currently processing this new [Epoch].
+    /// Take into account that we're transitioning to a new [Epoch] (measurement Epoch).
     /// Because GNSS-RTK is synchronous, it is considered "now" and any past [Epoch]s will not
-    /// be processed again.
+    /// be ever processed again.
     fn new_epoch(&mut self, now: Epoch);
 
-    /// Perform the temporal translation of proposed [Epoch] in to targeted [TimeScale].
-    /// This method needs to apply at all times. If you don't know how to do this, simply return a copy
-    /// and your temporal solutions will be off by some offset.
-    fn epoch_correction(&self, t: Epoch, target: TimeScale) -> Epoch;
+    /// Convert provided [Epoch] into specified [TimeScale].
+    /// The default should be [Epoch::to_time_scale], which
+    /// applies at all times. Failure to implement this transition will offset your temporal
+    /// solution.
+    fn epoch_correction(&self, epoch: Epoch, timescale: TimeScale) -> Epoch;
 }

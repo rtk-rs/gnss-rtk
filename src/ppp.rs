@@ -5,32 +5,19 @@ use crate::{
         AbsoluteTime, Almanac, Bias, Candidate, Config, Epoch, Error, Frame, OrbitSource,
         PVTSolution, Rc, User, SV,
     },
-    rtk::RTKBase,
+    rtk::{RTKBase, NullRTK},
     solver::Solver,
 };
 
-struct NullRTK {}
-
-impl RTKBase for NullRTK {
-    fn name(&self) -> String {
-        "UNUSED".to_string()
-    }
-
-    fn observe(&mut self, _: Epoch, _: SV) -> Option<Candidate> {
-        None
-    }
-
-    fn reference_position_ecef_m(&self, _: Epoch) -> Option<(f64, f64, f64)> {
-        None
-    }
-}
-
-/// The [PPP] solver is used for absolute navigation, without access to an RTK network.
-/// It achieves the complex task of obtaining a [PVTSolution], possibly from scratch
-/// without any initial apriori.
-pub struct PPP<O: OrbitSource, B: Bias, T: AbsoluteTime> {
+/// [PPP] is an advanced navigation solver, capable of solving precise navigation
+/// [PVTSolution]s from either real-time or post-processed data. [PPP] supports
+/// both absolute navigation with [PPP::ppp_solving], differential navigation with
+/// [PPP::rtk_solving]. It can operate with or without apriori knowledge and offers
+/// three navigation strategies, expressed as [Method], that define what you must provide
+/// and the accuracy you can hope for.
+pub struct PPP<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> {
     /// Internal [Solver]
-    solver: Solver<U4, O, B, T>,
+    solver: Solver<EPH, ORB, B, TIM>,
 }
 
 impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
@@ -113,7 +100,7 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
     /// - candidates: proposed [Candidate]s
     /// ## Output
     /// - solution: as [PVTSolution]
-    pub fn resolve(
+    pub fn ppp_solving(
         &mut self,
         user: User,
         epoch: Epoch,
@@ -124,6 +111,19 @@ impl<O: OrbitSource, B: Bias, T: AbsoluteTime> PPP<O, B, T> {
 
         Ok(solution)
     }
+
+    // pub fn rtk_solving(
+    //     &mut self,
+    //     user: User,
+    //     epoch: Epoch,
+    //     candidates: &[Candidate],
+    //     rtk: RTK,
+    // ) -> Result<PVTSolution, Error> {
+    //     let null_base = NullRTK {};
+    //     let solution = self.solver.resolve(epoch, user, candidates, &null_base)?;
+
+    //     Ok(solution)
+    // }
 
     /// Reset [PPP] solver. This is usually not needed, even on data gaps.
     /// For the simple reason that a correctly tuned filter will correctly adapt.

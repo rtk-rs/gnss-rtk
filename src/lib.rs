@@ -9,22 +9,25 @@ extern crate gnss_rs as gnss;
 pub mod error;
 
 // private modules
-mod ambiguity;
-mod averager;
+// mod ambiguity;
+// mod averager;
 mod bancroft;
 mod bias;
 mod candidate;
 mod carrier;
 mod cfg;
+mod ephemeris;
+mod implementations;
 mod navigation;
 mod orbit;
 mod pool;
+mod rtk;
 mod smoothing;
 mod time;
+mod user;
+// mod kinematic;
 
 pub(crate) mod constants;
-pub(crate) mod ppp;
-pub(crate) mod rtk;
 pub(crate) mod solver;
 
 #[cfg(test)]
@@ -37,14 +40,17 @@ pub mod prelude {
         bias::{Bias, BiasRuntime, IonosphereBias, IonosphereModel, KbModel, TroposphereModel},
         candidate::{Candidate, ClockCorrection, Observation},
         carrier::{Carrier, Signal},
-        cfg::{Config, Method, Profile, User},
+        cfg::{Config, Method},
         constants::SPEED_OF_LIGHT_M_S,
+        ephemeris::{Ephemeris, EphemerisSource},
         error::Error,
+        implementations::{KinematicSolver, StaticSolver},
         navigation::PVTSolution,
         orbit::OrbitSource,
-        ppp::PPP,
-        rtk::{RTKBase, RTK},
+        rtk::RTKBase,
+        solver::Solver,
         time::AbsoluteTime,
+        user::{ClockProfile, UserParameters, UserProfile},
     };
 
     // std types

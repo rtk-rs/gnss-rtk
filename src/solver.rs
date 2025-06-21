@@ -9,29 +9,27 @@ use crate::{
     bancroft::Bancroft,
     bias::Bias,
     candidate::Candidate,
-    cfg::{Config, User},
+    cfg::Config,
+    ephemeris::EphemerisSource,
     navigation::{apriori::Apriori, state::State, Navigation, PVTSolution},
     orbit::OrbitSource,
     pool::Pool,
-    prelude::{Epoch, Error, Rc},
-    rtk::RTKBase,
+    prelude::{Epoch, Error, Rc, UserParameters},
+    rtk::{NullRTK, RTKBase},
     time::AbsoluteTime,
 };
 
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+use nalgebra::{DimName, U4};
 
 /// [Solver] to resolve [PVTSolution]s.
+///
 /// ## Generics:
-/// - O: [OrbitSource], custom Orbit provider.
+/// - EPH: [EphemerisSource] custom data source. Curreuntly unused: limited to [ORB] only!
+/// - ORB: [OrbitSource], custom Orbit data source.
 /// - B: custom [Bias] model.
-/// - T: [AbsoluteTime] source for correct absolute time
-pub struct Solver<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
-    /// Solver [Config]uration preset
+/// - TIM: [AbsoluteTime] source for correct absolute time
+pub struct Solver<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: AbsoluteTime> {
+    /// Solver [Config]uration
     pub cfg: Config,
 
     /// [Almanac]
@@ -40,34 +38,23 @@ where
     /// [Frame]
     earth_cef: Frame,
 
-    /// [OrbitSource]
-    orbit_source: Rc<O>,
-
     /// [Bias] model implementation
     bias: B,
 
     /// Pool
-    pool: Pool,
-
-    /// To invalidate first solution
-    first_solution: bool,
+    pool: Pool<EPH, ORB>,
 
     /// [Navigation] solver
-    navigation: Navigation<D>,
+    navigation: Navigation<U4>,
+
+    /// [AbsoluteTime] implementation
+    absolute_time: TIM,
 
     /// Possible initial position
     initial_ecef_m: Option<Vector3>,
-
-    /// [AbsoluteTime] implementation
-    absolute_time: T,
 }
 
-impl<D: DimName, O: OrbitSource, B: Bias, T: AbsoluteTime> Solver<D, O, B, T>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EPH, ORB, B, T> {
     /// Creates a new [Solver] for either direct or differential navigation,
     /// with possible apriori knowledge.
     ///
@@ -75,6 +62,8 @@ where
     /// - almanac: provided valid [Almanac]
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
+    /// - eph_source: custom [EphemerisSource], unavailable right now,
+    /// tie to null.
     /// - orbit_source: custom [OrbitSource] implementation,
     /// wrapped in a Rc<RefCell<>> which allows the solver
     /// and the orbital provider to live in the same thread.
@@ -86,12 +75,12 @@ where
         almanac: Almanac,
         earth_cef: Frame,
         cfg: Config,
-        orbit_source: Rc<O>,
+        eph_source: Rc<EPH>,
+        orbit_source: Rc<ORB>,
         absolute_time: T,
         bias: B,
         state_ecef_m: Option<(f64, f64, f64)>,
     ) -> Self {
-        // Analyze preset
         if cfg.externalref_delay.is_some() && !cfg.modeling.cable_delay {
             panic!("RF cable delay compensation is incorrectly defined!");
         }
@@ -112,30 +101,69 @@ where
             almanac,
             earth_cef,
             navigation,
-            orbit_source,
             absolute_time,
             initial_ecef_m,
             cfg: cfg.clone(),
-            first_solution: true,
-            pool: Pool::allocate(cfg.code_smoothing, earth_cef),
+            pool: Pool::allocate(cfg.code_smoothing, earth_cef, eph_source, orbit_source),
         }
     }
 
-    /// [PVTSolution] solving attempt.
+    /// [PVTSolution] solving attempt using PPP technique (no reference).
+    ///
     /// ## Input
-    /// - t: [Epoch] of observation
-    /// - user: [User] parameters that we will adapt to
-    /// - pool: proposed [Candidate]s
+    /// - epoch: [Epoch] of measurement
+    /// - params: [UserParameters]
+    /// - candidates: proposed [Candidate]s (= measurements)
     /// - rtk_base: possible [RTKBase] we will connect to
     ///
     /// ## Output
+    /// - success: [PVTSolution]
+    /// - failure: [Error]
+    pub fn ppp_solving(
+        &mut self,
+        epoch: Epoch,
+        params: UserParameters,
+        candidates: &[Candidate],
+    ) -> Result<PVTSolution, Error> {
+        let null_base = NullRTK {};
+        let solution = self.solving::<NullRTK>(epoch, params, candidates, &null_base, false)?;
+        Ok(solution)
+    }
+
+    /// [PVTSolution] solving attempt using RTK technique and a single reference
+    /// site. Switch to PPP at any point in your session, when access to remote
+    /// site is lost.
+    ///
+    /// :warning: This operation is not validated as of today.
+    ///
+    /// ## Input
+    /// - epoch: [Epoch] of measurement
+    /// - profile: [UserProfile]
+    /// - candidates: proposed [Candidate]s (= measurements)
+    /// - base: [RTKBase] implementation, that must provide enough information
+    /// for this to proceed. You may catch RTK related issues and
+    /// retry using PPP technique.
+    ///
+    /// ## Output
     /// - [PVTSolution].
-    pub fn resolve<RTK: RTKBase>(
+    pub fn rtk_solving<RTK: RTKBase>(
+        &mut self,
+        epoch: Epoch,
+        params: UserParameters,
+        candidates: &[Candidate],
+        base: &RTK,
+    ) -> Result<PVTSolution, Error> {
+        self.solving(epoch, params, candidates, base, true)
+    }
+
+    /// [PVTSolution] solving attempt.
+    fn solving<RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        user: User,
+        params: UserParameters,
         pool: &[Candidate],
         rtk_base: &RTK,
+        uses_rtk: bool,
     ) -> Result<PVTSolution, Error> {
         let ts = self.cfg.timescale;
 
@@ -145,6 +173,8 @@ where
             // no need to proceed further
             return Err(Error::NotEnoughCandidates);
         }
+
+        assert!(!uses_rtk, "RTK navigation is under development");
 
         self.pool.new_epoch(pool);
         self.pool.pre_fit(&self.cfg, &self.absolute_time);
@@ -166,9 +196,7 @@ where
             corrected
         };
 
-        let orbit_source = &self.orbit_source;
-
-        self.pool.orbital_states(&self.cfg, orbit_source);
+        self.pool.orbital_states(&self.cfg);
 
         // current state
         let state = if self.navigation.initialized {
@@ -183,7 +211,7 @@ where
                     });
 
                     debug!("{} - initial state: {}", t, state);
-                    self.navigation.state = state;
+                    self.navigation.state = state.clone();
                     state
                 },
                 None => {
@@ -198,14 +226,18 @@ where
                     });
 
                     debug!("{} - initial state: {}", t, state);
-                    self.navigation.state = state;
+                    self.navigation.state = state.clone();
                     state
                 },
             }
         };
 
         self.pool
-            .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state);
+            .post_fit(&self.almanac, self.earth_cef, &self.cfg, &state)
+            .map_err(|e| {
+                error!("{} - postfit error {}", t, e);
+                Error::PostfitPrenav
+            })?;
 
         let pool_size = self.pool.len();
 
@@ -216,7 +248,7 @@ where
         // Solving attempt
         match self.navigation.solving(
             t,
-            user,
+            params,
             &state,
             &self.pool.candidates(),
             pool_size,
@@ -244,12 +276,7 @@ where
             self.navigation.state = state;
         }
 
-        if self.first_solution {
-            self.first_solution = false;
-            Err(Error::InvalidatedFirstSolution)
-        } else {
-            Ok(solution)
-        }
+        Ok(solution)
     }
 
     /// Reset this [Solver].

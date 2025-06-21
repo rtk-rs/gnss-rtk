@@ -132,12 +132,12 @@ precision for people who have access to such data.
 Examples
 ========
 
-This library is no longer shipped with examples. But our framework hosts applications that illustrate
-all use cases: 
+This library is no longer shipped with examples, for the simple reason that they are complicated to maintain,
+and our framework now offers the two kind of applications you can think of to this library:
 
-- [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) is dedicated to post processing workflows (more complex workflow).
-- [RT-Navi](https://github.com/rtk-rs/rt-navi) is a real-time application which therefore, requires multi-threading and 
-respect the threading requirements. It is also hardware dependent (obviously).
+- [RT-Navi](https://github.com/rtk-rs/rt-navi) for real-time navigation, which is obviously hardware dependent,
+and involves multi-threading.
+- [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) for post-processed navigation, which is more complex
 
 Logs
 ====

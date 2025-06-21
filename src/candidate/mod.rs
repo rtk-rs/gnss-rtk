@@ -3,12 +3,15 @@ use hifitime::Unit;
 use log::debug;
 
 use crate::{
-    ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
+    // ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
     constants::SPEED_OF_LIGHT_M_S,
+    navigation::state::State,
     prelude::{Almanac, Config, Constellation, Duration, Epoch, Error, Orbit, Vector3, SV},
 };
 
 use anise::errors::AlmanacResult;
+
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 mod bias;
 mod ppp;
@@ -17,6 +20,9 @@ mod signal;
 
 pub mod clock;
 pub(crate) mod combination;
+
+#[cfg(test)]
+mod tests;
 
 pub use crate::{
     candidate::{clock::ClockCorrection, signal::Observation},
@@ -45,7 +51,7 @@ pub struct Candidate {
     pub(crate) tgd: Option<Duration>,
 
     /// Windup term in signal cycles
-    pub(crate) wind_up: f64,
+    pub(crate) windup: f64,
 
     /// [ClockCorrection]
     pub(crate) clock_corr: Option<ClockCorrection>,
@@ -84,7 +90,7 @@ impl Candidate {
             tgd: Default::default(),
             dt_tx: Default::default(),
             orbit: Default::default(),
-            wind_up: Default::default(),
+            windup: Default::default(),
             azimuth_deg: Default::default(),
             elevation_deg: Default::default(),
             clock_corr: Default::default(),
@@ -170,67 +176,64 @@ impl Candidate {
         }
     }
 
-    pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
-        let l1 = self.l1_phase_range()?;
-        let (f1_hz, l1) = (l1.0.frequency_hz(), l1.1);
-        let c1 = self.l1_pseudo_range()?.1;
+    // pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
+    //     let l1 = self.l1_phase_range()?;
+    //     let (f1_hz, l1) = (l1.0.frequency_hz(), l1.1);
+    //     let c1 = self.l1_pseudo_range()?.1;
 
-        let l2 = self.subsidary_phase_range()?;
-        let (f2_hz, l2) = (l2.0.frequency_hz(), l2.1);
-        let c2 = self.subsidary_pseudo_range()?.1;
+    //     let l2 = self.subsidary_phase_range()?;
+    //     let (f2_hz, l2) = (l2.0.frequency_hz(), l2.1);
+    //     let c2 = self.subsidary_pseudo_range()?.1;
 
-        Some(AmbiguityInput {
-            f1_hz,
-            c1,
-            l1,
-            f2_hz,
-            c2,
-            l2,
-            // f5_hz: None,
-            // c5: None,
-            // l5: None,
-        })
-    }
+    //     Some(AmbiguityInput {
+    //         f1_hz,
+    //         c1,
+    //         l1,
+    //         f2_hz,
+    //         c2,
+    //         l2,
+    //         // f5_hz: None,
+    //         // c5: None,
+    //         // l5: None,
+    //     })
+    // }
 
-    pub(crate) fn update_ambiguities(&mut self, output: Ambiguities) {
-        for obs in self.observations.iter_mut() {
-            if obs.carrier.is_l1() {
-                obs.ambiguity = Some(output.n1 as f64);
-            } else {
-                // TODO : improve
-                // this will not work for triple frequency scenarios
-                obs.ambiguity = Some(output.n2 as f64);
-            }
-        }
-    }
+    // pub(crate) fn update_ambiguities(&mut self, output: Ambiguities) {
+    //     for obs in self.observations.iter_mut() {
+    //         if obs.carrier.is_l1() {
+    //             obs.ambiguity = Some(output.n1 as f64);
+    //         } else {
+    //             // TODO : improve
+    //             // this will not work for triple frequency scenarios
+    //             obs.ambiguity = Some(output.n2 as f64);
+    //         }
+    //     }
+    // }
 
-    /// Computes phase windup term. Self should be fully resolved, otherwse
-    /// will panic.
-    pub(crate) fn windup_correction(&mut self, _: Vector3<f64>, _: Vector3<f64>) -> f64 {
-        0.0
-        // let state = self.state.unwrap();
-        // let r_sv = state.to_ecef();
+    /// Computes phase windup correction term.
+    pub(crate) fn phase_windup_correction<D: DimName>(
+        &mut self,
+        rx_state: &State<D>,
+        r_sun: Vector3<f64>,
+        past_correction: Option<f64>,
+    ) where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    {
+        let sv_state = self.orbit.expect("phase windup - unresolved state");
 
-        // let norm = (
-        //     (sun[0] - r_sv[0]).powi(2)
-        //     + (sun[1] - r_sv[1]).powi(2)
-        //     + (sun[2] - r_sv[2]).powi(2)
-        // ).sqrt();
+        let r_sv = sv_state.to_cartesian_pos_vel() * 1.0E3;
 
-        // let e = (r_sun - r_sv_mc ) / norm;
-        // let j = k.cross(e);
-        // let i = j.cross(k);
+        // todo self.yaw_attitude();
 
-        // let d_prime_norm = d_prime.norm();
-        // let d_norm = d.norm();
-        // let psi = pho * (d_prime.cross(d));
-        // let dphi = d_prime.dot(d) / d_prime.norm() / d.norm();
+        let r_rx = rx_state.position_ecef_m();
+        let r_sv = Vector3::new(r_sv[0], r_sv[1], r_sv[2]);
+        let r_rr_rs = r_rx - r_sv;
+        let e_r_rs = r_rr_rs.norm();
 
-        // let n = (self.delta_phi.unwrap_or(0.0) / 2.0 / PI).round();
-        // self.delta_phi = dphi + 2.0 * n;
-
-        // self.delta_phi
-        // self.wind_up =
+        self.windup = 0.0;
     }
 
     /// Computes signal transmission instant, as [Epoch]
@@ -268,6 +271,8 @@ impl Candidate {
 
         self.t_tx = t_tx;
         self.dt_tx = self.t - self.t_tx;
+
+        debug!("{}({}) tx delay {}", self.sv, self.t, self.dt_tx);
 
         Ok(())
     }

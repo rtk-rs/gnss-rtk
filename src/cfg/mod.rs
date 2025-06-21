@@ -6,16 +6,11 @@ use serde::{Deserialize, Serialize};
 mod method;
 mod modeling;
 mod solver;
-mod user;
 
 pub use crate::{
     carrier::Signal,
     cfg::solver::SolverOpts,
-    cfg::{
-        method::Method,
-        modeling::Modeling,
-        user::{Profile, User},
-    },
+    cfg::{method::Method, modeling::Modeling},
     prelude::TimeScale,
 };
 
@@ -24,6 +19,7 @@ pub use crate::{
 pub enum Error {
     #[error("invalid troposphere model")]
     InvalidTroposphereModel,
+
     #[error("invalid user profile")]
     InvalidUserProfile,
 }
@@ -64,6 +60,7 @@ const fn default_eclipse_rate_percent() -> f64 {
 pub struct InternalDelay {
     /// Delay [s]
     pub delay: f64,
+
     /// Carrier frequency [Hz]
     pub frequency: f64,
 }
