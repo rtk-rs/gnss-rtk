@@ -142,7 +142,7 @@ impl LambdaAR {
         let mut z_vec = DVector::<f64>::zeros(ndf);
         let mut step = DVector::<f64>::zeros(ndf);
 
-        zb_vec[k] = zs_vec[(k, 1)];
+        zb_vec[k] = zs_vec[(k, 0)];
         z_vec[k] = Self::round(zb_vec[k]);
 
         let mut y = zb_vec[k] - z_vec[k];
@@ -163,7 +163,7 @@ impl LambdaAR {
                             s_mat[(k + 1, i)] + (z_vec[k + 1] - zb_vec[k + 1]) * l_mat[(k + 1, i)];
                     }
 
-                    zb_vec[k] = zs_vec[(k, 1)] + s_mat[(k, k)];
+                    zb_vec[k] = zs_vec[(k, 0)] + s_mat[(k, k)];
                     z_vec[k] = Self::round(zb_vec[k]);
 
                     y = zb_vec[k] - z_vec[k];
@@ -245,7 +245,7 @@ impl LambdaAR {
         // sv_indexes: &DVector<(SV, usize)>,
     ) -> Result<(), Error> {
         let (x_rows, x_cols) = (x_vec.nrows(), x_vec.ncols());
-        let (q_rows, q_cols) = (q_mat.nrows(), q_mat.ncols());
+        let (q_rows, _q_cols) = (q_mat.nrows(), q_mat.ncols());
 
         assert_eq!(x_cols, 1, "X is not a column vector!");
         assert_eq!(x_rows, q_rows, "invalid X/Q dimensions!");
@@ -268,6 +268,9 @@ impl LambdaAR {
         Self::reduction(ndf, &mut l_mat, &mut d_diag, &mut z_mat);
 
         let zs_vec = z_mat.clone() * x_vec;
+
+        assert_eq!(zs_vec.ncols(), 1, "zs is not a vector!");
+        assert_eq!(zs_vec.nrows(), x_rows, "Zs / X dimension issue!");
 
         debug!("search - z={}", zs_vec);
 
