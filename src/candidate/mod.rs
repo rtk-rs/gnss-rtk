@@ -11,7 +11,7 @@ use crate::{
 
 use anise::errors::AlmanacResult;
 
-// use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 mod bias;
 mod ppp;
@@ -211,12 +211,17 @@ impl Candidate {
     // }
 
     /// Computes phase windup correction term.
-    pub(crate) fn phase_windup_correction(
+    pub(crate) fn phase_windup_correction<D: DimName>(
         &mut self,
-        rx_state: &State,
+        rx_state: &State<D>,
         r_sun: Vector3<f64>,
         past_correction: Option<f64>,
-    ) {
+    ) where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    {
         let sv_state = self.orbit.expect("phase windup - unresolved state");
 
         let r_sv = sv_state.to_cartesian_pos_vel() * 1.0E3;

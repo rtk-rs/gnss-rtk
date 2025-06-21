@@ -4,7 +4,7 @@ use crate::{
     prelude::{Epoch, TimeScale},
 };
 
-// use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
+use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -19,6 +19,9 @@ pub struct PVTSolution {
 
     /// Position solution, expressed in meters (ECEF).
     pub pos_m: (f64, f64, f64),
+
+    /// Velocity solution, expressed in meters.s⁻¹ (ECEF).
+    pub vel_m_s: (f64, f64, f64),
 
     /// Latitude, longitude and altitude above mean sea level,
     /// in degrees and meters.
@@ -48,12 +51,18 @@ pub struct PVTSolution {
 }
 
 impl PVTSolution {
-    pub(crate) fn new(
+    pub(crate) fn new<D: DimName>(
         epoch: Epoch,
-        state: &State,
+        state: &State<D>,
         dop: &DilutionOfPrecision,
         contributions: &[SVContribution],
-    ) -> Self {
+    ) -> Self
+    where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    {
         let pos_vel_ecef_m = state.position_velocity_ecef_m();
         let (clock_offset_s, _) = state.clock_profile_s();
 
@@ -72,6 +81,7 @@ impl PVTSolution {
             sv: contributions.to_vec(),
             timescale: state.t.time_scale,
             pos_m: (pos_vel_ecef_m[0], pos_vel_ecef_m[1], pos_vel_ecef_m[2]),
+            vel_m_s: (pos_vel_ecef_m[3], pos_vel_ecef_m[4], pos_vel_ecef_m[5]),
         }
     }
 }

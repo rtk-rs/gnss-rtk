@@ -19,6 +19,8 @@ use crate::{
     time::AbsoluteTime,
 };
 
+use nalgebra::{DimName, U4};
+
 /// [Solver] to resolve [PVTSolution]s.
 ///
 /// ## Generics:
@@ -43,7 +45,7 @@ pub struct Solver<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, TIM: Absolute
     pool: Pool<EPH, ORB>,
 
     /// [Navigation] solver
-    navigation: Navigation,
+    navigation: Navigation<U4>,
 
     /// [AbsoluteTime] implementation
     absolute_time: TIM,

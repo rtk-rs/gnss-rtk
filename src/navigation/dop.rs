@@ -1,4 +1,6 @@
-use nalgebra::{DMatrix, DimName, Matrix3, U4};
+use nalgebra::{
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Matrix3, OVector, U4,
+};
 
 use crate::navigation::state::State;
 
@@ -52,7 +54,11 @@ impl DilutionOfPrecision {
     /// ## Inut
     /// - new [State]
     /// - g_g_t = (G * GT)⁻¹ matrix
-    pub fn new(state: &State, g_gt_inv: DMatrix<f64>) -> Self {
+    pub fn new<D: DimName>(state: &State<D>, g_gt_inv: DMatrix<f64>) -> Self
+    where
+        DefaultAllocator: Allocator<D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+    {
         let (nrows, ncols) = (g_gt_inv.nrows(), g_gt_inv.ncols());
 
         assert!(nrows >= U4::USIZE, "invalid (G.G)⁻¹ dimensions");
