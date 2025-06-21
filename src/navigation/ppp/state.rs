@@ -5,6 +5,7 @@ use nalgebra::{
     DimName,
     OVector,
     U4,
+    U8,
 };
 
 use anise::{
@@ -24,23 +25,15 @@ pub struct State {
     /// [Epoch]
     pub t: Epoch,
 
-    /// Internal [OVector]
-    x: OVector<f64, U4>,
-
-    /// Clock drift (s.s⁻¹)
-    clock_drift_s_s: f64,
-
-    /// Geodetic position (ddeg, ddeg, km above mean sea level)
-    pub lat_long_alt_deg_deg_km: (f64, f64, f64),
+    /// Internal [DVector]
+    x: DVector<f64>,
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
             t: Default::default(),
-            x: OVector::<f64, U4>::zeros(),
-            clock_drift_s_s: Default::default(),
-            lat_long_alt_deg_deg_km: Default::default(),
+            x: DVector::<f64>::zeros(U8::USIZE),
         }
     }
 }
@@ -75,7 +68,6 @@ impl State {
     /// Create new [State] from [Orbit]al solution.
     pub fn from_orbit(orbit: &Orbit) -> PhysicsResult<Self> {
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
-        let latlongalt = orbit.latlongalt()?;
 
         let mut x = OVector::<f64, U4>::zeros();
 
@@ -87,7 +79,6 @@ impl State {
             x,
             t: orbit.epoch,
             clock_drift_s_s: 0.0_f64,
-            lat_long_alt_deg_deg_km: latlongalt,
         })
     }
 
@@ -134,12 +125,12 @@ impl State {
 
         if dt > 0.0 {
             self.clock_drift_s_s = (dx[Navigation::<U4>::clock_index()] / SPEED_OF_LIGHT_M_S
-                - self.x[Navigation::clock_index()])
+                - self.x[Navigation::<U4>::clock_index()])
                 / dt;
         }
 
         for i in 0..U4::USIZE {
-            if i == Navigation::clock_index() {
+            if i == Navigation::<U4>::clock_index() {
                 self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
             } else {
                 self.x[i] += dx[i];
@@ -148,25 +139,8 @@ impl State {
 
         // update attitude
         let new_orbit = self.to_orbit(frame);
-        self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
         self.t = pending_t;
-
-        Ok(())
-    }
-
-    /// Temporal update
-    pub fn postfit_update_mut(&mut self, frame: Frame, dx: DVector<f64>) -> PhysicsResult<()> {
-        let nrows = std::cmp::min(dx.nrows(), self.x.nrows());
-
-        for i in 0..nrows {
-            if i != Navigation::<U4>::clock_index() {
-                self.x[i] = dx[i];
-            }
-        }
-
-        let new_orbit = self.to_orbit(frame);
-        self.lat_long_alt_deg_deg_km = new_orbit.latlongalt()?;
 
         Ok(())
     }

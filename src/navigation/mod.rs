@@ -205,6 +205,10 @@ where
     ) -> Result<(), Error> {
         self.clear();
 
+        // TODO: il y a un pb
+        // il faut que l'état interne au ppp_prefit soit MaJ egalement
+        // par le postfit KF et possiblement invalidé ou validé par ailleurs
+
         if let Some(ppp_prefit) = &mut self.ppp_prefit {
             ppp_prefit.run(epoch, candidates, size)?;
         }

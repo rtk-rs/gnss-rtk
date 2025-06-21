@@ -17,7 +17,7 @@ use crate::{
             lambda::LambdaAR,
             state::State,
         },
-        SVContribution,
+        Navigation, SVContribution,
     },
     prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, Method, SV},
     rtk::RTKBase,
