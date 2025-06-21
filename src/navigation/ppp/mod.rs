@@ -10,10 +10,14 @@ mod state;
 use nalgebra::{DMatrix, DVector, DimName, U1, U4, U8};
 
 use crate::{
-    navigation::ppp::{
-        kalman::{Kalman, KfEstimate},
-        lambda::LambdaAR,
-        state::State,
+    navigation::{
+        dop::DilutionOfPrecision,
+        ppp::{
+            kalman::{Kalman, KfEstimate},
+            lambda::LambdaAR,
+            state::State,
+        },
+        SVContribution,
     },
     prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, Method, SV},
     rtk::RTKBase,
@@ -24,6 +28,8 @@ use crate::{
 pub struct PrefitSolver {
     /// [Config] preset
     cfg: Config,
+
+    frame: Frame,
 
     /// Y allocation
     y_vec: Vec<f64>,
@@ -67,6 +73,9 @@ pub struct PrefitSolver {
     /// True if this filter has been initialized
     pub initialized: bool,
 
+    /// [DilutionOfPrecision]
+    pub dop: DilutionOfPrecision,
+
     /// current [State]
     state: State,
 
@@ -98,6 +107,7 @@ impl PrefitSolver {
             f_diag: Vec::with_capacity(U8::USIZE),
             sv_indexes: Vec::with_capacity(U8::USIZE),
             x_vec: DVector::<f64>::zeros(U8::USIZE),
+            dop: DilutionOfPrecision::default(),
             lambda_x: DMatrix::<f64>::zeros(U4::USIZE, U1::USIZE),
             lambda_q: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
             w_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
@@ -124,7 +134,7 @@ impl PrefitSolver {
     /// - size: number of proposed [Cadndidate]s
     /// - rtk_base: possible [RTKBase] implementation]
     /// - bias: external [Bias] implementation
-    pub fn solving<B: Bias, R: RTKBase>(
+    pub fn run<B: Bias, R: RTKBase>(
         &mut self,
         t: Epoch,
         params: UserParameters,
@@ -143,42 +153,8 @@ impl PrefitSolver {
 
         if !self.kalman.initialized {
             self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
-
-            if self.cfg.method == Method::PPP {
-                // TODO rerun
-            }
         } else {
             self.kf_run(t, candidates, params, size, rtk_base, bias)?;
-        }
-
-        if self.cfg.solver.postfit_denoising > 0.0 {
-            if let Some(postfit) = &mut self.postfit {
-                let prev_epoch = self
-                    .prev_epoch
-                    .expect("internal error: undetermined past epoch");
-
-                let dt = t - prev_epoch;
-                let dx = postfit.run(&self.state, dt)?;
-
-                // update state
-                self.state
-                    .postfit_update_mut(self.frame, dx.x)
-                    .map_err(|e| {
-                        error!(
-                            "{} - postfit state update failed with physical error: {}",
-                            t, e
-                        );
-                        Error::StateUpdate
-                    })?;
-            } else {
-                self.postfit = Some(PostfitKf::new(
-                    &self.state,
-                    1.0 / self.cfg.solver.postfit_denoising,
-                    1.0 / self.cfg.solver.postfit_denoising,
-                    1.0,
-                    1.0,
-                ));
-            }
         }
 
         self.prev_epoch = Some(t);
@@ -192,14 +168,12 @@ impl PrefitSolver {
         self.sv.clear();
         self.sv_indexes.clear();
 
-        self.pr_vec.clear();
-        self.cp_vec.clear();
-
+        self.y_vec.clear();
         self.w_diag.clear();
         self.f_diag.clear();
 
-        self.w_mat = DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE);
-        self.f_mat = DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE);
+        self.w_mat = DMatrix::<f64>::zeros(U8::USIZE, U8::USIZE);
+        self.f_mat = DMatrix::<f64>::zeros(U8::USIZE, U8::USIZE);
     }
 
     /// Arming internal core.
@@ -221,8 +195,6 @@ impl PrefitSolver {
         for i in 0..size {
             let mut contrib = SVContribution::default();
 
-            contrib.sv = candidates[i].sv;
-
             let position_m = pending.position_ecef_m();
 
             match candidates[i].vector_contribution(
@@ -234,14 +206,12 @@ impl PrefitSolver {
                 bias,
             ) {
                 Ok(vec) => {
-                    self.pr_vec.push(vec.pr);
+                    self.y_vec.push(vec.pr);
 
-                    if let Some(cp) = vec.cp {
-                        self.cp_vec.push(cp);
-                    }
+                    let cp = vec.cp.expect("internal error: missing measurement (TODO)");
+                    self.y_vec.push(cp);
 
-                    self.w_diag.push(1.0); // TODO
-
+                    self.w_diag.push(1.0); // TODO: improve model
                     self.sv.push(contrib);
                     self.sv_indexes.push((candidates[i].sv, i));
 
@@ -258,32 +228,19 @@ impl PrefitSolver {
             }
         }
 
-        let nrows = self.pr_vec.len();
+        let nrows = self.y_vec.len();
 
         // verifications prior moving forward
-        if nrows < U4::USIZE {
+        if nrows < U8::USIZE {
             // maths limitations: do not propose
             return Err(Error::MatrixMinimalDimension);
         }
 
-        if self.cfg.method == Method::PPP {
-            // dimensions must match: do not propose
-            if self.cp_vec.len() != nrows {
-                return Err(Error::MissingPhaseRangeMeasurements);
-            }
-        }
-
         // run
         for _ in 0..nb_iter {
-            let mut nrows = self.pr_vec.len();
-            let lambda_ndf = self.cp_vec.len();
-
-            let mut ndf = U4::USIZE;
-
-            if self.cfg.method == Method::PPP {
-                ndf += lambda_ndf;
-                nrows *= 2;
-            }
+            let ndf = U4::USIZE;
+            let nrows = self.y_vec.len();
+            let lambda_ndf = nrows - ndf;
 
             // form W
             self.w_mat.resize_mut(nrows, nrows, 0.0);
@@ -303,25 +260,15 @@ impl PrefitSolver {
                 let (dx, dy, dz) =
                     candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
-                self.g_mat[(i, Self::clock_index())] = 1.0;
+                self.g_mat[(2 * i, 0)] = dx;
+                self.g_mat[(2 * i, 1)] = dy;
+                self.g_mat[(2 * i, 2)] = dz;
+                self.g_mat[(2 * i, Navigation::<U4>::clock_index())] = 1.0;
 
-                if self.cfg.method == Method::PPP {
-                    self.g_mat[(2 * i, 0)] = dx;
-                    self.g_mat[(2 * i, 1)] = dy;
-                    self.g_mat[(2 * i, 2)] = dz;
-                    self.g_mat[(2 * i, Self::clock_index())] = 1.0;
-
-                    self.g_mat[(2 * i + 1, 0)] = dx;
-                    self.g_mat[(2 * i + 1, 1)] = dy;
-                    self.g_mat[(2 * i + 1, 2)] = dz;
-                    self.g_mat[(2 * i + 1, Self::clock_index())] = 1.0;
-                    self.g_mat[(2 * i + 1, Self::clock_index() + i + 1)] = 1.0;
-                } else {
-                    self.g_mat[(i, 0)] = dx;
-                    self.g_mat[(i, 1)] = dy;
-                    self.g_mat[(i, 2)] = dz;
-                    self.g_mat[(i, Self::clock_index())] = 1.0;
-                }
+                self.g_mat[(2 * i + 1, 0)] = dx;
+                self.g_mat[(2 * i + 1, 1)] = dy;
+                self.g_mat[(2 * i + 1, 2)] = dz;
+                self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index())] = 1.0;
             }
 
             debug!(
@@ -339,22 +286,8 @@ impl PrefitSolver {
             let gt_w_g_inv_gt = gt_w_g_inv.clone() * gt.clone();
             let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.w_mat.clone();
 
-            let mut y = DVector::<f64>::zeros(nrows); // TODO: improve malloc
-
-            let n_sup = if self.cfg.method == Method::PPP {
-                nrows / 2
-            } else {
-                nrows
-            };
-
-            for i in 0..n_sup {
-                if self.cfg.method == Method::PPP {
-                    y[2 * i] = self.pr_vec[i];
-                    y[2 * i + 1] = self.cp_vec[i];
-                } else {
-                    y[i] = self.pr_vec[i];
-                }
-            }
+            // TODO: improve malloc
+            let mut y = DVector::<f64>::from_row_slice(nrows, &self.y_vec);
 
             debug!("Y: {}", y);
 
@@ -377,8 +310,7 @@ impl PrefitSolver {
             debug!("{} - pending state {}", t, pending);
 
             // update models
-            self.pr_vec.clear();
-            self.cp_vec.clear();
+            self.y_vec.clear();
             self.w_diag.clear();
 
             self.sv_indexes.retain(|(_, i)| {
@@ -395,11 +327,10 @@ impl PrefitSolver {
                     bias,
                 ) {
                     Ok(vec) => {
-                        self.pr_vec.push(vec.pr);
+                        self.y_vec.push(vec.pr);
 
-                        if let Some(cp) = vec.cp {
-                            self.cp_vec.push(cp);
-                        }
+                        let cp = vec.cp.expect("internal error: missing measurement (TODO)");
+                        self.y_vec.push(cp);
 
                         self.w_diag.push(1.0); // TODO: improve model
                         true
@@ -418,8 +349,8 @@ impl PrefitSolver {
         let initial_estimate = KfEstimate::new(&self.x_vec, &self.p_mat);
 
         let ndf = U4::USIZE;
-        let rows = self.x_vec.nrows();
-        let lambda_ndf = self.cp_vec.len();
+        let nrows = self.x_vec.nrows();
+        let lambda_ndf = nrows - ndf;
 
         let q_mat = params.q_matrix(ndf + lambda_ndf, Duration::ZERO);
         debug!("ndf={} Q={}", ndf, q_mat);
@@ -434,31 +365,28 @@ impl PrefitSolver {
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
-        if self.cfg.method == Method::PPP {
-            self.lambda_x.resize_mut(lambda_ndf, 1, 0.0);
-            self.lambda_q.resize_mut(lambda_ndf, lambda_ndf, 0.0);
+        self.lambda_x.resize_mut(lambda_ndf, 1, 0.0);
+        self.lambda_q.resize_mut(lambda_ndf, lambda_ndf, 0.0);
 
-            for i in 0..lambda_ndf {
-                for j in 0..lambda_ndf {
-                    // TODO mauvais indice - revoir comment Q Mat est construite
-                    self.lambda_q[(i, j)] =
-                        self.p_mat[(i + Self::clock_index() + 1, j + Self::clock_index() + 1)];
-                }
-                self.lambda_x[i] = self.x_vec[i + Self::clock_index() + 1];
+        for i in 0..lambda_ndf {
+            for j in 0..lambda_ndf {
+                self.lambda_q[(i, j)] = self.p_mat[(
+                    i + Navigation::<U4>::clock_index() + 1,
+                    j + Navigation::<U4>::clock_index() + 1,
+                )];
             }
+            self.lambda_x[i] = self.x_vec[i + Navigation::<U4>::clock_index() + 1];
+        }
 
-            match self
-                .lambda
-                .run(lambda_ndf, lambda_ndf, &self.lambda_x, &self.lambda_q)
-            {
-                Ok(_) => {
-                    // re-run here
-                },
-                Err(e) => {
-                    error!("lambda search failed with {}", e);
-                    return Err(e);
-                },
-            }
+        match self
+            .lambda
+            .run(lambda_ndf, lambda_ndf, &self.lambda_x, &self.lambda_q)
+        {
+            Ok(_) => {},
+            Err(e) => {
+                error!("lambda search failed with {}", e);
+                return Err(e);
+            },
         }
 
         Ok(())

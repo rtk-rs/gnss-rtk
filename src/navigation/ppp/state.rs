@@ -15,7 +15,7 @@ use anise::{
 
 use crate::{
     constants::SPEED_OF_LIGHT_M_S,
-    navigation::{ambiguity::Ambiguity, Apriori, Navigation},
+    navigation::{Apriori, Navigation},
     prelude::Orbit,
 };
 
@@ -26,9 +26,6 @@ pub struct State {
 
     /// Internal [OVector]
     x: OVector<f64, U4>,
-
-    /// [Ambiguity] [DVector]
-    ambiguities: DVector<Ambiguity>,
 
     /// Clock drift (s.s⁻¹)
     clock_drift_s_s: f64,
@@ -43,7 +40,6 @@ impl Default for State {
             t: Default::default(),
             x: OVector::<f64, U4>::zeros(),
             clock_drift_s_s: Default::default(),
-            ambiguities: DVector::<Ambiguity>::zeros(U4::USIZE),
             lat_long_alt_deg_deg_km: Default::default(),
         }
     }
@@ -54,19 +50,11 @@ impl std::fmt::Display for State {
         let position_vel_m = self.position_velocity_ecef_m();
         let (offset, drift) = self.clock_profile_s();
 
-        if self.ambiguities.is_empty() {
-            write!(
-                f,
-                "{} dt={:.11E}s drift={:.11E}s/s {}",
-                position_vel_m, offset, drift, self.ambiguities,
-            )
-        } else {
-            write!(
-                f,
-                "{} dt={:.11E}s drift={:.11E}s/s",
-                position_vel_m, offset, drift,
-            )
-        }
+        write!(
+            f,
+            "{} dt={:.11E}s drift={:.11E}s/s",
+            position_vel_m, offset, drift,
+        )
     }
 }
 
@@ -100,7 +88,6 @@ impl State {
             t: orbit.epoch,
             clock_drift_s_s: 0.0_f64,
             lat_long_alt_deg_deg_km: latlongalt,
-            ambiguities: DVector::<Ambiguity>::zeros(U4::USIZE),
         })
     }
 
@@ -120,7 +107,10 @@ impl State {
 
     /// Returns estimated clock (offset, drift) in seconds and s.s⁻¹.
     pub fn clock_profile_s(&self) -> (f64, f64) {
-        (self.x[Navigation::clock_index()], self.clock_drift_s_s)
+        (
+            self.x[Navigation::<U4>::clock_index()],
+            self.clock_drift_s_s,
+        )
     }
 
     /// Converts [State] to [Orbit]
@@ -143,7 +133,7 @@ impl State {
         let dt = (pending_t - self.t).to_seconds();
 
         if dt > 0.0 {
-            self.clock_drift_s_s = (dx[Navigation::clock_index()] / SPEED_OF_LIGHT_M_S
+            self.clock_drift_s_s = (dx[Navigation::<U4>::clock_index()] / SPEED_OF_LIGHT_M_S
                 - self.x[Navigation::clock_index()])
                 / dt;
         }
@@ -170,7 +160,7 @@ impl State {
         let nrows = std::cmp::min(dx.nrows(), self.x.nrows());
 
         for i in 0..nrows {
-            if i != Navigation::clock_index() {
+            if i != Navigation::<U4>::clock_index() {
                 self.x[i] = dx[i];
             }
         }
@@ -224,7 +214,7 @@ mod test {
         let earth_frame = build_earth_frame();
         let apriori = build_reference_apriori();
 
-        let initial_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+        let initial_state = State::<U4>::from_apriori(&apriori).unwrap_or_else(|e| {
             panic!(
                 "Failed to build initial state from reference apriori: {}",
                 e

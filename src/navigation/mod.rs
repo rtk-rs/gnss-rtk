@@ -206,7 +206,6 @@ where
         self.clear();
 
         if let Some(ppp_prefit) = &mut self.ppp_prefit {
-            ppp_prefit.clear();
             ppp_prefit.run(epoch, candidates, size)?;
         }
 
