@@ -6,8 +6,12 @@ use crate::{bias::BiasRuntime, cfg::Error};
 /// [TroposphereModel]s that we propose, but you can also implement your own.
 #[derive(Default, Copy, Clone, Debug)]
 pub enum TroposphereModel {
+    /// This [TroposphereModel] uses an elevation and altitude dependent equation
     #[default]
     Niel,
+
+    /// This [TroposphereModel] uses a simplistic regional climate model
+    /// which adapts to the season
     UNB3,
 }
 
