@@ -271,10 +271,7 @@ impl PrefitSolver {
                 self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index())] = 1.0;
             }
 
-            debug!(
-                "G: {} W: {} PR: {:#?} CP: {:#?}",
-                self.g_mat, self.w_mat, self.pr_vec, self.cp_vec
-            );
+            debug!("G: {} W: {}", self.g_mat, self.w_mat,);
 
             // run
             let gt = self.g_mat.transpose();
@@ -421,10 +418,10 @@ impl PrefitSolver {
                 bias,
             ) {
                 Ok(vec) => {
-                    self.pr_vec.push(vec.pr);
+                    self.y_vec.push(vec.pr);
 
                     if let Some(cp) = vec.cp {
-                        self.cp_vec.push(cp);
+                        self.y_vec.push(cp);
                     }
 
                     self.w_diag.push(1.0); // TODO
@@ -445,33 +442,19 @@ impl PrefitSolver {
             }
         }
 
-        let nrows = self.pr_vec.len();
+        let ndf = U8::USIZE;
+        let nrows = self.y_vec.len();
 
         // verifications prior moving forward
-        if nrows < U4::USIZE {
+        if nrows < U8::USIZE {
             // maths limitations: do not propose
             return Err(Error::MatrixMinimalDimension);
         }
 
-        if self.cfg.method == Method::PPP {
-            // dimensions must match: do not propose
-            if self.cp_vec.len() != nrows {
-                return Err(Error::MissingPhaseRangeMeasurements);
-            }
-        }
-
-        let mut ndf = U4::USIZE;
-        let mut nrows = self.pr_vec.len();
-        let mut lambda_ndf = 0;
-
-        if self.cfg.method == Method::PPP {
-            lambda_ndf = self.cp_vec.len();
-            ndf += lambda_ndf;
-            nrows *= 2;
-        }
+        let lambda_ndf = nrows - ndf;
 
         self.w_mat.resize_mut(nrows, nrows, 0.0);
-        self.g_mat.resize_mut(nrows, ndf, 0.0);
+        self.g_mat.reize_mut(nrows, ndf, 0.0);
 
         // form W
         for i in 0..nrows {
@@ -486,49 +469,21 @@ impl PrefitSolver {
 
             let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
 
-            self.g_mat[(i, Self::clock_index())] = 1.0;
+            self.g_mat[(2 * i, 0)] = dx;
+            self.g_mat[(2 * i, 1)] = dy;
+            self.g_mat[(2 * i, 2)] = dz;
+            self.g_mat[(2 * i, Navigation::<U4>::clock_index())] = 1.0;
 
-            if self.cfg.method == Method::PPP {
-                self.g_mat[(2 * i, 0)] = dx;
-                self.g_mat[(2 * i, 1)] = dy;
-                self.g_mat[(2 * i, 2)] = dz;
-                self.g_mat[(2 * i, Self::clock_index())] = 1.0;
-
-                self.g_mat[(2 * i + 1, 0)] = dx;
-                self.g_mat[(2 * i + 1, 1)] = dy;
-                self.g_mat[(2 * i + 1, 2)] = dz;
-                self.g_mat[(2 * i + 1, Self::clock_index())] = 1.0;
-                self.g_mat[(2 * i + 1, Self::clock_index() + i + 1)] = 1.0;
-            } else {
-                self.g_mat[(i, 0)] = dx;
-                self.g_mat[(i, 1)] = dy;
-                self.g_mat[(i, 2)] = dz;
-                self.g_mat[(i, Self::clock_index())] = 1.0;
-            }
+            self.g_mat[(2 * i + 1, 0)] = dx;
+            self.g_mat[(2 * i + 1, 1)] = dy;
+            self.g_mat[(2 * i + 1, 2)] = dz;
+            self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index() + i + 1)] = 1.0;
         }
 
-        debug!(
-            "G: {} W: {} PR: {:#?} CP: {:#?}",
-            self.g_mat, self.w_mat, self.pr_vec, self.cp_vec
-        );
+        debug!("G: {} W: {}", self.g_mat, self.w_mat,);
 
         // form Y
-        let mut y = DVector::<f64>::zeros(nrows);
-
-        let n = if self.cfg.method == Method::PPP {
-            nrows / 2
-        } else {
-            nrows
-        };
-
-        for i in 0..n {
-            if self.cfg.method == Method::PPP {
-                y[2 * i] = self.pr_vec[i];
-                y[2 * i + 1] = self.cp_vec[i];
-            } else {
-                y[i] = self.pr_vec[i];
-            }
-        }
+        let y = DVector::<f64>::from_row_slice(nrows, self.y_vec.as_slice());
 
         debug!("Y: {}", y);
 
