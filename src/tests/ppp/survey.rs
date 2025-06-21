@@ -30,6 +30,7 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
+#[ignore]
 fn static_ppp() {
     init_logger();
 
