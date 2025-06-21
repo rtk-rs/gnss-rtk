@@ -1,8 +1,5 @@
 use log::{debug, error};
 
-#[cfg(feature = "serde")]
-use serde::Serialize;
-
 #[cfg(doc)]
 use crate::prelude::TimeScale;
 
@@ -222,15 +219,15 @@ impl Navigation {
                 let dx = postfit.run(&self.state, dt)?;
 
                 // update state
-                // self.state
-                //     .postfit_update_mut(self.frame, dx.x)
-                //     .map_err(|e| {
-                //         error!(
-                //             "{} - postfit state update failed with physical error: {}",
-                //             t, e
-                //         );
-                //         Error::StateUpdate
-                //     })?;
+                self.state
+                    .postfit_update_mut(self.frame, dx.x)
+                    .map_err(|e| {
+                        error!(
+                            "{} - postfit state update failed with physical error: {}",
+                            t, e
+                        );
+                        Error::StateUpdate
+                    })?;
             } else {
                 self.postfit = Some(PostfitKf::new(
                     &self.state,

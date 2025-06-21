@@ -3,11 +3,7 @@ use crate::prelude::{Duration, SPEED_OF_LIGHT_M_S};
 
 use std::f64::consts::PI;
 
-use nalgebra::{
-    //allocator::Allocator,
-    DMatrix,
-    //DefaultAllocator, DimName, OMatrix
-};
+use nalgebra::DMatrix;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -95,8 +91,10 @@ impl std::fmt::Display for UserProfile {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ClockProfile {
     /// [ClockProfile::Quartz] low quality clock
+    #[default]
     Quartz,
 
     /// [ClockProfile::Oscillator] medium quality clock

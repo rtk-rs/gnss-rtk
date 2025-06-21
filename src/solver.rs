@@ -60,6 +60,8 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EP
     /// - almanac: provided valid [Almanac]
     /// - earth_cef: [Frame] that must be an ECEF
     /// - cfg: solver [Config]uration
+    /// - eph_source: custom [EphemerisSource], unavailable right now,
+    /// tie to null.
     /// - orbit_source: custom [OrbitSource] implementation,
     /// wrapped in a Rc<RefCell<>> which allows the solver
     /// and the orbital provider to live in the same thread.
