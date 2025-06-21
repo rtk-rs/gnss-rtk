@@ -115,7 +115,7 @@ fn static_spp() {
                 );
 
                 info!(
-                    "{} (static) cpp survey error: x={}m y={}m z={}",
+                    "{} (static) spp (with preset) error: x={}m y={}m z={}",
                     epoch_str, err_x_m, err_y_m, err_z_m
                 );
             },

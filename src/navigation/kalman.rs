@@ -1,7 +1,8 @@
 use crate::error::Error;
 
 use nalgebra::{
-    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, OVector,
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Dyn, Matrix, OMatrix,
+    OVector, VecStorage, U1,
 };
 
 #[derive(Clone)]
@@ -21,6 +22,12 @@ impl KfEstimate {
         Self { p, x }
     }
 
+    pub fn resize_mut(&mut self, r: usize, c: usize) {
+        self.p.resize_mut(r, c, 0.0);
+        let resized = self.x.clone().resize(r, 1, 0.0);
+        self.x = DVector::from_row_slice(resized.as_slice());
+    }
+
     /// Reset this [KfEstimate]
     pub fn reset(&mut self) {
         for i in 0..self.x.nrows() {
@@ -34,11 +41,40 @@ impl KfEstimate {
 
     /// Initializes new [KfEstimate]
     pub fn new(x: &DVector<f64>, p: &DMatrix<f64>) -> Self {
+        let x_rows = x.nrows();
+        let (p_rows, p_cols) = (p.nrows(), p.ncols());
+
+        assert_eq!(x_rows, p_cols, "P/x dimension issue!");
+        assert_eq!(p_rows, p_cols, "P is not square!");
+
         Self {
             p: p.clone(),
             x: x.clone(),
         }
     }
+
+    // /// Initializes [KfEstimate] from dyn/static matrices
+    // pub fn from_dyn_static<D: DimName>(
+    //     x: Matrix<f64, D, Dyn, VecStorage<f64, D, Dyn>>,
+    //     p: OMatrix<f64, D, D>,
+    // ) -> Self
+    // where
+    //     D: DimName,
+    //     DefaultAllocator: nalgebra::allocator::Allocator<D>,
+    //     DefaultAllocator: nalgebra::allocator::Allocator<D, D>,
+    // {
+    //     let (x_rows, x_cols) = (x.nrows(), x.ncols());
+    //     let (p_rows, p_cols) = (p.nrows(), p.ncols());
+
+    //     assert_eq!(x_cols, 1, "x is not a column vector!");
+    //     assert_eq!(x_rows, p_cols, "P/x dimension issue!");
+    //     assert_eq!(p_rows, p_cols, "P is not square!");
+
+    //     Self {
+    //         x: DMatrix::from_column_slice(D::USIZE, U1::USIZE, x.as_slice()),
+    //         p: DMatrix::from_column_slice(D::USIZE, D::USIZE, p.as_slice()),
+    //     }
+    // }
 
     /// Initializes [KfEstimate] from static matrices
     pub fn from_static<D: DimName>(x: OVector<f64, D>, p: OMatrix<f64, D, D>) -> Self
@@ -47,6 +83,12 @@ impl KfEstimate {
         DefaultAllocator: nalgebra::allocator::Allocator<D>,
         DefaultAllocator: nalgebra::allocator::Allocator<D, D>,
     {
+        let (x_rows, _) = (x.nrows(), x.ncols());
+        let (p_rows, p_cols) = (p.nrows(), p.ncols());
+
+        assert_eq!(x_rows, p_cols, "P/x dimension issue!");
+        assert_eq!(p_rows, p_cols, "P is not square!");
+
         Self {
             x: DVector::from_column_slice(x.as_slice()),
             p: DMatrix::from_column_slice(D::USIZE, D::USIZE, p.as_slice()),
@@ -88,7 +130,10 @@ impl Kalman {
         let f_k_t = f_k.transpose();
         let p_k = f_k * estimate.p * f_k_t + q_k;
 
-        self.predicted = KfEstimate::from_static(x_k, p_k);
+        let x_k = DVector::<f64>::from_row_slice(x_k.as_slice());
+        let p_k = DMatrix::<f64>::from_column_slice(D::USIZE, D::USIZE, p_k.as_slice());
+
+        self.predicted = KfEstimate::new(&x_k, &p_k);
         self.initialized = true;
     }
 
@@ -154,6 +199,10 @@ impl Kalman {
         assert_eq!(y_rows, g_rows, "invalid Y/G dimensions!");
         assert_eq!(y_rows, w_rows, "invalid Y/W dimensions!");
 
+        if g_cols != self.predicted.x.nrows() {
+            self.predicted.resize_mut(g_cols, g_cols);
+        }
+
         let gt = g_k.transpose();
 
         let p_inv = self
@@ -177,9 +226,13 @@ impl Kalman {
         let x_k = p_k.clone() * x_k;
 
         // prediction
-        let x_k1 = f_k.clone() * x_k.clone();
-        let p_k1 = f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
+        let x_k1: Matrix<f64, Dyn, nalgebra::Const<1>, VecStorage<f64, Dyn, nalgebra::Const<1>>> =
+            f_k.clone() * x_k.clone();
+        let p_k1: Matrix<f64, Dyn, Dyn, VecStorage<f64, Dyn, Dyn>> =
+            f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
 
+        let x_k1 = DVector::<f64>::from_row_slice(x_k1.as_slice());
+        let p_k1 = DMatrix::<f64>::from_column_slice(x_k1.nrows(), p_k1.ncols(), p_k1.as_slice());
         self.predicted = KfEstimate { x: x_k1, p: p_k1 };
 
         Ok(KfEstimate { x: x_k, p: p_k })

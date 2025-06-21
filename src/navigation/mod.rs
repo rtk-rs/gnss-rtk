@@ -501,8 +501,7 @@ impl Navigation {
 
             for i in 0..lambda_ndf {
                 for j in 0..lambda_ndf {
-                    // TODO: mauvais indice
-                    // // TODO revoir Q Mat comment elle est construite
+                    // TODO mauvais indice - revoir comment Q Mat est construite
                     self.lambda_q[(i, j)] =
                         self.p_mat[(i + Self::clock_index() + 1, j + Self::clock_index() + 1)];
                 }
@@ -556,10 +555,6 @@ impl Navigation {
             ) {
                 Ok(vec) => {
                     self.pr_vec.push(vec.pr);
-
-                    if vec.pr < 0.0 {
-                        panic!("ERROR for {}", candidates[i].sv);
-                    }
 
                     if let Some(cp) = vec.cp {
                         self.cp_vec.push(cp);
@@ -715,8 +710,7 @@ impl Navigation {
 
             for i in 0..lambda_ndf {
                 for j in 0..lambda_ndf {
-                    // TODO: mauvais indice
-                    // // TODO revoir Q Mat comment elle est construite
+                    // TODO: mauvais indice - revoir Q/P Mat
                     self.lambda_q[(i, j)] =
                         self.p_mat[(i + Self::clock_index() + 1, j + Self::clock_index() + 1)];
                 }
@@ -746,11 +740,6 @@ impl Navigation {
         }
 
         Ok(())
-    }
-
-    /// Notify slip event
-    pub fn notify_cycle_slip(&mut self, sv: &SV) {
-        self.pending_cs.push(*sv);
     }
 }
 
