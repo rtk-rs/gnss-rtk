@@ -38,9 +38,6 @@ pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource> {
 
     /// [Ephemeris] Buffer
     eph_buffer: HashMap<SV, Ephemeris>,
-
-    /// Cycle slips
-    cycle_slips: Vec<SV>,
 }
 
 fn orbit_rotation(t: Epoch, dt: Duration, orbit: &Orbit, modeling: bool, frame: Frame) -> Orbit {
@@ -79,7 +76,6 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
             orb_source,
             past: Vec::with_capacity(8),
             inner: Vec::with_capacity(8),
-            cycle_slips: Vec::with_capacity(8),
             eph_buffer: HashMap::with_capacity(8),
             smoother: Smoother::new(smoothing_win_len),
         }

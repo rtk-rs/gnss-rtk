@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    prelude::{Almanac, Config, Epoch, Error, Frame, Method, StaticSolver, UserParameters},
+    prelude::{Almanac, Config, Epoch, Frame, Method, StaticSolver, UserParameters},
     tests::{
         bias::TestBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
         OrbitsData, REFERENCE_COORDS_ECEF_M,

@@ -235,10 +235,10 @@ impl CandidatesBuilder {
                 E01,
                 t2_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 27646192.922, None)
-                        .with_ambiguous_phase_range_m(145281739.119),
-                    Observation::pseudo_range(Carrier::E5b, 27646192.331, None)
-                        .with_ambiguous_phase_range_m(108489627.494),
+                    Observation::pseudo_range(Carrier::L1, 28577344.325, None)
+                        .with_ambiguous_phase_range_m(150174966.356),
+                    Observation::pseudo_range(Carrier::E5b, 28577343.483, None)
+                        .with_ambiguous_phase_range_m(112143659.135),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -248,10 +248,10 @@ impl CandidatesBuilder {
                 E03,
                 t2_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 27025553.361, None)
-                        .with_ambiguous_phase_range_m(142020249.814),
-                    Observation::pseudo_range(Carrier::E5b, 27025552.715, None)
-                        .with_ambiguous_phase_range_m(106054094.834),
+                    Observation::pseudo_range(Carrier::L1, 26174086.791, None)
+                        .with_ambiguous_phase_range_m(137545768.524),
+                    Observation::pseudo_range(Carrier::E5b, 26174085.540, None)
+                        .with_ambiguous_phase_range_m(102712763.137),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -261,10 +261,10 @@ impl CandidatesBuilder {
                 E05,
                 t2_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 23721698.975, None)
-                        .with_ambiguous_phase_range_m(124658409.765),
-                    Observation::pseudo_range(Carrier::E5b, 23721697.897, None)
-                        .with_ambiguous_phase_range_m(93089093.648),
+                    Observation::pseudo_range(Carrier::L1, 23568449.038, None)
+                        .with_ambiguous_phase_range_m(123853076.698),
+                    Observation::pseudo_range(Carrier::E5b, 23568447.746, None)
+                        .with_ambiguous_phase_range_m(92487708.863),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -274,10 +274,10 @@ impl CandidatesBuilder {
                 E09,
                 t2_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 22777470.182, None)
-                        .with_ambiguous_phase_range_m(119696457.450),
-                    Observation::pseudo_range(Carrier::E5b, 22777468.871, None)
-                        .with_ambiguous_phase_range_m(89383740.738),
+                    Observation::pseudo_range(Carrier::L1, 23467567.543, None)
+                        .with_ambiguous_phase_range_m(123322942.461),
+                    Observation::pseudo_range(Carrier::E5b, 23467566.515, None)
+                        .with_ambiguous_phase_range_m(92091829.787),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -287,10 +287,10 @@ impl CandidatesBuilder {
                 E13,
                 t2_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 27963274.550, None)
-                        .with_ambiguous_phase_range_m(146948003.533),
-                    Observation::pseudo_range(Carrier::E5b, 27963273.367, None)
-                        .with_ambiguous_phase_range_m(109733898.616),
+                    Observation::pseudo_range(Carrier::L1, 27657598.527, None)
+                        .with_ambiguous_phase_range_m(145341666.399),
+                    Observation::pseudo_range(Carrier::E5b, 27657597.170, None)
+                        .with_ambiguous_phase_range_m(108534361.838),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -300,10 +300,10 @@ impl CandidatesBuilder {
                 E15,
                 t2_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 26902705.809, None)
-                        .with_ambiguous_phase_range_m(141374681.651),
-                    Observation::pseudo_range(Carrier::E5b, 26902705.793, None)
-                        .with_ambiguous_phase_range_m(105572005.022),
+                    Observation::pseudo_range(Carrier::L1, 27414801.157, None)
+                        .with_ambiguous_phase_range_m(144065761.257),
+                    Observation::pseudo_range(Carrier::E5b, 27414800.782, None)
+                        .with_ambiguous_phase_range_m(107581577.638),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -313,10 +313,10 @@ impl CandidatesBuilder {
                 E24,
                 t2_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 23607504.612, None)
-                        .with_ambiguous_phase_range_m(124058281.040),
-                    Observation::pseudo_range(Carrier::E5b, 23607514.182, None)
-                        .with_ambiguous_phase_range_m(92640969.900),
+                    Observation::pseudo_range(Carrier::L1, 22863341.608, None)
+                        .with_ambiguous_phase_range_m(120147679.864),
+                    Observation::pseudo_range(Carrier::E5b, 22863351.054, None)
+                        .with_ambiguous_phase_range_m(89720716.434),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -326,10 +326,10 @@ impl CandidatesBuilder {
                 E31,
                 t2_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 24568204.755, None)
-                        .with_ambiguous_phase_range_m(129106816.911),
-                    Observation::pseudo_range(Carrier::E5b, 24568204.040, None)
-                        .with_ambiguous_phase_range_m(96410937.404),
+                    Observation::pseudo_range(Carrier::L1, 24770072.612, None)
+                        .with_ambiguous_phase_range_m(130167640.275),
+                    Observation::pseudo_range(Carrier::E5b, 24770071.564, None)
+                        .with_ambiguous_phase_range_m(97203111.17706),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -339,10 +339,10 @@ impl CandidatesBuilder {
                 E01,
                 t3_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 27661258.503, None)
-                        .with_ambiguous_phase_range_m(145360907.686),
-                    Observation::pseudo_range(Carrier::E5b, 27661257.497, None)
-                        .with_ambiguous_phase_range_m(108548746.851),
+                    Observation::pseudo_range(Carrier::L1, 29092635.828, None)
+                        .with_ambiguous_phase_range_m(152882837.719),
+                    Observation::pseudo_range(Carrier::E5b, 29092635.926, None)
+                        .with_ambiguous_phase_range_m(114165769.700),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -352,10 +352,10 @@ impl CandidatesBuilder {
                 E03,
                 t3_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 27010377.430, None)
-                        .with_ambiguous_phase_range_m(141940500.113),
-                    Observation::pseudo_range(Carrier::E5b, 27010376.711, None)
-                        .with_ambiguous_phase_range_m(105994541.535),
+                    Observation::pseudo_range(Carrier::L1, 25763722.247, None)
+                        .with_ambiguous_phase_range_m(135389290.834),
+                    Observation::pseudo_range(Carrier::E5b, 25763720.939, None)
+                        .with_ambiguous_phase_range_m(101102406.973),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -365,10 +365,10 @@ impl CandidatesBuilder {
                 E05,
                 t3_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 23717469.331, None)
-                        .with_ambiguous_phase_range_m(124636182.671),
-                    Observation::pseudo_range(Carrier::E5b, 23717468.180, None)
-                        .with_ambiguous_phase_range_m(93072495.500),
+                    Observation::pseudo_range(Carrier::L1, 23566872.078, None)
+                        .with_ambiguous_phase_range_m(123844789.147),
+                    Observation::pseudo_range(Carrier::E5b, 23566870.615, None)
+                        .with_ambiguous_phase_range_m(92481520.116),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -378,10 +378,10 @@ impl CandidatesBuilder {
                 E09,
                 t3_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 22788149.916, None)
-                        .with_ambiguous_phase_range_m(119752579.857),
-                    Observation::pseudo_range(Carrier::E5b, 22788148.659, None)
-                        .with_ambiguous_phase_range_m(89425650.328),
+                    Observation::pseudo_range(Carrier::L1, 23877328.596, None)
+                        .with_ambiguous_phase_range_m(125476250.520),
+                    Observation::pseudo_range(Carrier::E5b, 23877327.191, None)
+                        .with_ambiguous_phase_range_m(93699819.409),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -391,10 +391,10 @@ impl CandidatesBuilder {
                 E13,
                 t3_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 27955670.294, None)
-                        .with_ambiguous_phase_range_m(146908041.217),
-                    Observation::pseudo_range(Carrier::E5b, 27955669.386, None)
-                        .with_ambiguous_phase_range_m(109704056.642),
+                    Observation::pseudo_range(Carrier::L1, 27612730.591, None)
+                        .with_ambiguous_phase_range_m(145105885.665),
+                    Observation::pseudo_range(Carrier::E5b, 27612729.140, None)
+                        .with_ambiguous_phase_range_m(108358292.140),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -404,10 +404,10 @@ impl CandidatesBuilder {
                 E15,
                 t3_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 26909374.208, None)
-                        .with_ambiguous_phase_range_m(141409724.237),
-                    Observation::pseudo_range(Carrier::E5b, 26909374.364, None)
-                        .with_ambiguous_phase_range_m(105598173.225),
+                    Observation::pseudo_range(Carrier::L1, 27768772.741, None)
+                        .with_ambiguous_phase_range_m(145925894.814),
+                    Observation::pseudo_range(Carrier::E5b, 27768772.699, None)
+                        .with_ambiguous_phase_range_m(108970638.656),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -417,10 +417,10 @@ impl CandidatesBuilder {
                 E24,
                 t3_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 23593001.901, None)
-                        .with_ambiguous_phase_range_m(123982068.745),
-                    Observation::pseudo_range(Carrier::E5b, 23593011.562, None)
-                        .with_ambiguous_phase_range_m(92584058.144),
+                    Observation::pseudo_range(Carrier::L1, 22564462.203, None)
+                        .with_ambiguous_phase_range_m(118577059.434),
+                    Observation::pseudo_range(Carrier::E5b, 22564471.813, None)
+                        .with_ambiguous_phase_range_m(88547850.917),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -430,36 +430,23 @@ impl CandidatesBuilder {
                 E31,
                 t3_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 24569353.107, None)
-                        .with_ambiguous_phase_range_m(129112851.210),
-                    Observation::pseudo_range(Carrier::E5b, 24569352.356, None)
-                        .with_ambiguous_phase_range_m(96415443.541),
+                    Observation::pseudo_range(Carrier::L1, 24976421.969, None)
+                        .with_ambiguous_phase_range_m(131252014.059),
+                    Observation::pseudo_range(Carrier::E5b, 24976421.047, None)
+                        .with_ambiguous_phase_range_m(98012870.941),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
                 Duration::from_microseconds(-472.988448),
             )),
             Candidate::new(
-                E01,
-                t4_gpst,
-                vec![
-                    Observation::pseudo_range(Carrier::L1, 27676365.168, None)
-                        .with_ambiguous_phase_range_m(145440290.795),
-                    Observation::pseudo_range(Carrier::E5b, 27676363.634, None)
-                        .with_ambiguous_phase_range_m(108608026.449),
-                ],
-            )
-            .with_clock_correction(ClockCorrection::without_relativistic_correction(
-                Duration::from_microseconds(-884.736121),
-            )),
-            Candidate::new(
                 E03,
                 t4_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 26995215.170, None)
-                        .with_ambiguous_phase_range_m(141860825.142),
-                    Observation::pseudo_range(Carrier::E5b, 26995214.771, None)
-                        .with_ambiguous_phase_range_m(105935044.000),
+                    Observation::pseudo_range(Carrier::L1, 25381023.064, None)
+                        .with_ambiguous_phase_range_m(133378195.781),
+                    Observation::pseudo_range(Carrier::E5b, 25381022.036, None)
+                        .with_ambiguous_phase_range_m(99600615.595),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -469,10 +456,10 @@ impl CandidatesBuilder {
                 E05,
                 t4_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 23713293.150, None)
-                        .with_ambiguous_phase_range_m(124614236.703),
-                    Observation::pseudo_range(Carrier::E5b, 23713292.035, None)
-                        .with_ambiguous_phase_range_m(93056107.280),
+                    Observation::pseudo_range(Carrier::L1, 23621365.068, None)
+                        .with_ambiguous_phase_range_m(124131152.182),
+                    Observation::pseudo_range(Carrier::E5b, 23621363.960, None)
+                        .with_ambiguous_phase_range_m(92695362.567),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -482,10 +469,10 @@ impl CandidatesBuilder {
                 E09,
                 t4_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 22798874.048, None)
-                        .with_ambiguous_phase_range_m(119808935.247),
-                    Observation::pseudo_range(Carrier::E5b, 22798872.769, None)
-                        .with_ambiguous_phase_range_m(89467733.904),
+                    Observation::pseudo_range(Carrier::L1, 24319118.620, None)
+                        .with_ambiguous_phase_range_m(127797872.373),
+                    Observation::pseudo_range(Carrier::E5b, 24319117.427, None)
+                        .with_ambiguous_phase_range_m(95433498.048),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -495,10 +482,10 @@ impl CandidatesBuilder {
                 E13,
                 t4_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 27948143.890, None)
-                        .with_ambiguous_phase_range_m(146868491.293),
-                    Observation::pseudo_range(Carrier::E5b, 27948143.178, None)
-                        .with_ambiguous_phase_range_m(109674522.632),
+                    Observation::pseudo_range(Carrier::L1, 27647098.655, None)
+                        .with_ambiguous_phase_range_m(145286490.231),
+                    Observation::pseudo_range(Carrier::E5b, 27647097.054, None)
+                        .with_ambiguous_phase_range_m(108493159.141),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -508,10 +495,10 @@ impl CandidatesBuilder {
                 E15,
                 t4_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 26916123.181, None)
-                        .with_ambiguous_phase_range_m(141445189.630),
-                    Observation::pseudo_range(Carrier::E5b, 26916123.260, None)
-                        .with_ambiguous_phase_range_m(105624657.098),
+                    Observation::pseudo_range(Carrier::L1, 28171693.206, None)
+                        .with_ambiguous_phase_range_m(148043255.618),
+                    Observation::pseudo_range(Carrier::E5b, 28171693.865, None)
+                        .with_ambiguous_phase_range_m(110551784.578),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -521,10 +508,10 @@ impl CandidatesBuilder {
                 E24,
                 t4_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 23578553.240, None)
-                        .with_ambiguous_phase_range_m(123906140.078),
-                    Observation::pseudo_range(Carrier::E5b, 23578562.924, None)
-                        .with_ambiguous_phase_range_m(92527358.178),
+                    Observation::pseudo_range(Carrier::L1, 22330484.011, None)
+                        .with_ambiguous_phase_range_m(117347497.248),
+                    Observation::pseudo_range(Carrier::E5b, 22330493.787, None)
+                        .with_ambiguous_phase_range_m(87629671.742),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(
@@ -534,10 +521,10 @@ impl CandidatesBuilder {
                 E31,
                 t4_gpst,
                 vec![
-                    Observation::pseudo_range(Carrier::L1, 24570585.451, None)
-                        .with_ambiguous_phase_range_m(129119327.230),
-                    Observation::pseudo_range(Carrier::E5b, 24570584.735, None)
-                        .with_ambiguous_phase_range_m(96420279.532),
+                    Observation::pseudo_range(Carrier::L1, 25244908.716, None)
+                        .with_ambiguous_phase_range_m(132662921.691),
+                    Observation::pseudo_range(Carrier::E5b, 25244907.849, None)
+                        .with_ambiguous_phase_range_m(99066470.826),
                 ],
             )
             .with_clock_correction(ClockCorrection::without_relativistic_correction(

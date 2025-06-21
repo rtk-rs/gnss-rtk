@@ -314,12 +314,12 @@ mod test {
 
         let mut lambda = LambdaAR::default();
 
-        let g01 = SV::new(Constellation::GPS, 1);
-        let g02 = SV::new(Constellation::GPS, 2);
-        let g03 = SV::new(Constellation::GPS, 3);
-        let g04 = SV::new(Constellation::GPS, 4);
-        let g05 = SV::new(Constellation::GPS, 5);
-        let g06 = SV::new(Constellation::GPS, 6);
+        // let g01 = SV::new(Constellation::GPS, 1);
+        // let g02 = SV::new(Constellation::GPS, 2);
+        // let g03 = SV::new(Constellation::GPS, 3);
+        // let g04 = SV::new(Constellation::GPS, 4);
+        // let g05 = SV::new(Constellation::GPS, 5);
+        // let g06 = SV::new(Constellation::GPS, 6);
 
         // let sv_indexes = DVector::<(SV, usize)>::from_row_slice(&[
         //     (g01, 0),
@@ -374,7 +374,7 @@ mod test {
             ],
         );
 
-        let s_1 = DVector::<f64>::from_row_slice(&[3.507984, 3.708456]);
+        // let s_1 = DVector::<f64>::from_row_slice(&[3.507984, 3.708456]);
 
         let ndf = U6::USIZE;
         let nfixed = 2;
@@ -440,7 +440,7 @@ mod test {
         // -13970171.000000,-13970171.000000
         //   };
 
-        let s_2 = DVector::<f64>::from_row_slice(&[1506.435789, 1612.811795]);
+        // let s_2 = DVector::<f64>::from_row_slice(&[1506.435789, 1612.811795]);
 
         let ndf = U10::USIZE;
         let nfixed = 2;
