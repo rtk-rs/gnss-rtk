@@ -92,27 +92,26 @@ fn static_ppp() {
                     (pos_z_m - expected_z_m).abs(),
                 );
 
-                // PPP not ready yet
-                // assert!(
-                //     err_x_m < 100.0,
-                //     "epoch={} - x error={}m too large",
-                //     epoch_str,
-                //     err_x_m
-                // );
+                assert!(
+                    err_x_m < 100.0,
+                    "epoch={} - x error={}m too large",
+                    epoch_str,
+                    err_x_m
+                );
 
-                // assert!(
-                //     err_y_m < 100.0,
-                //     "epoch={} - y error={}m too large",
-                //     epoch_str,
-                //     err_y_m
-                // );
+                assert!(
+                    err_y_m < 100.0,
+                    "epoch={} - y error={}m too large",
+                    epoch_str,
+                    err_y_m
+                );
 
-                // assert!(
-                //     err_z_m < 100.0,
-                //     "epoch={} - z error={}m too large",
-                //     epoch_str,
-                //     err_z_m
-                // );
+                assert!(
+                    err_z_m < 100.0,
+                    "epoch={} - z error={}m too large",
+                    epoch_str,
+                    err_z_m
+                );
 
                 info!(
                     "{} (static) ppp survey error: x={}m y={}m z={}",

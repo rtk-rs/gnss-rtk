@@ -105,11 +105,8 @@ impl Candidate {
                     comb.rhs.frequency_hz().powi(2),
                     comb.lhs.frequency_hz().powi(2),
                 );
-                let (l1, l2) = (comb.rhs.wavelength(), comb.lhs.wavelength());
 
-                let lambda = (f1 * l1 - f2 * l2) / (f1 - f2);
-
-                (lambda, comb.value)
+                (SPEED_OF_LIGHT_M_S * (f1 - f2) / f1 / f2, comb.value)
             },
         };
 
@@ -128,9 +125,9 @@ impl Candidate {
 
         if let Some(amb) = amb {
             if let Some(cp) = &mut cp {
-                debug!("{}({}) n_amb={}", self.t, self.sv, amb);
-
-                *cp -= amb as f64;
+                let amb = amb as f64;
+                debug!("{}({}) n_amb={}", self.t, self.sv, amb.round() as u64);
+                *cp -= amb * lambda;
             }
         }
 
@@ -194,13 +191,15 @@ impl Candidate {
         }
 
         let mut vec = VectorContribution::default();
+
         vec.dr = dr;
         vec.sigma = 1.0; // TODO
 
         let pr = range_m - rho - bias_m;
 
         let cp = if let Some(cp) = cp {
-            Some(cp - rho - bias_m) // TODO: lambda_n * windup
+            // TODO: lambda_n * windup
+            Some(cp - rho - bias_m)
         } else {
             None
         };
