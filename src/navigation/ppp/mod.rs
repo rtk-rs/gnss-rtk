@@ -5,9 +5,11 @@ use crate::prelude::TimeScale;
 
 mod kalman;
 mod lambda;
-mod state;
+pub mod state;
 
-use nalgebra::{DMatrix, DVector, DimName, U1, U4, U8};
+use nalgebra::{
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OVector, U1, U3, U4, U8,
+};
 
 use crate::{
     navigation::{
@@ -15,8 +17,9 @@ use crate::{
         ppp::{
             kalman::{Kalman, KfEstimate},
             lambda::LambdaAR,
-            state::State,
+            state::PPPState,
         },
+        state::State,
         Navigation, SVContribution,
     },
     prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Frame, Method, SV},
@@ -76,11 +79,14 @@ pub struct PrefitSolver {
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
 
-    /// current [State]
-    state: State,
+    /// current [PPPState]
+    state: PPPState,
 
     /// Null of first iter
     prev_epoch: Option<Epoch>,
+
+    /// SV contributions
+    sv: Vec<SVContribution>,
 }
 
 impl PrefitSolver {
@@ -93,13 +99,18 @@ impl PrefitSolver {
     /// - bias: [Bias] model implementation
     /// ## Returns
     /// - [PPPPrefitSolver]
-    pub fn new(cfg: &Config, frame: Frame) -> Self {
+    pub fn new<D: DimName>(cfg: &Config, initial_state: &State<D>, frame: Frame) -> Self
+    where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    {
         Self {
             frame,
             cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
-            state: State::default(),
             kalman: Kalman::new(U8::USIZE),
             lambda: LambdaAR::default(),
             y_vec: Vec::with_capacity(U8::USIZE),
@@ -107,7 +118,9 @@ impl PrefitSolver {
             f_diag: Vec::with_capacity(U8::USIZE),
             sv_indexes: Vec::with_capacity(U8::USIZE),
             x_vec: DVector::<f64>::zeros(U8::USIZE),
+            sv: Vec::with_capacity(4),
             dop: DilutionOfPrecision::default(),
+            state: PPPState::from_initial_state(initial_state),
             lambda_x: DMatrix::<f64>::zeros(U4::USIZE, U1::USIZE),
             lambda_q: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
             w_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
@@ -120,6 +133,7 @@ impl PrefitSolver {
     /// Reset filter.
     pub fn reset(&mut self) {
         self.clear();
+        self.sv.clear();
         self.kalman.reset();
         self.prev_epoch = None;
         self.initialized = false;
@@ -129,7 +143,6 @@ impl PrefitSolver {
     /// ## Input
     /// - t: sampling [Epoch]
     /// - params: [UserParameters]
-    /// - past_state: past [State]
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
     /// - rtk_base: possible [RTKBase] implementation]
@@ -138,7 +151,6 @@ impl PrefitSolver {
         &mut self,
         t: Epoch,
         params: UserParameters,
-        past_state: &State,
         candidates: &[Candidate],
         size: usize,
         rtk_base: &R,
@@ -146,13 +158,8 @@ impl PrefitSolver {
     ) -> Result<(), Error> {
         self.clear();
 
-        let dt = match self.prev_epoch {
-            Some(past_t) => t - past_t,
-            None => Duration::ZERO,
-        };
-
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, params, size, rtk_base, bias)?;
+            self.kf_initialization(t, candidates, params, size, rtk_base, bias)?;
         } else {
             self.kf_run(t, candidates, params, size, rtk_base, bias)?;
         }
@@ -180,7 +187,6 @@ impl PrefitSolver {
     pub fn kf_initialization<B: Bias, RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        state: &State,
         candidates: &[Candidate],
         params: UserParameters,
         size: usize,
@@ -188,8 +194,8 @@ impl PrefitSolver {
         bias: &B,
     ) -> Result<(), Error> {
         let nb_iter = 10;
-
-        let mut pending = state.clone();
+        let mut pending = self.state.clone();
+        let mut dop = DilutionOfPrecision::default();
 
         // measurements
         for i in 0..size {
@@ -200,16 +206,16 @@ impl PrefitSolver {
             match candidates[i].vector_contribution(
                 t,
                 &self.cfg,
+                true,
+                None,
                 position_m,
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
             ) {
                 Ok(vec) => {
-                    self.y_vec.push(vec.pr);
-
-                    let cp = vec.cp.expect("internal error: missing measurement (TODO)");
-                    self.y_vec.push(cp);
+                    self.y_vec.push(vec.row1);
+                    self.y_vec.push(vec.row2);
 
                     self.w_diag.push(1.0); // TODO: improve model
                     self.sv.push(contrib);
@@ -240,7 +246,6 @@ impl PrefitSolver {
         for _ in 0..nb_iter {
             let ndf = U4::USIZE;
             let nrows = self.y_vec.len();
-            let lambda_ndf = nrows - ndf;
 
             // form W
             self.w_mat.resize_mut(nrows, nrows, 0.0);
@@ -284,16 +289,17 @@ impl PrefitSolver {
             let gt_w_g_inv_gt_w = gt_w_g_inv_gt * self.w_mat.clone();
 
             // TODO: improve malloc
-            let mut y = DVector::<f64>::from_row_slice(nrows, &self.y_vec);
-
+            let y = DVector::<f64>::from_row_slice(&self.y_vec);
             debug!("Y: {}", y);
 
             self.x_vec = gt_w_g_inv_gt_w * y;
             self.p_mat = gt_w_g_inv.clone();
-            debug!("state correction: dx={}", self.x_vec);
+
+            let ndf = self.x_vec.nrows();
+            debug!("dx={}", self.x_vec);
 
             pending
-                .correct_mut(self.frame, t, &self.x_vec)
+                .correct_mut(self.frame, t, &self.x_vec, ndf)
                 .map_err(|e| {
                     error!("{} - state update failed with physical error: {}", t, e);
                     Error::StateUpdate
@@ -302,7 +308,7 @@ impl PrefitSolver {
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
             // DoP update
-            self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+            dop = DilutionOfPrecision::from_ppp(&pending, gt_g_inv);
 
             debug!("{} - pending state {}", t, pending);
 
@@ -318,16 +324,16 @@ impl PrefitSolver {
                 match candidates[*i].vector_contribution(
                     t,
                     &self.cfg,
+                    true,
+                    None,
                     position_m,
                     pending.lat_long_alt_deg_deg_km,
                     &mut unused,
                     bias,
                 ) {
                     Ok(vec) => {
-                        self.y_vec.push(vec.pr);
-
-                        let cp = vec.cp.expect("internal error: missing measurement (TODO)");
-                        self.y_vec.push(cp);
+                        self.y_vec.push(vec.row1);
+                        self.y_vec.push(vec.row2);
 
                         self.w_diag.push(1.0); // TODO: improve model
                         true
@@ -341,7 +347,7 @@ impl PrefitSolver {
         }
 
         // validation
-        self.state_validation()?;
+        self.state_validation(&dop)?;
 
         let initial_estimate = KfEstimate::new(&self.x_vec, &self.p_mat);
 
@@ -400,6 +406,7 @@ impl PrefitSolver {
         bias: &B,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
+        let mut dop = DilutionOfPrecision::default();
 
         // measurements
         for i in 0..size {
@@ -412,17 +419,16 @@ impl PrefitSolver {
             match candidates[i].vector_contribution(
                 t,
                 &self.cfg,
+                true,
+                None,
                 position_m,
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
             ) {
                 Ok(vec) => {
-                    self.y_vec.push(vec.pr);
-
-                    if let Some(cp) = vec.cp {
-                        self.y_vec.push(cp);
-                    }
+                    self.y_vec.push(vec.row1);
+                    self.y_vec.push(vec.row2);
 
                     self.w_diag.push(1.0); // TODO
 
@@ -454,7 +460,7 @@ impl PrefitSolver {
         let lambda_ndf = nrows - ndf;
 
         self.w_mat.resize_mut(nrows, nrows, 0.0);
-        self.g_mat.reize_mut(nrows, ndf, 0.0);
+        self.g_mat.resize_mut(nrows, ndf, 0.0);
 
         // form W
         for i in 0..nrows {
@@ -483,7 +489,7 @@ impl PrefitSolver {
         debug!("G: {} W: {}", self.g_mat, self.w_mat,);
 
         // form Y
-        let y = DVector::<f64>::from_row_slice(nrows, self.y_vec.as_slice());
+        let y = DVector::<f64>::from_row_slice(self.y_vec.as_slice());
 
         debug!("Y: {}", y);
 
@@ -499,14 +505,16 @@ impl PrefitSolver {
             .kalman
             .run(&self.f_mat, &self.g_mat, &self.w_mat, &q_mat, &y)?;
 
-        for i in 0..estimate.x.nrows() {
+        let ndf = estimate.x.nrows();
+
+        for i in 0..ndf {
             self.x_vec[i] = estimate.x[i];
         }
 
-        debug!("state correction: dx={}", self.x_vec);
+        debug!("dx={}", self.x_vec);
 
         pending
-            .correct_mut(self.frame, t, &self.x_vec)
+            .correct_mut(self.frame, t, &self.x_vec, ndf)
             .map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate
@@ -517,12 +525,14 @@ impl PrefitSolver {
             .ok_or(Error::MatrixInversion)?;
 
         // DoP update
-        self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+        dop = DilutionOfPrecision::from_ppp(&pending, gt_g_inv);
 
         // validation
-        self.state_validation()?;
+        self.state_validation(&dop)?;
 
         self.state = pending;
+        self.dop = dop;
+
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
@@ -532,12 +542,13 @@ impl PrefitSolver {
 
             for i in 0..lambda_ndf {
                 for j in 0..lambda_ndf {
-                    // TODO: mauvais indice - revoir Q/P Mat
-                    self.lambda_q[(i, j)] =
-                        self.p_mat[(i + Self::clock_index() + 1, j + Self::clock_index() + 1)];
+                    self.lambda_q[(i, j)] = self.p_mat[(
+                        i + Navigation::<U4>::clock_index() + 1,
+                        j + Navigation::<U4>::clock_index() + 1,
+                    )];
                 }
 
-                self.lambda_x[i] = self.x_vec[i + Self::clock_index() + 1];
+                self.lambda_x[i] = self.x_vec[i + Navigation::<U4>::clock_index() + 1];
             }
 
             match self
@@ -556,8 +567,8 @@ impl PrefitSolver {
     }
 
     /// Validate pending [State]
-    fn state_validation(&self) -> Result<(), Error> {
-        if self.dop.gdop > self.cfg.solver.max_gdop {
+    fn state_validation(&self, dop: &DilutionOfPrecision) -> Result<(), Error> {
+        if dop.gdop > self.cfg.solver.max_gdop {
             return Err(Error::MaxGdopExceeded);
         }
 
@@ -567,24 +578,15 @@ impl PrefitSolver {
 
 #[cfg(test)]
 mod test {
-    use crate::navigation::{DilutionOfPrecision, Navigation, State};
-
-    use nalgebra::{DMatrix, DVector, DimName, U4};
-
-    #[test]
-    fn nav_clock_index() {
-        assert_eq!(
-            Navigation::clock_index(),
-            U4::USIZE - 1,
-            "invalid clock index"
-        );
-    }
+    use super::PPPState;
+    use crate::navigation::DilutionOfPrecision;
+    use nalgebra::{DMatrix, DVector};
 
     #[test]
-    fn nav_dop() {
-        let state = State::default();
+    fn ppp_nav_dop() {
+        let state = PPPState::default();
         let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
-        let dop = DilutionOfPrecision::new(&state, matrix);
+        let dop = DilutionOfPrecision::from_ppp(&state, matrix);
         assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());
         assert_eq!(dop.tdop, 2.0);
     }

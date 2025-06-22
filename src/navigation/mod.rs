@@ -1,7 +1,4 @@
-use log::{debug, error, info};
-
-#[cfg(feature = "serde")]
-use serde::Serialize;
+use log::{debug, error};
 
 #[cfg(doc)]
 use crate::prelude::TimeScale;
@@ -28,7 +25,9 @@ use crate::{
         ppp::PrefitSolver as PPPPrefitSolver,
         state::State,
     },
-    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, UserParameters, SPEED_OF_LIGHT_M_S},
+    prelude::{
+        Bias, Candidate, Config, Epoch, Error, Frame, Method, UserParameters, SPEED_OF_LIGHT_M_S,
+    },
     rtk::RTKBase,
 };
 
@@ -140,9 +139,10 @@ where
             q_k,
             frame,
             postfit: None,
-            cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
+            ppp_prefit: None,
+            cfg: cfg.clone(),
             state: State::default(),
             sv: Vec::with_capacity(8),
             kalman: Kalman::<D>::new(),
@@ -169,8 +169,8 @@ where
         self.clear();
         self.kalman.reset();
 
-        if self.postfit.is_some() {
-            self.postfit = None;
+        if let Some(postfit) = &mut self.postfit {
+            postfit.reset();
         }
 
         self.prev_epoch = None;
@@ -197,7 +197,7 @@ where
         &mut self,
         epoch: Epoch,
         params: UserParameters,
-        past_state: &State<D>,
+        initial_state: &State<D>,
         candidates: &[Candidate],
         size: usize,
         rtk_base: &R,
@@ -205,12 +205,15 @@ where
     ) -> Result<(), Error> {
         self.clear();
 
-        // TODO: il y a un pb
-        // il faut que l'état interne au ppp_prefit soit MaJ egalement
-        // par le postfit KF et possiblement invalidé ou validé par ailleurs
+        if self.cfg.method == Method::PPP {
+            if self.ppp_prefit.is_none() {
+                self.ppp_prefit = Some(PPPPrefitSolver::new(&self.cfg, &initial_state, self.frame));
+            }
+        }
 
+        // TODO: verif la relation état interne ppp_prefit et nav_state
         if let Some(ppp_prefit) = &mut self.ppp_prefit {
-            ppp_prefit.run(epoch, candidates, size)?;
+            // ppp_prefit.run(epoch, params, candidates, size, rtk_base, bias)?;
         }
 
         // TODO Q model
@@ -221,7 +224,7 @@ where
             (100e-3 * SPEED_OF_LIGHT_M_S).powi(2);
 
         if !self.kalman.initialized {
-            self.kf_initialization(epoch, past_state, candidates, size, rtk_base, bias)?;
+            self.kf_initialization(epoch, initial_state, candidates, size, rtk_base, bias)?;
         } else {
             self.kf_run(epoch, candidates, size, rtk_base, bias)?;
         }
@@ -276,30 +279,35 @@ where
         state: &State<D>,
         candidates: &[Candidate],
         size: usize,
-        rtk_base: &RTK,
+        _: &RTK,
         bias: &B,
     ) -> Result<(), Error> {
         let nb_iter = 10;
-
         let mut pending = state.clone();
+        let mut dop = DilutionOfPrecision::default();
 
         // measurement
         for i in 0..size {
             let mut contrib = SVContribution::default();
 
             contrib.sv = candidates[i].sv;
+
             let position_m = pending.position_ecef_m();
+
+            let amb = None;
 
             match candidates[i].vector_contribution(
                 t,
                 &self.cfg,
+                false,
+                amb,
                 position_m,
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
             ) {
                 Ok(vec) => {
-                    self.y_k_vec.push(vec.pr);
+                    self.y_k_vec.push(vec.row1);
                     self.w_k_vec.push(1.0); // TODO
                     self.indexes.push(i);
                     self.sv.push(contrib);
@@ -366,17 +374,21 @@ where
             self.x_k = gt_w_g_inv_gt_w * y_k.clone();
             self.p_k = gt_w_g_inv.clone();
 
-            debug!("state correction: dx={}", self.x_k);
+            let ndf = self.x_k.nrows();
 
-            pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
-                Error::StateUpdate
-            })?;
+            debug!("dx={}", self.x_k);
+
+            pending
+                .correct_mut(self.frame, t, &self.x_k, ndf)
+                .map_err(|e| {
+                    error!("{} - state update failed with physical error: {}", t, e);
+                    Error::StateUpdate
+                })?;
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
             // update latest DoP
-            self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+            dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
             debug!("{} - pending state {}", t, pending);
 
@@ -389,16 +401,20 @@ where
 
                 let position_m = pending.position_ecef_m();
 
+                let amb = None;
+
                 match candidates[*i].vector_contribution(
                     t,
                     &self.cfg,
+                    false,
+                    amb,
                     position_m,
                     pending.lat_long_alt_deg_deg_km,
                     &mut unused,
                     bias,
                 ) {
                     Ok(vec) => {
-                        self.y_k_vec.push(vec.pr);
+                        self.y_k_vec.push(vec.row1);
                         self.w_k_vec.push(1.0); // TODO
                         true
                     },
@@ -411,13 +427,15 @@ where
         }
 
         // validation
-        self.state_validation()?;
+        self.state_validation(&dop)?;
 
         let initial_estimate = KfEstimate::from_dynamic(self.x_k.clone(), self.p_k.clone());
 
         self.kalman.initialize(self.f_k, self.q_k, initial_estimate);
 
         self.state = pending;
+        self.dop = dop;
+
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
@@ -430,10 +448,11 @@ where
         t: Epoch,
         candidates: &[Candidate],
         size: usize,
-        rtk_base: &RTK,
+        _: &RTK,
         bias: &B,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
+        let mut dop = DilutionOfPrecision::default();
 
         // measurement
         for i in 0..size {
@@ -443,16 +462,20 @@ where
 
             let pos_m = pending.position_ecef_m();
 
+            let amb = None;
+
             match candidates[i].vector_contribution(
                 t,
                 &self.cfg,
+                false,
+                amb,
                 pos_m,
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
                 bias,
             ) {
                 Ok(vec) => {
-                    self.y_k_vec.push(vec.pr);
+                    self.y_k_vec.push(vec.row1);
                     self.w_k_vec.push(1.0); // TODO
                     self.indexes.push(i);
                     self.sv.push(contrib);
@@ -506,50 +529,42 @@ where
 
         debug!("state correction: dx={}", estimate.x);
 
-        for i in 0..estimate.x.nrows() {
+        let ndf = estimate.x.nrows();
+
+        for i in 0..ndf {
             self.x_k[i] = estimate.x[i];
         }
 
-        pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
-            error!("{} - state update failed with physical error: {}", t, e);
-            Error::StateUpdate
-        })?;
+        pending
+            .correct_mut(self.frame, t, &self.x_k, ndf)
+            .map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
 
         let gt_g_inv = (self.g_k.transpose() * self.g_k.clone())
             .try_inverse()
             .ok_or(Error::MatrixInversion)?;
 
         // update
-        self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+        dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+
+        self.state_validation(&dop)?;
+
+        self.dop = dop;
+        self.state = pending;
 
         debug!("{} - new state {}", t, pending);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
-
-        self.state_validation()?;
-        self.state = pending;
 
         Ok(())
     }
 
     /// Validate pending [State]
-    fn state_validation(&self) -> Result<(), Error> {
-        // const n: usize = 4; // x, y, z, dt
-
-        if self.dop.gdop > self.cfg.solver.max_gdop {
+    fn state_validation(&self, dop: &DilutionOfPrecision) -> Result<(), Error> {
+        if dop.gdop > self.cfg.solver.max_gdop {
             return Err(Error::MaxGdopExceeded);
         }
-
-        // let m = pres.len();
-
-        // let pres = pres.transpose().dot(pres);
-        // let denom = pres.len() as f64 - 4.0 - 1.0; /// x, y, z ,dt
-        //
-        // let chisqr = chisqr(0.001, m-n-1);
-        //
-        // if pres >= chisqr {
-        //     error!("{} - measurement residual test failed! setup is too noisy ({}/{})", t, pres, chisqr);
-        // }
-
         Ok(())
     }
 }

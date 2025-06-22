@@ -19,7 +19,7 @@ use crate::{
     time::AbsoluteTime,
 };
 
-use nalgebra::{DimName, U4};
+use nalgebra::U4;
 
 /// [Solver] to resolve [PVTSolution]s.
 ///
@@ -211,7 +211,6 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EP
                     });
 
                     debug!("{} - initial state: {}", t, state);
-                    self.navigation.state = state.clone();
                     state
                 },
                 None => {
@@ -226,7 +225,6 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, B: Bias, T: AbsoluteTime> Solver<EP
                     });
 
                     debug!("{} - initial state: {}", t, state);
-                    self.navigation.state = state.clone();
                     state
                 },
             }

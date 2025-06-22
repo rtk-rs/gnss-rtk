@@ -10,11 +10,11 @@ use crate::{
 
 #[derive(Debug, Copy, Clone, Default)]
 pub(crate) struct VectorContribution {
-    /// Pseudo range contribution, always
-    pub pr: f64,
+    /// Row #1 contribution
+    pub row1: f64,
 
-    /// Carrier phase contribution, only in PPP
-    pub cp: Option<f64>,
+    /// Row #2 contribution
+    pub row2: f64,
 
     /// relativistic path range
     pub dr: f64,
@@ -29,6 +29,7 @@ impl Candidate {
     /// - State has been previously resolved
     /// - Range estimate is available
     /// - Preset modeling are matched
+    ///
     /// ## Input
     /// - t: [Epoch] of computation
     /// - cfg: [Config] preset
@@ -43,6 +44,8 @@ impl Candidate {
         &self,
         t: Epoch,
         cfg: &Config,
+        two_rows: bool,
+        amb: Option<u64>,
         x0_y0_z0_m: Vector3<f64>,
         rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
         contribution: &mut SVContribution,
@@ -84,11 +87,12 @@ impl Candidate {
             contribution.relativistic_path_range_m = 0.0_f64;
         }
 
-        let (frequency_hz, range_m) = match cfg.method {
+        let (lambda, range_m) = match cfg.method {
             Method::SPP => {
                 let (carrier, pr) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
                 contribution.signal = Signal::Single(carrier);
-                (carrier.frequency_hz(), pr)
+
+                (carrier.wavelength(), pr)
             },
             Method::CPP | Method::PPP => {
                 let comb = self
@@ -96,11 +100,22 @@ impl Candidate {
                     .ok_or(Error::PseudoRangeCombination)?;
 
                 contribution.signal = Signal::Dual((comb.lhs, comb.rhs));
-                (comb.rhs.frequency_hz(), comb.value)
+
+                let (f1, f2) = (
+                    comb.rhs.frequency_hz().powi(2),
+                    comb.lhs.frequency_hz().powi(2),
+                );
+                let (l1, l2) = (comb.rhs.wavelength(), comb.lhs.wavelength());
+
+                let lambda = (f1 * l1 - f2 * l2) / (f1 - f2);
+
+                (lambda, comb.value)
             },
         };
 
-        let cp = match cfg.method {
+        let frequency_hz = SPEED_OF_LIGHT_M_S / lambda;
+
+        let mut cp = match cfg.method {
             Method::PPP => {
                 let comb = self
                     .phase_if_combination()
@@ -110,6 +125,12 @@ impl Candidate {
             },
             _ => None,
         };
+
+        if let Some(amb) = amb {
+            if let Some(cp) = &mut cp {
+                *cp -= amb as f64 * lambda;
+            }
+        }
 
         if cfg.modeling.sv_clock_bias {
             let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
@@ -170,6 +191,10 @@ impl Candidate {
             }
         }
 
+        let mut vec = VectorContribution::default();
+        vec.dr = dr;
+        vec.sigma = 1.0; // TODO
+
         let pr = range_m - rho - bias_m;
 
         let cp = if let Some(cp) = cp {
@@ -178,12 +203,18 @@ impl Candidate {
             None
         };
 
-        Ok(VectorContribution {
-            cp,
-            pr,
-            sigma: 1.0, // TODO
-            dr,
-        })
+        if two_rows {
+            vec.row1 = pr;
+            vec.row2 = cp.unwrap_or_default();
+        } else {
+            if cfg.method == Method::PPP {
+                vec.row1 = cp.unwrap_or_default();
+            } else {
+                vec.row1 = pr;
+            }
+        }
+
+        Ok(vec)
     }
 
     /// Matrix contribution.

@@ -129,13 +129,8 @@ impl Candidate {
     pub(crate) fn best_snr_range_m(&self) -> Option<(Carrier, f64)> {
         let obs = self.best_snr_observation()?;
 
-        let range_m = if let Some(ambiguity) = obs.ambiguity {
-            obs.pseudo_range_m
-        } else {
-            obs.pseudo_range_m
-        };
+        let range_m = obs.pseudo_range_m?;
 
-        let range_m = range_m?;
         Some((obs.carrier, range_m))
     }
 

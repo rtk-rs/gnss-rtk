@@ -294,10 +294,10 @@ impl LambdaAR {
 mod test {
 
     use super::LambdaAR;
-    use crate::prelude::{Constellation, SV};
+    // use crate::prelude::{Constellation, SV};
     use crate::tests::init_logger;
 
-    use nalgebra::{DMatrix, DVector, DimName, U1, U10, U6};
+    use nalgebra::{DMatrix, DimName, U1, U10, U6};
 
     #[test]
     fn gauss_transform() {

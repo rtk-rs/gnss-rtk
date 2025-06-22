@@ -1,4 +1,4 @@
-use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector};
+use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, U3, U4};
 
 use anise::{
     astro::PhysicsResult,
@@ -25,7 +25,7 @@ where
     x: OVector<f64, D>,
 
     /// Clock drift (s.s⁻¹)
-    clock_drift_s_s: f64,
+    pub clock_drift_s_s: f64,
 
     /// Geodeticy position (ddeg, ddeg, km above mean sea level)
     pub lat_long_alt_deg_deg_km: (f64, f64, f64),
@@ -89,17 +89,14 @@ where
 
     /// Create new [State] from [Orbit]al solution.
     pub fn from_orbit(orbit: &Orbit) -> PhysicsResult<Self> {
-        assert!(
-            D::USIZE > 3,
-            "internal error: state minimal dimension implementation!"
-        );
+        assert!(D::USIZE >= U4::USIZE, "minimal dimension!",);
 
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let latlongalt = orbit.latlongalt()?;
 
         let mut x = OVector::<f64, D>::zeros();
 
-        for i in 0..3 {
+        for i in 0..U3::USIZE {
             x[i] = pos_vel_m[i];
         }
 
@@ -119,11 +116,10 @@ where
     /// Returns position and velocity in ECEF meters as [Vector6]
     pub fn position_velocity_ecef_m(&self) -> Vector6 {
         match D::USIZE {
-            4 => Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0),
-            7 => Vector6::new(
-                self.x[0], self.x[1], self.x[2], self.x[3], self.x[4], self.x[5],
-            ),
-            _ => unreachable!("invalid dimensions!"),
+            U4::USIZE => Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0),
+            dim => {
+                panic!("dim={} not implemented/supported yet!", dim);
+            },
         }
     }
 
@@ -144,8 +140,9 @@ where
         frame: Frame,
         pending_t: Epoch,
         dx: &DVector<f64>,
+        ndf: usize,
     ) -> PhysicsResult<()> {
-        assert_eq!(dx.len(), D::USIZE, "invalid correction dimensions!");
+        assert_eq!(ndf, D::USIZE, "incorrect X dimension!");
 
         let dt = (pending_t - self.t).to_seconds();
 
@@ -231,6 +228,8 @@ mod test {
         let earth_frame = build_earth_frame();
         let apriori = build_reference_apriori();
 
+        const NDF: usize = U4::USIZE;
+
         let initial_state = State::<U4>::from_apriori(&apriori).unwrap_or_else(|e| {
             panic!(
                 "Failed to build initial state from reference apriori: {}",
@@ -283,11 +282,11 @@ mod test {
 
         let mut state = initial_state.clone();
 
-        let null_dx = DVector::zeros(U4::USIZE);
+        let null_dx = DVector::zeros(NDF);
         let new_t = state.t;
 
         state
-            .correct_mut(earth_frame, new_t, &null_dx)
+            .correct_mut(earth_frame, new_t, &null_dx, NDF)
             .unwrap_or_else(|e| panic!("Failed to apply null state correction! {}", e));
 
         assert_eq!(
@@ -297,7 +296,7 @@ mod test {
 
         let mut state = initial_state.clone();
 
-        let mut dx = DVector::zeros(U4::USIZE);
+        let mut dx = DVector::zeros(NDF);
 
         dx[0] = 1.0;
         dx[1] = 2.0;
@@ -305,7 +304,7 @@ mod test {
         dx[3] = 4.0;
 
         state
-            .correct_mut(earth_frame, state.t, &dx)
+            .correct_mut(earth_frame, state.t, &dx, NDF)
             .unwrap_or_else(|e| panic!("Failed to apply null state correction! {}", e));
 
         assert_eq!(state.t, initial_state.t, "Epoch should have been preserved");
@@ -329,7 +328,7 @@ mod test {
 
         let mut state = initial_state.clone();
 
-        let mut dx = DVector::zeros(U4::USIZE);
+        let mut dx = DVector::zeros(NDF);
 
         dx[0] = 1.0;
         dx[1] = 2.0;
@@ -340,7 +339,7 @@ mod test {
         let new_t = state.t + Duration::from_seconds(30.0);
 
         state
-            .correct_mut(earth_frame, new_t, &dx)
+            .correct_mut(earth_frame, new_t, &dx, NDF)
             .unwrap_or_else(|e| panic!("Failed to apply null state correction! {}", e));
 
         assert!(state.t > initial_state.t, "Epoch should have been updated!");

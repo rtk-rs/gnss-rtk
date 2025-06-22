@@ -1,6 +1,6 @@
 use nalgebra::{
     allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Matrix6, OMatrix, Vector6,
-    U6,
+    U3, U6,
 };
 
 use crate::{
@@ -44,15 +44,6 @@ impl PostfitKf {
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
-        let r_diag = [
-            meas_pos_std_dev_m.powi(2),
-            meas_pos_std_dev_m.powi(2),
-            meas_pos_std_dev_m.powi(2),
-            meas_vel_std_dev_m_s.powi(2),
-            meas_vel_std_dev_m_s.powi(2),
-            meas_vel_std_dev_m_s.powi(2),
-        ];
-
         let x_0 = state.position_velocity_ecef_m();
 
         let q_diag = Vector6::new(
@@ -68,7 +59,6 @@ impl PostfitKf {
         let p_0 = Matrix6::from_diagonal(&q_diag);
         let f_mat = Matrix6::identity();
         let g_mat = Matrix6::identity();
-        let w_mat = Matrix6::identity();
 
         let mut kalman = Kalman::new();
 
@@ -76,12 +66,19 @@ impl PostfitKf {
 
         kalman.initialize(f_mat, q_mat, initial_estimate);
 
+        let mut w_mat = DMatrix::<f64>::zeros(U6::USIZE, U6::USIZE);
+
+        for i in 0..U3::USIZE {
+            w_mat[(i, i)] = meas_pos_std_dev_m.powi(2);
+            w_mat[(U3::USIZE + i, U3::USIZE + i)] = meas_vel_std_dev_m_s.powi(2);
+        }
+
         Self {
             f_mat,
             q_mat,
-            g_mat: DMatrix::from_column_slice(U6::USIZE, U6::USIZE, g_mat.as_slice()),
-            w_mat: DMatrix::from_column_slice(U6::USIZE, U6::USIZE, w_mat.as_slice()),
+            w_mat,
             kalman,
+            g_mat: DMatrix::from_column_slice(U6::USIZE, U6::USIZE, g_mat.as_slice()),
         }
     }
 
