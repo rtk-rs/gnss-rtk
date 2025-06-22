@@ -22,7 +22,7 @@ where
     pub t: Epoch,
 
     /// Internal [Vector4]
-    x: OVector<f64, D>,
+    pub x: OVector<f64, D>,
 
     /// Clock drift (s.s⁻¹)
     pub clock_drift_s_s: f64,
@@ -194,7 +194,7 @@ mod test {
 
     use crate::{
         navigation::{Apriori, Navigation, State},
-        prelude::{Duration, Epoch, Frame, Orbit, SPEED_OF_LIGHT_M_S},
+        prelude::{Duration, Frame, Orbit, SPEED_OF_LIGHT_M_S},
         tests::REFERENCE_COORDS_ECEF_M,
     };
 
@@ -202,7 +202,6 @@ mod test {
     use nalgebra::{DVector, DimName, U4};
 
     use rstest::*;
-    use std::str::FromStr;
 
     #[fixture]
     fn build_earth_frame() -> Frame {

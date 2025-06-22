@@ -21,10 +21,12 @@ pub struct SolverOpts {
     /// GDOP threshold to invalidate ongoing GDOP
     #[cfg_attr(feature = "serde", serde(default = "default_max_gdop"))]
     pub max_gdop: f64,
+
     /// GNSS-RTK allows the user to open the navigation filter loop,
     /// which is totally forbidden in roaming applications.
     #[cfg_attr(feature = "serde", serde(default = "default_open_loop"))]
     pub open_loop: bool,
+
     /// Possible extra denoising filter, at the expense
     /// of more processing time. The configuration is the denoising factor.
     /// 1000 for x1000 improvement attempt.

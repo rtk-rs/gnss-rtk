@@ -128,7 +128,9 @@ impl Candidate {
 
         if let Some(amb) = amb {
             if let Some(cp) = &mut cp {
-                *cp -= amb as f64 * lambda;
+                debug!("{}({}) n_amb={}", self.t, self.sv, amb);
+
+                *cp -= amb as f64;
             }
         }
 
@@ -224,6 +226,7 @@ impl Candidate {
     }
 
     /// Matrix contribution.
+    ///
     /// ## Input
     ///  - i: matrix row
     ///  - cfg: [Config] preset

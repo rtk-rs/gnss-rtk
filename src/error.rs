@@ -122,6 +122,9 @@ pub enum Error {
     #[error("unresolved signal ambiguity")]
     UnresolvedAmbiguity,
 
+    #[error("error when trying to fix signal ambiguities")]
+    FloatingAmbiguities,
+
     /// [Solver] requires [Almanac] determination at build up and may wind-up here this step is in failure.
     #[error("issue with Almanac: {0}")]
     Almanac(AlmanacError),

@@ -169,10 +169,13 @@ where
         self.clear();
         self.kalman.reset();
 
+        if let Some(prefit) = &mut self.ppp_prefit {
+            prefit.reset();
+        }
+
         if let Some(postfit) = &mut self.postfit {
             postfit.reset();
         }
-
         self.prev_epoch = None;
         self.initialized = false;
         self.dop = DilutionOfPrecision::default();
@@ -205,6 +208,8 @@ where
     ) -> Result<(), Error> {
         self.clear();
 
+        let mut initial_state = initial_state.clone();
+
         if self.cfg.method == Method::PPP {
             if self.ppp_prefit.is_none() {
                 self.ppp_prefit = Some(PPPPrefitSolver::new(&self.cfg, &initial_state, self.frame));
@@ -216,9 +221,12 @@ where
             debug!("**** ppp prefit *****");
             ppp_prefit.run(epoch, params, candidates, size, rtk_base, bias)?;
             debug!("**** end of ppp prefit *****");
+
+            initial_state = ppp_prefit.state.to_initial_state();
         }
 
         // TODO Q model
+
         // self.q_k[(Self::clock_index(), Self::clock_index())] =
         //     (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
 
@@ -226,7 +234,7 @@ where
             (100e-3 * SPEED_OF_LIGHT_M_S).powi(2);
 
         if !self.kalman.initialized {
-            self.kf_initialization(epoch, initial_state, candidates, size, rtk_base, bias)?;
+            self.kf_initialization(epoch, &initial_state, candidates, size, rtk_base, bias)?;
         } else {
             self.kf_run(epoch, candidates, size, rtk_base, bias)?;
         }
@@ -296,7 +304,20 @@ where
 
             let position_m = pending.position_ecef_m();
 
-            let amb = None;
+            let amb = match self.cfg.method {
+                Method::PPP => {
+                    if let Some(prefit) = &self.ppp_prefit {
+                        if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[i].sv) {
+                            Some(n_amb)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                },
+                Method::SPP | Method::CPP => None,
+            };
 
             match candidates[i].vector_contribution(
                 t,
@@ -310,7 +331,9 @@ where
             ) {
                 Ok(vec) => {
                     self.y_k_vec.push(vec.row1);
+
                     self.w_k_vec.push(1.0); // TODO
+
                     self.indexes.push(i);
                     self.sv.push(contrib);
 
@@ -336,7 +359,7 @@ where
         self.g_k.resize_mut(y_len, D::USIZE, 0.0);
 
         // run
-        for _ in 0..nb_iter {
+        for ith in 0..nb_iter {
             let y_len = self.y_k_vec.len();
 
             // Form W
@@ -347,7 +370,7 @@ where
             }
 
             let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
-            debug!("Y: {}", y_k);
+            debug!("(i={}) Y: {}", ith, y_k);
 
             // Form G
             for (i, index) in self.indexes.iter().enumerate() {
@@ -378,7 +401,7 @@ where
             self.p_k = gt_w_g_inv.clone();
 
             let ndf = self.x_k.nrows();
-            debug!("dx={}", self.x_k);
+            debug!("(i={}) dx={}", ith, self.x_k);
 
             pending
                 .correct_mut(self.frame, t, &self.x_k, ndf)
@@ -392,7 +415,7 @@ where
             // update latest DoP
             dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
-            debug!("{} - pending state {}", t, pending);
+            debug!("(i={}) {} - pending state {}", ith, t, pending);
 
             // models update
             self.y_k_vec.clear();
@@ -403,7 +426,20 @@ where
 
                 let position_m = pending.position_ecef_m();
 
-                let amb = None;
+                let amb = match self.cfg.method {
+                    Method::PPP => {
+                        if let Some(prefit) = &self.ppp_prefit {
+                            if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[*i].sv) {
+                                Some(n_amb)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    Method::SPP | Method::CPP => None,
+                };
 
                 match candidates[*i].vector_contribution(
                     t,
@@ -463,7 +499,20 @@ where
 
             let pos_m = pending.position_ecef_m();
 
-            let amb = None;
+            let amb = match self.cfg.method {
+                Method::PPP => {
+                    if let Some(prefit) = &self.ppp_prefit {
+                        if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[i].sv) {
+                            Some(n_amb)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                },
+                Method::SPP | Method::CPP => None,
+            };
 
             match candidates[i].vector_contribution(
                 t,

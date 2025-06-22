@@ -1,4 +1,4 @@
-use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, U3, U4, U8};
+use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, DimName, OVector, U4, U8};
 
 use anise::{
     astro::PhysicsResult,
@@ -8,7 +8,7 @@ use anise::{
 
 use crate::{
     constants::SPEED_OF_LIGHT_M_S,
-    navigation::{Apriori, Navigation, State},
+    navigation::{Navigation, State},
     prelude::Orbit,
 };
 
@@ -61,11 +61,8 @@ impl PPPState {
     {
         let mut x = DVector::<f64>::zeros(D::USIZE + U4::USIZE);
 
-        let pos_vel_m = initial_state.position_velocity_ecef_m();
-
         for i in 0..D::USIZE {
-            x[2 * i] = pos_vel_m[i];
-            x[2 * i + 1] = pos_vel_m[i];
+            x[i] = initial_state.x[i];
         }
 
         Self {
@@ -76,17 +73,38 @@ impl PPPState {
         }
     }
 
+    pub fn to_initial_state<D: DimName>(&self) -> State<D>
+    where
+        DefaultAllocator: Allocator<D> + Allocator<D, D>,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
+        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
+    {
+        let mut x = OVector::<f64, D>::zeros();
+
+        for i in 0..D::USIZE {
+            x[i] = self.x[i];
+        }
+
+        State {
+            x,
+            t: self.t,
+            clock_drift_s_s: self.clock_drift_s_s,
+            lat_long_alt_deg_deg_km: self.lat_long_alt_deg_deg_km,
+        }
+    }
+
     pub fn clock_profile_s(&self) -> (f64, f64) {
         (self.x[Navigation::<U4>::clock_index()], 0.0)
     }
 
     /// Returns position in ECEF meters as [Vector3]
     pub fn position_ecef_m(&self) -> Vector3 {
-        Vector3::new(self.x[0], self.x[2], self.x[4])
+        Vector3::new(self.x[0], self.x[1], self.x[2])
     }
 
     pub fn position_velocity_ecef_m(&self) -> Vector6 {
-        Vector6::new(self.x[0], self.x[2], self.x[4], 0.0, 0.0, 0.0)
+        Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0)
     }
 
     /// Converts [PPPState] to [Orbit]
@@ -121,10 +139,12 @@ impl PPPState {
 
         // apply correction
         for i in 0..ndf {
-            if i == Navigation::<U4>::clock_index() {
+            if i < Navigation::<U4>::clock_index() {
+                self.x[i] += dx[i];
+            } else if i == Navigation::<U4>::clock_index() {
                 self.x[i] = dx[i] / SPEED_OF_LIGHT_M_S;
             } else {
-                self.x[i] += dx[i];
+                self.x[i] = dx[i];
             }
         }
 
@@ -144,12 +164,12 @@ mod test {
     use super::PPPState;
 
     use crate::{
-        navigation::{Apriori, Navigation, State},
-        prelude::{Duration, Frame, Orbit, SPEED_OF_LIGHT_M_S},
+        navigation::{Apriori, State},
+        prelude::{Frame, Orbit, SPEED_OF_LIGHT_M_S},
         tests::REFERENCE_COORDS_ECEF_M,
     };
 
-    use anise::math::Vector3;
+    use anise::math::{Vector3, Vector6};
     use nalgebra::{DVector, DimName, U4, U8};
 
     use rstest::*;
@@ -175,6 +195,7 @@ mod test {
 
     #[test]
     fn ppp_state_from_u4() {
+        let earth_frame = build_earth_frame();
         let apriori = build_reference_apriori();
 
         let initial_state = State::<U4>::from_apriori(&apriori).unwrap_or_else(|e| {
@@ -224,34 +245,90 @@ mod test {
             "clock state should not be initialized!"
         );
 
-        let ppp_state = PPPState::from_initial_state(&initial_state);
+        let mut ppp_state = PPPState::from_initial_state(&initial_state);
 
-        // let null_dx = DVector::zeros(U8::USIZE);
-        // dx[0] = 1.0;
-        // dx[1] = 2.0;
-        // dx[2] = 3.0;
-        // dx[3] = 4.0;
+        assert_eq!(
+            ppp_state.position_ecef_m(),
+            Vector3::new(
+                REFERENCE_COORDS_ECEF_M.0,
+                REFERENCE_COORDS_ECEF_M.1,
+                REFERENCE_COORDS_ECEF_M.2,
+            )
+        );
 
-        // ppp_state.correct_mut(earth_frame, new_t, &null_dx, ndf)
-        //     .unwrap_or_else(|e| {
-        //         panic!("failed to apply dim={} correction", dim);
-        //     });
+        assert_eq!(
+            ppp_state.position_velocity_ecef_m(),
+            Vector6::new(
+                REFERENCE_COORDS_ECEF_M.0,
+                REFERENCE_COORDS_ECEF_M.1,
+                REFERENCE_COORDS_ECEF_M.2,
+                0.0,
+                0.0,
+                0.0,
+            )
+        );
 
-        // assert_eq!(state.t, initial_state.t, "Epoch should have been preserved");
-        // let position_ecef_m = state.position_ecef_m();
-        // assert_eq!(
-        //     position_ecef_m,
-        //     Vector3::new(
-        //         REFERENCE_COORDS_ECEF_M.0 + 1.0,
-        //         REFERENCE_COORDS_ECEF_M.1 + 2.0,
-        //         REFERENCE_COORDS_ECEF_M.2 + 3.0,
-        //     ),
-        //     "invalid spatial state correction",
-        // );
+        let null_dx = DVector::zeros(U8::USIZE);
 
-        // let (clock_offset_s, clock_drift_s) = state.clock_profile_s();
+        let new_t = ppp_state.t;
 
-        // assert_eq!(clock_offset_s, 4.0 / SPEED_OF_LIGHT_M_S);
-        // assert_eq!(clock_drift_s, 0.0, "clock drift should have been preserved");
+        ppp_state
+            .correct_mut(earth_frame, new_t, &null_dx, U8::USIZE)
+            .unwrap_or_else(|e| {
+                panic!("failed to apply dim={} correction: {}", U8::USIZE, e);
+            });
+
+        assert_eq!(
+            ppp_state.position_ecef_m(),
+            Vector3::new(
+                REFERENCE_COORDS_ECEF_M.0,
+                REFERENCE_COORDS_ECEF_M.1,
+                REFERENCE_COORDS_ECEF_M.2,
+            )
+        );
+
+        assert_eq!(
+            ppp_state.position_velocity_ecef_m(),
+            Vector6::new(
+                REFERENCE_COORDS_ECEF_M.0,
+                REFERENCE_COORDS_ECEF_M.1,
+                REFERENCE_COORDS_ECEF_M.2,
+                0.0,
+                0.0,
+                0.0,
+            )
+        );
+
+        let mut dx = DVector::zeros(U8::USIZE);
+
+        dx[0] = 1.0;
+        dx[1] = 2.0;
+        dx[2] = 3.0;
+        dx[3] = 4.0;
+
+        let new_t = ppp_state.t;
+
+        ppp_state
+            .correct_mut(earth_frame, new_t, &dx, U8::USIZE)
+            .unwrap_or_else(|e| {
+                panic!("failed to apply dim={} correction: {}", U8::USIZE, e);
+            });
+
+        let position_ecef_m = ppp_state.position_ecef_m();
+
+        assert_eq!(
+            position_ecef_m,
+            Vector3::new(
+                REFERENCE_COORDS_ECEF_M.0 + 1.0,
+                REFERENCE_COORDS_ECEF_M.1 + 2.0,
+                REFERENCE_COORDS_ECEF_M.2 + 3.0,
+            ),
+            "invalid spatial state correction",
+        );
+
+        let (clock_offset_s, clock_drift_s) = ppp_state.clock_profile_s();
+
+        assert_eq!(clock_offset_s, 4.0 / SPEED_OF_LIGHT_M_S);
+        assert_eq!(clock_drift_s, 0.0, "clock drift should have been preserved");
     }
 }

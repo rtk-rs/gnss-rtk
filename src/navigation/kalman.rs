@@ -147,7 +147,7 @@ where
     ) -> Result<KfEstimate<D>, Error> {
         let (w_rows, w_cols) = (w_k.nrows(), w_k.ncols());
         let (g_rows, g_cols) = (g_k.nrows(), g_k.ncols());
-        let (q_rows, q_cols) = (q_k.nrows(), q_k.ncols());
+        let (_, q_cols) = (q_k.nrows(), q_k.ncols());
 
         let y_rows = y_k.nrows();
 

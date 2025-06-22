@@ -35,7 +35,8 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
         self.post_fit_eclipse(almanac, cfg.max_eclipse_rate_percent);
 
         if cfg.method == Method::PPP {
-            self.post_fit_phase_windup(almanac, state)?;
+            // TODO
+            // self.post_fit_phase_windup(almanac, state)?;
         }
 
         if cfg.code_smoothing > 0 || cfg.method == Method::PPP {

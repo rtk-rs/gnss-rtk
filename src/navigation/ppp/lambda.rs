@@ -1,24 +1,14 @@
 use nalgebra::{DMatrix, DVector};
 
-use crate::prelude::{Error, SV};
+use crate::prelude::Error;
 
 use log::debug;
 
-use std::collections::HashMap;
-
 #[derive(Default)]
-pub struct LambdaAR {
-    /// [FixedAmbiguity]
-    fixed: HashMap<SV, u64>,
-}
+pub struct LambdaAR {}
 
 impl LambdaAR {
     const MAX_SEARCH: usize = 1_000;
-
-    /// Reset this [LambdaAR] completely
-    pub fn reset(&mut self) {
-        self.fixed.clear();
-    }
 
     fn signum(value: f64) -> f64 {
         if value <= 0.0 {
@@ -243,7 +233,7 @@ impl LambdaAR {
         x_vec: &DMatrix<f64>,
         q_mat: &DMatrix<f64>,
         // sv_indexes: &DVector<(SV, usize)>,
-    ) -> Result<(), Error> {
+    ) -> Result<(DMatrix<f64>, DVector<f64>), Error> {
         let (x_rows, x_cols) = (x_vec.nrows(), x_vec.ncols());
         let (q_rows, _q_cols) = (q_mat.nrows(), q_mat.ncols());
 
@@ -286,7 +276,7 @@ impl LambdaAR {
 
         debug!("search - F={}", f_mat);
 
-        Ok(())
+        Ok((f_mat, s_vec))
     }
 }
 
@@ -358,24 +348,24 @@ mod test {
             ],
         );
 
-        let f_mat = DMatrix::<f64>::from_row_slice(
-            U6::USIZE,
-            2,
-            &[
-                1585184.000000,
-                1585184.000000,
-                -6716599.000000,
-                -6716600.000000,
-                3915743.000000,
-                3915743.000000,
-                7627234.000000,
-                7627233.000000,
-                9565991.000000,
-                9565991.000000,
-                989457273.000000,
-                989457273.000000,
-            ],
-        );
+        // let f_mat = DMatrix::<f64>::from_row_slice(
+        //     U6::USIZE,
+        //     2,
+        //     &[
+        //         1585184.000000,
+        //         1585184.000000,
+        //         -6716599.000000,
+        //         -6716600.000000,
+        //         3915743.000000,
+        //         3915743.000000,
+        //         7627234.000000,
+        //         7627233.000000,
+        //         9565991.000000,
+        //         9565991.000000,
+        //         989457273.000000,
+        //         989457273.000000,
+        //     ],
+        // );
 
         // let s_1 = DVector::<f64>::from_row_slice(&[3.507984, 3.708456]);
 
