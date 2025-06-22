@@ -59,11 +59,11 @@ impl PPPState {
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
-        let mut x = DVector::<f64>::zeros(U8::USIZE);
+        let mut x = DVector::<f64>::zeros(D::USIZE + U4::USIZE);
 
         let pos_vel_m = initial_state.position_velocity_ecef_m();
 
-        for i in 0..U4::USIZE {
+        for i in 0..D::USIZE {
             x[2 * i] = pos_vel_m[i];
             x[2 * i + 1] = pos_vel_m[i];
         }
@@ -82,11 +82,11 @@ impl PPPState {
 
     /// Returns position in ECEF meters as [Vector3]
     pub fn position_ecef_m(&self) -> Vector3 {
-        Vector3::new(self.x[0], self.x[1], self.x[2])
+        Vector3::new(self.x[0], self.x[2], self.x[4])
     }
 
     pub fn position_velocity_ecef_m(&self) -> Vector6 {
-        Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0)
+        Vector6::new(self.x[0], self.x[2], self.x[4], 0.0, 0.0, 0.0)
     }
 
     /// Converts [PPPState] to [Orbit]

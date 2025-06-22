@@ -244,8 +244,9 @@ impl PrefitSolver {
 
         // run
         for _ in 0..nb_iter {
-            let ndf = U4::USIZE;
             let nrows = self.y_vec.len();
+            let lambda_ndf = nrows / 2;
+            let ndf = U4::USIZE + lambda_ndf;
 
             // form W
             self.w_mat.resize_mut(nrows, nrows, 0.0);
@@ -274,9 +275,10 @@ impl PrefitSolver {
                 self.g_mat[(2 * i + 1, 1)] = dy;
                 self.g_mat[(2 * i + 1, 2)] = dz;
                 self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index())] = 1.0;
+                self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index() + 1 + i)] = 1.0;
             }
 
-            debug!("G: {} W: {}", self.g_mat, self.w_mat,);
+            debug!("G: {} W: {}", self.g_mat, self.w_mat);
 
             // run
             let gt = self.g_mat.transpose();
@@ -295,7 +297,6 @@ impl PrefitSolver {
             self.x_vec = gt_w_g_inv_gt_w * y;
             self.p_mat = gt_w_g_inv.clone();
 
-            let ndf = self.x_vec.nrows();
             debug!("dx={}", self.x_vec);
 
             pending
@@ -448,8 +449,9 @@ impl PrefitSolver {
             }
         }
 
-        let ndf = U8::USIZE;
         let nrows = self.y_vec.len();
+        let lambda_ndf = nrows / 2;
+        let ndf = U4::USIZE + lambda_ndf;
 
         // verifications prior moving forward
         if nrows < U8::USIZE {
@@ -457,17 +459,16 @@ impl PrefitSolver {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        let lambda_ndf = nrows - ndf;
-
-        self.w_mat.resize_mut(nrows, nrows, 0.0);
-        self.g_mat.resize_mut(nrows, ndf, 0.0);
-
         // form W
+        self.w_mat.resize_mut(nrows, nrows, 0.0);
+
         for i in 0..nrows {
             self.w_mat[(i, i)] = 1.0; // TODO: improve model
         }
 
         // form G
+        self.g_mat.resize_mut(nrows, ndf, 0.0);
+
         for (i, (_sv, index)) in self.sv_indexes.iter().enumerate() {
             let dr_i = self.sv[i].relativistic_path_range_m;
 
@@ -483,10 +484,11 @@ impl PrefitSolver {
             self.g_mat[(2 * i + 1, 0)] = dx;
             self.g_mat[(2 * i + 1, 1)] = dy;
             self.g_mat[(2 * i + 1, 2)] = dz;
-            self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index() + i + 1)] = 1.0;
+            self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index())] = 1.0;
+            self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index() + 1 + i)] = 1.0;
         }
 
-        debug!("G: {} W: {}", self.g_mat, self.w_mat,);
+        debug!("G: {} W: {}", self.g_mat, self.w_mat);
 
         // form Y
         let y = DVector::<f64>::from_row_slice(self.y_vec.as_slice());

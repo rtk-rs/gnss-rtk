@@ -153,14 +153,14 @@ impl Candidate {
             > 1
     }
 
-    /// True if dual pseudo range measurement is present
-    pub(crate) fn has_triple_pseudo_range(&self) -> bool {
-        self.pseudo_range_iter()
-            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
-            .unique()
-            .count()
-            > 2
-    }
+    // /// True if dual pseudo range measurement is present
+    // pub(crate) fn has_triple_pseudo_range(&self) -> bool {
+    //     self.pseudo_range_iter()
+    //         .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+    //         .unique()
+    //         .count()
+    //         > 2
+    // }
 
     /// True if dual phase range measurement exist.
     pub(crate) fn has_dual_phase_range(&self) -> bool {
@@ -171,14 +171,14 @@ impl Candidate {
             > 1
     }
 
-    /// True if dual phase range measurement exist.
-    pub(crate) fn has_triple_phase_range(&self) -> bool {
-        self.phase_range_iter()
-            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
-            .unique()
-            .count()
-            > 2
-    }
+    // /// True if dual phase range measurement exist.
+    // pub(crate) fn has_triple_phase_range(&self) -> bool {
+    //     self.phase_range_iter()
+    //         .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+    //         .unique()
+    //         .count()
+    //         > 2
+    // }
 
     /// Returns the L1 Pseudo Range observation [m] if it exists
     pub(crate) fn l1_pseudo_range(&self) -> Option<(Carrier, f64)> {

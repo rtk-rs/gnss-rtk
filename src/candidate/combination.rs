@@ -55,6 +55,7 @@ impl Candidate {
     }
 
     /// Returns phase wide lane [Combination]
+    #[cfg(test)]
     pub(crate) fn phase_wl_combination(&self) -> Option<Combination> {
         let (c1, l1_cp) = self.l1_phase_range()?;
         let f1 = c1.frequency_hz();
@@ -70,6 +71,7 @@ impl Candidate {
     }
 
     /// Returns code narrow lane [Combination]
+    #[cfg(test)]
     pub(crate) fn code_nl_combination(&self) -> Option<Combination> {
         let (c1, l1_pr) = self.l1_pseudo_range()?;
         let f1 = c1.frequency_hz();
@@ -85,6 +87,7 @@ impl Candidate {
     }
 
     /// Returns MW [Combination]
+    #[cfg(test)]
     pub(crate) fn mw_combination(&self) -> Option<Combination> {
         let ph_w = self.phase_wl_combination()?;
         let pr_n = self.code_nl_combination()?;
@@ -96,6 +99,7 @@ impl Candidate {
     }
 
     /// Form GF [Combination]
+    #[cfg(test)]
     pub(crate) fn code_gf_combination(&self) -> Option<Combination> {
         let (c1, l1_pr) = self.l1_pseudo_range()?;
         let (c2, l2_pr) = self.subsidary_pseudo_range()?;
@@ -103,6 +107,7 @@ impl Candidate {
     }
 
     /// Returns GF [Combination]
+    #[cfg(test)]
     pub(crate) fn phase_gf_combination(&self) -> Option<Combination> {
         let (c1, l1_pr) = self.l1_phase_range()?;
         let (c2, l2_pr) = self.subsidary_phase_range()?;

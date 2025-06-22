@@ -198,10 +198,16 @@ impl Candidate {
         let pr = range_m - rho - bias_m;
 
         let cp = if let Some(cp) = cp {
-            Some(cp - rho - bias_m) // TODO lambda_n * windup
+            Some(cp - rho - bias_m) // TODO: lambda_n * windup
         } else {
             None
         };
+
+        if two_rows || cfg.method == Method::PPP {
+            if cp.is_none() {
+                return Err(Error::MissingPhaseRangeMeasurements)?;
+            }
+        }
 
         if two_rows {
             vec.row1 = pr;

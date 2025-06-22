@@ -6,7 +6,17 @@ use crate::{
     // ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
     constants::SPEED_OF_LIGHT_M_S,
     navigation::state::State,
-    prelude::{Almanac, Config, Constellation, Duration, Epoch, Error, Orbit, Vector3, SV},
+    prelude::{
+        Almanac,
+        Config,
+        // Constellation,
+        Duration,
+        Epoch,
+        Error,
+        Orbit,
+        Vector3,
+        SV,
+    },
 };
 
 use anise::errors::AlmanacResult;
@@ -97,20 +107,20 @@ impl Candidate {
         }
     }
 
-    pub(crate) fn weight_perturbations(&self) -> f64 {
-        let fact = match self.sv.constellation {
-            Constellation::GPS => 1.0,
-            Constellation::Galileo => 1.0,
-            _ => 10.0,
-        };
+    // pub(crate) fn weight_perturbations(&self) -> f64 {
+    //     let fact = match self.sv.constellation {
+    //         Constellation::GPS => 1.0,
+    //         Constellation::Galileo => 1.0,
+    //         _ => 10.0,
+    //     };
 
-        let r_ratio = 100.0;
+    //     let r_ratio = 100.0;
 
-        let tropod = 3.0;
-        let code_bias = 0.3;
+    //     let tropod = 3.0;
+    //     let code_bias = 0.3;
 
-        fact * r_ratio + tropod + code_bias
-    }
+    //     fact * r_ratio + tropod + code_bias
+    // }
 
     /// Define Total Group Delay [TDG] if you know it.
     /// This will increase your accuracy in PPP opmode for up to 10m.

@@ -213,7 +213,9 @@ where
 
         // TODO: verif la relation état interne ppp_prefit et nav_state
         if let Some(ppp_prefit) = &mut self.ppp_prefit {
-            // ppp_prefit.run(epoch, params, candidates, size, rtk_base, bias)?;
+            debug!("**** ppp prefit *****");
+            ppp_prefit.run(epoch, params, candidates, size, rtk_base, bias)?;
+            debug!("**** end of ppp prefit *****");
         }
 
         // TODO Q model
@@ -337,16 +339,17 @@ where
         for _ in 0..nb_iter {
             let y_len = self.y_k_vec.len();
 
-            //self.y_k.resize_mut(y_len, 0.0); // TODO: vector
+            // Form W
             self.w_k.resize_mut(y_len, y_len, 0.0);
 
             for i in 0..y_len {
                 self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
             }
 
-            let y_k = DVector::from_row_slice(&self.y_k_vec);
+            let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
+            debug!("Y: {}", y_k);
 
-            // form g_k
+            // Form G
             for (i, index) in self.indexes.iter().enumerate() {
                 let dr_i = self.sv[i].relativistic_path_range_m;
 
@@ -375,7 +378,6 @@ where
             self.p_k = gt_w_g_inv.clone();
 
             let ndf = self.x_k.nrows();
-
             debug!("dx={}", self.x_k);
 
             pending
@@ -452,7 +454,6 @@ where
         bias: &B,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
-        let mut dop = DilutionOfPrecision::default();
 
         // measurement
         for i in 0..size {
@@ -499,7 +500,8 @@ where
             return Err(Error::MatrixMinimalDimension);
         }
 
-        let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO vector
+        let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
+        debug!("Y: {}", y_k);
 
         self.w_k.resize_mut(y_len, y_len, 0.0);
         self.g_k.resize_mut(y_len, D::USIZE, 0.0);
@@ -547,7 +549,7 @@ where
             .ok_or(Error::MatrixInversion)?;
 
         // update
-        dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+        let dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
         self.state_validation(&dop)?;
 
