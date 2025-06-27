@@ -14,8 +14,10 @@ use crate::{
 pub struct Apriori {
     /// [Epoch] of resolution
     pub t: Epoch,
+
     /// [Frame] we work with
     pub frame: Frame,
+
     /// ECEF position (m)
     pub pos_m: (f64, f64, f64),
 }

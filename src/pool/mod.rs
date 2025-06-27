@@ -3,11 +3,11 @@ use log::error;
 use std::collections::HashMap;
 
 use crate::{
-    // ambiguity::Solver as AmbiguitySolver,
+    ambiguity::Solver as AmbiguitySolver,
     constants::EARTH_ANGULAR_VEL_RAD,
     prelude::{
-        Candidate, Config, Duration, Ephemeris, EphemerisSource, Epoch, Frame, Orbit, OrbitSource,
-        Rc, SV,
+        Almanac, Candidate, Config, Duration, EnvironmentalBias, Ephemeris, EphemerisSource, Epoch,
+        Frame, Orbit, OrbitSource, Rc, SpacebornBias, SV,
     },
     smoothing::Smoother,
 };
@@ -17,12 +17,21 @@ use nalgebra::{Matrix3, Vector3};
 pub mod postfit;
 pub mod prefit;
 
-pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource> {
+pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: SpacebornBias> {
+    /// [Config]uration preset
+    cfg: Config,
+
+    /// Internal [Almanac]
+    almanac: Almanac,
+
     /// ECEF [Frame]
     earth_cef: Frame,
 
     /// Current [Candidate]s pool
     inner: Vec<Candidate>,
+
+    /// Ambiguity solver
+    amb_solver: HashMap<SV, AmbiguitySolver>,
 
     /// Previous [Candidate]s pool
     past: Vec<Candidate>,
@@ -35,6 +44,12 @@ pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource> {
 
     /// [EphemerisSource]
     eph_source: Rc<EPH>,
+
+    /// Environmental biases
+    env_bias: Rc<EB>,
+
+    /// Spaceborn biases
+    space_bias: Rc<SB>,
 
     /// [Ephemeris] Buffer
     eph_buffer: HashMap<SV, Ephemeris>,
@@ -62,22 +77,34 @@ fn orbit_rotation(t: Epoch, dt: Duration, orbit: &Orbit, modeling: bool, frame: 
     )
 }
 
-impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
+impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: SpacebornBias>
+    Pool<EPH, ORB, EB, SB>
+{
     /// Allocate new [Pool]
     pub fn allocate(
-        smoothing_win_len: usize,
+        almanac: Almanac,
+        cfg: Config,
         earth_cef: Frame,
         eph_source: Rc<EPH>,
         orb_source: Rc<ORB>,
+        env_bias: Rc<EB>,
+        space_bias: Rc<SB>,
     ) -> Self {
+        let smoother = Smoother::new(cfg.code_smoothing);
+
         Self {
+            cfg,
             earth_cef,
             eph_source,
             orb_source,
+            env_bias,
+            space_bias,
+            smoother,
+            almanac,
             past: Vec::with_capacity(8),
             inner: Vec::with_capacity(8),
+            amb_solver: HashMap::with_capacity(4),
             eph_buffer: HashMap::with_capacity(8),
-            smoother: Smoother::new(smoothing_win_len),
         }
     }
 
@@ -86,20 +113,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
         self.inner = candidates.to_vec();
     }
 
-    // pub fn retain<F>(&mut self, f: F)
-    // where
-    //     F: FnMut(&Candidate) -> bool,
-    // {
-    //     self.inner.retain(f)
-    // }
-
-    // pub fn retain_mut<F>(&mut self, f: F)
-    // where
-    //     F: FnMut(&mut Candidate) -> bool,
-    // {
-    //     self.inner.retain_mut(f)
-    // }
-
+    /// Returns total number of [Candidate]s
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -108,62 +122,64 @@ impl<EPH: EphemerisSource, ORB: OrbitSource> Pool<EPH, ORB> {
         &self.inner
     }
 
-    /// Ephemeris update attempt
-    fn ephemeris_update(&mut self) {
-        for cd in self.inner.iter() {
-            // update attempt
-            if let Some(data) = self.eph_source.ephemeris_data(cd.t, cd.sv) {
-                self.eph_buffer.insert(cd.sv, data);
-            }
-        }
+    pub fn contains(&self, sv: SV) -> bool {
+        self.inner.iter().filter(|cd| cd.sv == sv).count() > 0
+    }
+
+    pub fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&Candidate) -> bool,
+    {
+        self.inner.retain(f)
     }
 
     /// Determine orbital states
-    pub fn orbital_states(&mut self, cfg: &Config) {
-        self.ephemeris_update();
+    pub fn orbital_states_fit(&mut self, name: &str) {
+        self.inner
+            .retain_mut(|cd| match cd.transmission_time(name, &self.cfg) {
+                Ok(_) => {
+                    // direct state determination
+                    let mut determined = false;
 
-        self.inner.retain_mut(|cd| match cd.tx_epoch(cfg) {
-            Ok(_) => {
-                // direct state determination
-                let mut determined = false;
+                    if let Some(orbit) =
+                        &self.orb_source.state_at(cd.tx_epoch, cd.sv, self.earth_cef)
+                    {
+                        let orbit = orbit_rotation(
+                            cd.epoch,
+                            cd.signal_time_of_flight(),
+                            orbit,
+                            self.cfg.modeling.earth_rotation,
+                            self.earth_cef,
+                        );
 
-                if let Some(orbit) = &self.orb_source.state_at(cd.t_tx, cd.sv, self.earth_cef) {
-                    let orbit = orbit_rotation(
-                        cd.t,
-                        cd.dt_tx,
-                        orbit,
-                        cfg.modeling.earth_rotation,
-                        self.earth_cef,
-                    );
+                        cd.orbit = Some(orbit);
+                        determined = true;
+                    }
 
-                    cd.orbit = Some(orbit);
-                    determined = true;
-                }
+                    // indirect state determination
+                    if !determined {
+                        if let Some(eph) = &self.eph_buffer.get(&cd.sv) {
+                            if let Some(state) = eph.resolve_state(cd.tx_epoch, self.earth_cef) {
+                                let state = orbit_rotation(
+                                    cd.epoch,
+                                    cd.signal_time_of_flight(),
+                                    &state,
+                                    self.cfg.modeling.earth_rotation,
+                                    self.earth_cef,
+                                );
 
-                // indirect state determination
-                if !determined {
-                    if let Some(eph) = &self.eph_buffer.get(&cd.sv) {
-                        if let Some(state) = eph.resolve_state(cd.t_tx, self.earth_cef) {
-                            let state = orbit_rotation(
-                                cd.t,
-                                cd.dt_tx,
-                                &state,
-                                cfg.modeling.earth_rotation,
-                                self.earth_cef,
-                            );
-
-                            cd.orbit = Some(state);
-                            determined = true;
+                                cd.orbit = Some(state);
+                                determined = true;
+                            }
                         }
                     }
-                }
 
-                determined
-            },
-            Err(e) => {
-                error!("{}({}) - tx time error: {}", cd.t, cd.sv, e);
-                false
-            },
-        });
+                    determined
+                },
+                Err(e) => {
+                    error!("{}({}) {} - tx time error: {}", cd.epoch, cd.sv, name, e);
+                    false
+                },
+            });
     }
 }

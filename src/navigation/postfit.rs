@@ -44,7 +44,7 @@ impl PostfitKf {
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
-        let x_0 = state.position_velocity_ecef_m();
+        let x_0 = state.to_position_velocity_ecef_m();
 
         let q_diag = Vector6::new(
             state_pos_std_dev_m.powi(2),
@@ -106,7 +106,7 @@ impl PostfitKf {
         self.f_mat[(1, 4)] = dt_s;
         self.f_mat[(2, 5)] = dt_s;
 
-        let y_vec = DVector::from_row_slice(&state.position_velocity_ecef_m().as_slice());
+        let y_vec = DVector::from_row_slice(&state.to_position_velocity_ecef_m().as_slice());
 
         self.kalman
             .run(&self.f_mat, &self.g_mat, &self.w_mat, &self.q_mat, &y_vec)

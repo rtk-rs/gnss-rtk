@@ -9,32 +9,43 @@ pub enum Carrier {
     /// [Carrier::L1] (1575.42) (GPS +QZSS +SBAS +Galileo +BDS)
     #[default]
     L1,
+
     /// [Carrier::L2] (1227.60) (GPS +QZSS)
     L2,
+
     /// [Carrier::L5] (1176.45) (GPS +QZSS +SBAS +IRNSS)
     L5,
+
     /// [Carrier::E5b] (1207.140) (Galileo)
     E5b,
+
     /// [Carrier::E5a5b] (1191.795) (Galileo +BDS)
     E5a5b,
-    /// [Carrier::E6Lex] (1278.75) (Galileo +QZSS)
-    E6Lex,
+
+    // /// [Carrier::E6Lex] (1278.75) (Galileo +QZSS)
+    // E6Lex,
     /// [Carrier::B1] (1561.098) (BDS)
     B1,
+
     /// [Carrier::B3] (1268.52) (BDS)
     B3,
-    /// [Carrier::S] (2492.028) (IRNSS)
-    S,
-    /// [Carrier::G1] (1602.00) (Glonass)
-    G1,
-    /// [Carrier::G1a] (1600.995) (Glonass)
-    G1a,
-    /// [Carrier::G2] (1246.00) (Glonass)
-    G2,
-    /// [Carrier::G2a] (1248.06) (Glonass)
-    G2a,
-    /// [Carrier::G3] (1202.025) (Glonass)
-    G3,
+    // /// [Carrier::S] (2492.028) (IRNSS)
+    // S,
+    //
+    // /// [Carrier::G1] (1602.00) (Glonass)
+    // G1,
+    //
+    // /// [Carrier::G1a] (1600.995) (Glonass)
+    // G1a,
+    //
+    // /// [Carrier::G2] (1246.00) (Glonass)
+    // G2,
+    //
+    // /// [Carrier::G2a] (1248.06) (Glonass)
+    // G2a,
+    //
+    // /// [Carrier::G3] (1202.025) (Glonass)
+    // G3,
 }
 
 impl std::fmt::Display for Carrier {
@@ -45,15 +56,15 @@ impl std::fmt::Display for Carrier {
             Self::L5 => write!(f, "L5"),
             Self::E5b => write!(f, "E5b"),
             Self::E5a5b => write!(f, "E5a5b"),
-            Self::E6Lex => write!(f, "E6/LEX"),
+            // Self::E6Lex => write!(f, "E6/LEX"),
             Self::B1 => write!(f, "B1"),
             Self::B3 => write!(f, "B3"),
-            Self::S => write!(f, "S"),
-            Self::G1 => write!(f, "G1"),
-            Self::G1a => write!(f, "G1a"),
-            Self::G2 => write!(f, "G2"),
-            Self::G2a => write!(f, "G2a"),
-            Self::G3 => write!(f, "G3"),
+            // Self::S => write!(f, "S"),
+            // Self::G1 => write!(f, "G1"),
+            // Self::G1a => write!(f, "G1a"),
+            // Self::G2 => write!(f, "G2"),
+            // Self::G2a => write!(f, "G2a"),
+            // Self::G3 => write!(f, "G3"),
         }
     }
 }
@@ -72,13 +83,13 @@ impl std::str::FromStr for Carrier {
             "e5a5b" => Ok(Self::E5a5b),
             "b1" => Ok(Self::B1),
             "b3" => Ok(Self::B3),
-            "s" => Ok(Self::S),
-            "g1" => Ok(Self::G1),
-            "g1a" => Ok(Self::G1a),
-            "g2" => Ok(Self::G2),
-            "g2a" => Ok(Self::G2a),
-            "g3" => Ok(Self::G3),
-            "e6" | "lex" | "e6/lex" => Ok(Self::E6Lex),
+            // "s" => Ok(Self::S),
+            // "g1" => Ok(Self::G1),
+            // "g1a" => Ok(Self::G1a),
+            // "g2" => Ok(Self::G2),
+            // "g2a" => Ok(Self::G2a),
+            // "g3" => Ok(Self::G3),
+            // "e6" | "lex" | "e6/lex" => Ok(Self::E6Lex),
             _ => Err(Error::InvalidFrequency),
         }
     }
@@ -100,15 +111,15 @@ impl Carrier {
             1176_450 => Ok(Self::L5),
             1207_140 => Ok(Self::E5b),
             1191_795 => Ok(Self::E5a5b),
-            1278_750 => Ok(Self::E6Lex),
+            // 1278_750 => Ok(Self::E6Lex),
             1561_098 => Ok(Self::B1),
             1268_520 => Ok(Self::B3),
-            2492_028 => Ok(Self::S),
-            1602_000 => Ok(Self::G1),
-            1600_995 => Ok(Self::G1a),
-            1246_000 => Ok(Self::G2),
-            1248_060 => Ok(Self::G2a),
-            1202_025 => Ok(Self::G3),
+            // 2492_028 => Ok(Self::S),
+            // 1602_000 => Ok(Self::G1),
+            // 1600_995 => Ok(Self::G1a),
+            // 1246_000 => Ok(Self::G2),
+            // 1248_060 => Ok(Self::G2a),
+            // 1202_025 => Ok(Self::G3),
             _ => Err(Error::UnknownCarrierFrequency),
         }
     }
@@ -131,15 +142,15 @@ impl Carrier {
             Self::L5 => 1176.450_f64,
             Self::E5b => 1207.140,
             Self::E5a5b => 1191.795,
-            Self::E6Lex => 1278.750,
+            // Self::E6Lex => 1278.750,
             Self::B1 => 1561.098,
             Self::B3 => 1268.520,
-            Self::S => 2492.028,
-            Self::G1 => 1602.000,
-            Self::G1a => 1600.995,
-            Self::G2 => 1246.000,
-            Self::G2a => 1248.060,
-            Self::G3 => 1202.025,
+            // Self::S => 2492.028,
+            // Self::G1 => 1602.000,
+            // Self::G1a => 1600.995,
+            // Self::G2 => 1246.000,
+            // Self::G2a => 1248.060,
+            // Self::G3 => 1202.025,
         }
     }
 
@@ -197,15 +208,15 @@ mod test {
             Carrier::L5,
             Carrier::E5b,
             Carrier::E5a5b,
-            Carrier::E6Lex,
+            // Carrier::E6Lex,
             Carrier::B1,
             Carrier::B3,
-            Carrier::S,
-            Carrier::G1,
-            Carrier::G1a,
-            Carrier::G2,
-            Carrier::G2a,
-            Carrier::G3,
+            // Carrier::S,
+            // Carrier::G1,
+            // Carrier::G1a,
+            // Carrier::G2,
+            // Carrier::G2a,
+            // Carrier::G3,
         ] {
             let freq_mhz = carrier.frequency_mega_hz();
 

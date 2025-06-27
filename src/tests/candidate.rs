@@ -8,22 +8,22 @@ use crate::{
 #[test]
 fn transmission_time() {
     let default_cfg = Config::default();
-
     let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
 
-    let mut dataset = CandidatesBuilder::build_at(t0_gpst);
+    let mut dataset = CandidatesBuilder::build_rover_at(t0_gpst);
 
     for cd in dataset.iter_mut() {
-        cd.tx_epoch(&default_cfg).unwrap_or_else(|e| {
-            panic!(
-                "{}({}) - transmission time should be doable! {}",
-                cd.t, cd.sv, e
-            )
-        });
+        cd.transmission_time("rover", &default_cfg)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "{}({}) - transmission time failed with {}",
+                    cd.epoch, cd.sv, e
+                )
+            });
 
-        let t_rx = cd.t;
-        let t_tx = cd.t_tx;
-        let dt = t_rx - t_rx;
+        let t_rx = cd.epoch;
+        let t_tx = cd.tx_epoch;
+        let dt = t_rx - t_tx;
 
         assert!(t_rx != t_tx, "invalid results!");
 

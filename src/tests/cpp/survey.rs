@@ -4,10 +4,10 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    prelude::{Almanac, Config, Epoch, Frame, Method, StaticSolver, UserParameters},
+    prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
     tests::{
-        bias::TestBias, ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder,
-        OrbitsData, REFERENCE_COORDS_ECEF_M,
+        ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
+        TestEnvironment, TestSpacebornBiases, ROVER_REFERENCE_COORDS_ECEF_M,
     },
 };
 
@@ -25,8 +25,8 @@ fn build_earth_frame() -> Frame {
 
 #[fixture]
 fn build_initial_apriori() -> Apriori {
-    use crate::tests::reference_apriori_at_ref_epoch;
-    reference_apriori_at_ref_epoch()
+    use crate::tests::rover_reference_apriori_at_ref_epoch;
+    rover_reference_apriori_at_ref_epoch()
 }
 
 #[test]
@@ -40,20 +40,22 @@ fn static_cpp() {
     let almanac = build_almanac();
     let earth_frame = build_earth_frame();
 
-    let bias = TestBias {};
     let null_time = NullTime {};
     let null_eph = NullEph {};
+    let environment = TestEnvironment::new();
+    let space_biases = TestSpacebornBiases::build();
 
     let orbits_data = OrbitsData::new(earth_frame);
 
-    let mut solver = StaticSolver::new_survey(
+    let mut solver = Solver::new_survey(
         almanac,
         earth_frame,
         cfg,
         null_eph.into(),
         orbits_data.into(),
+        space_biases.into(),
+        environment.into(),
         null_time,
-        bias,
     );
 
     for (nth, epoch_str) in [
@@ -68,7 +70,7 @@ fn static_cpp() {
     {
         let t_gpst = Epoch::from_str(epoch_str).unwrap();
 
-        let candidates = CandidatesBuilder::build_at(t_gpst);
+        let candidates = CandidatesBuilder::build_rover_at(t_gpst);
 
         assert!(
             candidates.len() > 0,
@@ -84,7 +86,7 @@ fn static_cpp() {
                 info!("Solution #{} {:#?}", nth + 1, pvt);
 
                 let (pos_x_m, pos_y_m, pos_z_m) = pvt.pos_m;
-                let (expected_x_m, expected_y_m, expected_z_m) = REFERENCE_COORDS_ECEF_M;
+                let (expected_x_m, expected_y_m, expected_z_m) = ROVER_REFERENCE_COORDS_ECEF_M;
 
                 let (err_x_m, err_y_m, err_z_m) = (
                     (pos_x_m - expected_x_m).abs(),

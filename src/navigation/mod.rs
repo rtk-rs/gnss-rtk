@@ -3,16 +3,16 @@ use log::{debug, error};
 #[cfg(doc)]
 use crate::prelude::TimeScale;
 
-pub(crate) mod apriori;
-pub(crate) mod solutions;
-
 mod dop;
 mod kalman;
 mod postfit;
-mod ppp;
-mod sv;
+mod ppp_ar;
 
+pub(crate) mod apriori;
+pub(crate) mod solutions;
 pub(crate) mod state;
+pub(crate) mod sv;
+pub(crate) mod vector;
 
 use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix};
 
@@ -22,17 +22,12 @@ use crate::{
         dop::DilutionOfPrecision,
         kalman::{Kalman, KfEstimate},
         postfit::PostfitKf,
-        ppp::PrefitSolver as PPPPrefitSolver,
+        ppp_ar::PrefitSolver as PPPPrefitSolver,
         state::State,
+        sv::SVContribution,
     },
-    prelude::{
-        Bias, Candidate, Config, Epoch, Error, Frame, Method, UserParameters, SPEED_OF_LIGHT_M_S,
-    },
-    rtk::RTKBase,
+    prelude::{Candidate, Config, Epoch, Error, Frame, Method, UserParameters, SPEED_OF_LIGHT_M_S},
 };
-
-pub use solutions::PVTSolution;
-pub use sv::SVContribution;
 
 /// [Navigation] Solver
 pub(crate) struct Navigation<D: DimName>
@@ -111,7 +106,6 @@ where
     /// - apriori: [Apriori] input
     /// - candidates: selected [Candidate]s
     /// - size: number of proposal
-    /// - bias: [Bias] model implementation
     /// ## Returns
     /// - [Navigation], [Error]
     pub fn new(cfg: &Config, frame: Frame) -> Self {
@@ -186,7 +180,7 @@ where
         D::USIZE - 1
     }
 
-    /// Iterates mutable [Navigation] filter.
+    /// Mutable iteartion of the [Navigation] filter.
     ///
     /// ## Input
     /// - epoch: sampling [Epoch]
@@ -194,34 +188,29 @@ where
     /// - past_state: past [State]
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
-    /// - rtk_base: possible [RTKBase] implementation]
-    /// - bias: external [Bias] implementation
-    pub fn solving<B: Bias, R: RTKBase>(
+    pub fn solving(
         &mut self,
         epoch: Epoch,
         params: UserParameters,
         initial_state: &State<D>,
         candidates: &[Candidate],
         size: usize,
-        rtk_base: &R,
-        bias: &B,
+        remote_candidates: &[Candidate],
+        remote_size: usize,
     ) -> Result<(), Error> {
         self.clear();
 
         let mut initial_state = initial_state.clone();
 
-        if self.cfg.method == Method::PPP {
+        if self.cfg.method == Method::PPP_AR {
             if self.ppp_prefit.is_none() {
                 self.ppp_prefit = Some(PPPPrefitSolver::new(&self.cfg, &initial_state, self.frame));
             }
         }
 
-        // TODO: verif la relation état interne ppp_prefit et nav_state
         if let Some(ppp_prefit) = &mut self.ppp_prefit {
-            debug!("**** ppp prefit *****");
-            ppp_prefit.run(epoch, params, candidates, size, rtk_base, bias)?;
-            debug!("**** end of ppp prefit *****");
-
+            // PPP-AR prefit
+            ppp_prefit.run(epoch, params, candidates, size)?;
             initial_state = ppp_prefit.state.to_initial_state();
         }
 
@@ -234,9 +223,9 @@ where
             (100e-3 * SPEED_OF_LIGHT_M_S).powi(2);
 
         if !self.kalman.initialized {
-            self.kf_initialization(epoch, &initial_state, candidates, size, rtk_base, bias)?;
+            self.kf_initialization(epoch, &initial_state, candidates, size)?;
         } else {
-            self.kf_run(epoch, candidates, size, rtk_base, bias)?;
+            self.kf_run(epoch, candidates, size)?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -283,14 +272,12 @@ where
     }
 
     /// Filter first iteration.
-    pub fn kf_initialization<B: Bias, RTK: RTKBase>(
+    pub fn kf_initialization(
         &mut self,
         t: Epoch,
         state: &State<D>,
         candidates: &[Candidate],
         size: usize,
-        _: &RTK,
-        bias: &B,
     ) -> Result<(), Error> {
         let nb_iter = 10;
         let mut pending = state.clone();
@@ -302,10 +289,10 @@ where
 
             contrib.sv = candidates[i].sv;
 
-            let position_m = pending.position_ecef_m();
+            let position_m = pending.to_position_ecef_m();
 
             let amb = match self.cfg.method {
-                Method::PPP => {
+                Method::PPP_AR => {
                     if let Some(prefit) = &self.ppp_prefit {
                         if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[i].sv) {
                             Some(n_amb)
@@ -316,10 +303,10 @@ where
                         None
                     }
                 },
-                Method::SPP | Method::CPP => None,
+                Method::SPP | Method::CPP | Method::PPP => None,
             };
 
-            match candidates[i].vector_contribution(
+            match candidates[i].ppp_vector_contribution(
                 t,
                 &self.cfg,
                 false,
@@ -327,22 +314,12 @@ where
                 position_m,
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
-                bias,
             ) {
                 Ok(vec) => {
-                    self.y_k_vec.push(vec.row1);
-
-                    self.w_k_vec.push(1.0); // TODO
-
+                    self.y_k_vec.push(vec.row_1);
+                    self.w_k_vec.push(1.0); // TODO improve model
                     self.indexes.push(i);
                     self.sv.push(contrib);
-
-                    if self.cfg.modeling.relativistic_path_range {
-                        debug!(
-                            "{}({}) - relativistic path range: {:.3}m",
-                            t, candidates[i].sv, vec.dr,
-                        );
-                    }
                 },
                 Err(e) => {
                     error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
@@ -374,12 +351,10 @@ where
 
             // Form G
             for (i, index) in self.indexes.iter().enumerate() {
-                let dr_i = self.sv[i].relativistic_path_range_m;
-
-                let position_m = pending.position_ecef_m();
+                let position_m = pending.to_position_ecef_m();
 
                 let (dx, dy, dz) =
-                    candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
+                    candidates[*index].ppp_matrix_contribution(&self.cfg, position_m);
 
                 self.g_k[(i, 0)] = dx;
                 self.g_k[(i, 1)] = dy;
@@ -424,10 +399,10 @@ where
             self.indexes.retain(|i| {
                 let mut unused = SVContribution::default();
 
-                let position_m = pending.position_ecef_m();
+                let position_m = pending.to_position_ecef_m();
 
                 let amb = match self.cfg.method {
-                    Method::PPP => {
+                    Method::PPP_AR => {
                         if let Some(prefit) = &self.ppp_prefit {
                             if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[*i].sv) {
                                 Some(n_amb)
@@ -438,10 +413,10 @@ where
                             None
                         }
                     },
-                    Method::SPP | Method::CPP => None,
+                    Method::SPP | Method::CPP | Method::PPP => None,
                 };
 
-                match candidates[*i].vector_contribution(
+                match candidates[*i].ppp_vector_contribution(
                     t,
                     &self.cfg,
                     false,
@@ -449,11 +424,10 @@ where
                     position_m,
                     pending.lat_long_alt_deg_deg_km,
                     &mut unused,
-                    bias,
                 ) {
                     Ok(vec) => {
-                        self.y_k_vec.push(vec.row1);
-                        self.w_k_vec.push(1.0); // TODO
+                        self.y_k_vec.push(vec.row_1);
+                        self.w_k_vec.push(1.0); // TODO improve model
                         true
                     },
                     Err(e) => {
@@ -481,14 +455,7 @@ where
     }
 
     /// [Kalman] filter run
-    pub fn kf_run<B: Bias, RTK: RTKBase>(
-        &mut self,
-        t: Epoch,
-        candidates: &[Candidate],
-        size: usize,
-        _: &RTK,
-        bias: &B,
-    ) -> Result<(), Error> {
+    pub fn kf_run(&mut self, t: Epoch, candidates: &[Candidate], size: usize) -> Result<(), Error> {
         let mut pending = self.state.clone();
 
         // measurement
@@ -497,10 +464,10 @@ where
 
             contrib.sv = candidates[i].sv;
 
-            let pos_m = pending.position_ecef_m();
+            let pos_m = pending.to_position_ecef_m();
 
             let amb = match self.cfg.method {
-                Method::PPP => {
+                Method::PPP_AR => {
                     if let Some(prefit) = &self.ppp_prefit {
                         if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[i].sv) {
                             Some(n_amb)
@@ -511,10 +478,10 @@ where
                         None
                     }
                 },
-                Method::SPP | Method::CPP => None,
+                Method::SPP | Method::CPP | Method::PPP => None,
             };
 
-            match candidates[i].vector_contribution(
+            match candidates[i].ppp_vector_contribution(
                 t,
                 &self.cfg,
                 false,
@@ -522,20 +489,12 @@ where
                 pos_m,
                 pending.lat_long_alt_deg_deg_km,
                 &mut contrib,
-                bias,
             ) {
                 Ok(vec) => {
-                    self.y_k_vec.push(vec.row1);
-                    self.w_k_vec.push(1.0); // TODO
+                    self.y_k_vec.push(vec.row_1);
+                    self.w_k_vec.push(1.0); // TODO improve model
                     self.indexes.push(i);
                     self.sv.push(contrib);
-
-                    if self.cfg.modeling.relativistic_path_range {
-                        debug!(
-                            "{}({}) - relativistic path range: {:.3}m",
-                            t, candidates[i].sv, vec.dr,
-                        );
-                    }
                 },
                 Err(e) => {
                     error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
@@ -561,16 +520,12 @@ where
 
         // form g_k
         for (i, index) in self.indexes.iter().enumerate() {
-            let dr_i = self.sv[i].relativistic_path_range_m;
-
-            let position_m = pending.position_ecef_m();
-
-            let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
+            let position_m = pending.to_position_ecef_m();
+            let (dx, dy, dz) = candidates[*index].ppp_matrix_contribution(&self.cfg, position_m);
 
             self.g_k[(i, 0)] = dx;
             self.g_k[(i, 1)] = dy;
             self.g_k[(i, 2)] = dz;
-
             self.g_k[(i, Self::clock_index())] = 1.0;
         }
 

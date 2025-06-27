@@ -32,8 +32,8 @@ pub enum Error {
     NotEnoughPostFitCandidates,
 
     /// Failed to parse navigation method
-    #[error("non supported/invalid strategy")]
-    InvalidStrategy,
+    #[error("invalid navigation method")]
+    UnknownNavigationMethod,
 
     #[error("not enough post-fit candidates to form a matrix")]
     MatrixMinimalDimension,

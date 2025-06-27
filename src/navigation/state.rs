@@ -38,6 +38,7 @@ where
     <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
     <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
+    /// Builds a default Null [State].
     fn default() -> Self {
         Self {
             t: Default::default(),
@@ -56,7 +57,7 @@ where
     <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let position_vel_m = self.position_velocity_ecef_m();
+        let position_vel_m = self.to_position_velocity_ecef_m();
         let (offset, drift) = self.clock_profile_s();
 
         write!(
@@ -109,12 +110,12 @@ where
     }
 
     /// Returns position in ECEF meters as [Vector3]
-    pub fn position_ecef_m(&self) -> Vector3 {
+    pub fn to_position_ecef_m(&self) -> Vector3 {
         Vector3::new(self.x[0], self.x[1], self.x[2])
     }
 
     /// Returns position and velocity in ECEF meters as [Vector6]
-    pub fn position_velocity_ecef_m(&self) -> Vector6 {
+    pub fn to_position_velocity_ecef_m(&self) -> Vector6 {
         match D::USIZE {
             U4::USIZE => Vector6::new(self.x[0], self.x[1], self.x[2], 0.0, 0.0, 0.0),
             dim => {
@@ -130,7 +131,7 @@ where
 
     /// Converts [State] to [Orbit]
     pub fn to_orbit(&self, frame: Frame) -> Orbit {
-        let pos_vel_km_s = self.position_velocity_ecef_m() / 1.0E3;
+        let pos_vel_km_s = self.to_position_velocity_ecef_m() / 1.0E3;
         Orbit::from_cartesian_pos_vel(pos_vel_km_s, self.t, frame)
     }
 
@@ -195,7 +196,7 @@ mod test {
     use crate::{
         navigation::{Apriori, Navigation, State},
         prelude::{Duration, Frame, Orbit, SPEED_OF_LIGHT_M_S},
-        tests::REFERENCE_COORDS_ECEF_M,
+        tests::ROVER_REFERENCE_COORDS_ECEF_M,
     };
 
     use anise::math::Vector3;
@@ -211,15 +212,15 @@ mod test {
 
     #[fixture]
     fn build_reference_apriori() -> Apriori {
-        use crate::tests::reference_apriori_at_ref_epoch;
-        reference_apriori_at_ref_epoch()
+        use crate::tests::rover_reference_apriori_at_ref_epoch;
+        rover_reference_apriori_at_ref_epoch()
     }
 
     #[fixture]
     fn build_reference_orbit() -> Orbit {
-        use crate::tests::{earth_frame, reference_orbit_at_ref_epoch};
+        use crate::tests::{earth_frame, rover_reference_orbit_at_ref_epoch};
         let earth_frame = earth_frame();
-        reference_orbit_at_ref_epoch(earth_frame)
+        rover_reference_orbit_at_ref_epoch(earth_frame)
     }
 
     #[test]
@@ -236,18 +237,18 @@ mod test {
             )
         });
 
-        let position_ecef_m = initial_state.position_ecef_m();
+        let position_ecef_m = initial_state.to_position_ecef_m();
 
         assert_eq!(
             position_ecef_m,
             Vector3::new(
-                REFERENCE_COORDS_ECEF_M.0,
-                REFERENCE_COORDS_ECEF_M.1,
-                REFERENCE_COORDS_ECEF_M.2
+                ROVER_REFERENCE_COORDS_ECEF_M.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.1,
+                ROVER_REFERENCE_COORDS_ECEF_M.2
             )
         );
 
-        let position_velocity_m_s = initial_state.position_velocity_ecef_m();
+        let position_velocity_m_s = initial_state.to_position_velocity_ecef_m();
 
         assert_eq!(
             (
@@ -256,9 +257,9 @@ mod test {
                 position_velocity_m_s[2]
             ),
             (
-                REFERENCE_COORDS_ECEF_M.0,
-                REFERENCE_COORDS_ECEF_M.1,
-                REFERENCE_COORDS_ECEF_M.2
+                ROVER_REFERENCE_COORDS_ECEF_M.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.1,
+                ROVER_REFERENCE_COORDS_ECEF_M.2
             ),
             "initial position error!"
         );
@@ -308,14 +309,14 @@ mod test {
 
         assert_eq!(state.t, initial_state.t, "Epoch should have been preserved");
 
-        let position_ecef_m = state.position_ecef_m();
+        let position_ecef_m = state.to_position_ecef_m();
 
         assert_eq!(
             position_ecef_m,
             Vector3::new(
-                REFERENCE_COORDS_ECEF_M.0 + 1.0,
-                REFERENCE_COORDS_ECEF_M.1 + 2.0,
-                REFERENCE_COORDS_ECEF_M.2 + 3.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.0 + 1.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.1 + 2.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.2 + 3.0,
             ),
             "invalid spatial state correction",
         );
@@ -348,14 +349,14 @@ mod test {
             "Invalid sampling update"
         );
 
-        let position_ecef_m = state.position_ecef_m();
+        let position_ecef_m = state.to_position_ecef_m();
 
         assert_eq!(
             position_ecef_m,
             Vector3::new(
-                REFERENCE_COORDS_ECEF_M.0 + 1.0,
-                REFERENCE_COORDS_ECEF_M.1 + 2.0,
-                REFERENCE_COORDS_ECEF_M.2 + 3.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.0 + 1.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.1 + 2.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.2 + 3.0,
             ),
             "invalid spatial state correction",
         );
@@ -379,18 +380,18 @@ mod test {
             panic!("Failed to build initial state from reference orbit: {}", e)
         });
 
-        let position_ecef_m = state.position_ecef_m();
+        let position_ecef_m = state.to_position_ecef_m();
 
         assert_eq!(
             position_ecef_m,
             Vector3::new(
-                REFERENCE_COORDS_ECEF_M.0,
-                REFERENCE_COORDS_ECEF_M.1,
-                REFERENCE_COORDS_ECEF_M.2
+                ROVER_REFERENCE_COORDS_ECEF_M.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.1,
+                ROVER_REFERENCE_COORDS_ECEF_M.2
             )
         );
 
-        let position_velocity_m_s = state.position_velocity_ecef_m();
+        let position_velocity_m_s = state.to_position_velocity_ecef_m();
 
         assert_eq!(
             (
@@ -399,9 +400,9 @@ mod test {
                 position_velocity_m_s[2]
             ),
             (
-                REFERENCE_COORDS_ECEF_M.0,
-                REFERENCE_COORDS_ECEF_M.1,
-                REFERENCE_COORDS_ECEF_M.2
+                ROVER_REFERENCE_COORDS_ECEF_M.0,
+                ROVER_REFERENCE_COORDS_ECEF_M.1,
+                ROVER_REFERENCE_COORDS_ECEF_M.2
             ),
             "initial position error!"
         );

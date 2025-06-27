@@ -7,27 +7,37 @@ use std::str::FromStr;
 
 use crate::navigation::apriori::Apriori;
 
-pub mod bias;
 pub mod ephemeris;
-pub mod fuzz;
+// pub mod fuzz;
 
 mod bancroft;
 mod candidate;
+mod cpp;
 mod data;
 mod number;
 mod pool;
 mod ppp;
+mod ppp_ar;
 mod pseudo_range;
-mod time;
-// mod navi;
-mod cpp;
+mod rtk_spp;
 mod spp;
+mod time;
 
 pub use data::*;
 pub use number::TestNumber;
 
 use log::LevelFilter;
 use std::sync::Once;
+
+pub const MAX_SURVEY_BANCROFT_X_ERROR_M: f64 = 35.0;
+pub const MAX_SURVEY_BANCROFT_Y_ERROR_M: f64 = 110.0;
+pub const MAX_SURVEY_BANCROFT_Z_ERROR_M: f64 = 30.0;
+
+pub const MAX_SURVEY_BANCROFT_ERRORS: (f64, f64, f64) = (
+    MAX_SURVEY_BANCROFT_X_ERROR_M,
+    MAX_SURVEY_BANCROFT_Y_ERROR_M,
+    MAX_SURVEY_BANCROFT_Z_ERROR_M,
+);
 
 static INIT: Once = Once::new();
 
@@ -56,7 +66,9 @@ pub fn test_orbits() -> OrbitsData {
     OrbitsData::new(earth_frame)
 }
 
-pub const REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3582105.2910, 532589.7313, 5232754.8054);
+pub const ROVER_REFERENCE_COORDS_ECEF_M: (f64, f64, f64) =
+    (3582105.2910, 532589.7313, 5232754.8054);
+pub const BASE_REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3628427.9118, 562059.0936, 5197872.2150);
 
 pub fn reference_epoch() -> Epoch {
     Epoch::from_str("2020-06-25T00:00:00 GPST")
@@ -64,41 +76,79 @@ pub fn reference_epoch() -> Epoch {
 }
 
 /// Builds reference [Apriori] position
-pub fn reference_apriori(t: Epoch) -> Apriori {
+pub fn rover_reference_apriori(t: Epoch) -> Apriori {
     let earth_frame = earth_frame();
-    let ref_orbit = reference_orbit(t, earth_frame);
+    let ref_orbit = rover_reference_orbit(t, earth_frame);
+    let apriori = Apriori::from_orbit(&ref_orbit, earth_frame);
+    apriori
+}
+
+/// Builds reference [Apriori] position
+pub fn base_reference_apriori(t: Epoch) -> Apriori {
+    let earth_frame = earth_frame();
+    let ref_orbit = base_reference_orbit(t, earth_frame);
     let apriori = Apriori::from_orbit(&ref_orbit, earth_frame);
     apriori
 }
 
 /// Builds reference [Apriori] position at reference [Epoch]
-pub fn reference_apriori_at_ref_epoch() -> Apriori {
-    reference_apriori(reference_epoch())
+pub fn rover_reference_apriori_at_ref_epoch() -> Apriori {
+    rover_reference_apriori(reference_epoch())
 }
 
-/// Expresses [REFERENCE_COORDS_ECEF_M] as ANISE [Orbit] at any [Epoch].
-pub fn reference_orbit(t: Epoch, frame: Frame) -> Orbit {
+/// Builds reference [Apriori] position at reference [Epoch]
+pub fn base_reference_apriori_at_ref_epoch() -> Apriori {
+    base_reference_apriori(reference_epoch())
+}
+
+/// Expresses [ROVER_REFERENCE_COORDS_ECEF_M] as ANISE [Orbit] at any [Epoch].
+pub fn rover_reference_orbit(t: Epoch, frame: Frame) -> Orbit {
     Orbit::from_position(
-        REFERENCE_COORDS_ECEF_M.0 / 1.0E3,
-        REFERENCE_COORDS_ECEF_M.1 / 1.0E3,
-        REFERENCE_COORDS_ECEF_M.2 / 1.0E3,
+        ROVER_REFERENCE_COORDS_ECEF_M.0 / 1.0E3,
+        ROVER_REFERENCE_COORDS_ECEF_M.1 / 1.0E3,
+        ROVER_REFERENCE_COORDS_ECEF_M.2 / 1.0E3,
         t,
         frame,
     )
 }
 
-/// Expresses [REFERENCE_COORDS_ECEF_M] as ANISE [Orbit] at initial reference [Epoch].
-pub fn reference_orbit_at_ref_epoch(frame: Frame) -> Orbit {
-    reference_orbit(reference_epoch(), frame)
+/// Expresses [BASE_REFERENCE_COORDS_ECEF_M] as ANISE [Orbit] at any [Epoch].
+pub fn base_reference_orbit(t: Epoch, frame: Frame) -> Orbit {
+    Orbit::from_position(
+        BASE_REFERENCE_COORDS_ECEF_M.0 / 1.0E3,
+        BASE_REFERENCE_COORDS_ECEF_M.1 / 1.0E3,
+        BASE_REFERENCE_COORDS_ECEF_M.2 / 1.0E3,
+        t,
+        frame,
+    )
+}
+
+/// Expresses [ROVER_REFERENCE_COORDS_ECEF_M] as ANISE [Orbit] at initial reference [Epoch].
+pub fn rover_reference_orbit_at_ref_epoch(frame: Frame) -> Orbit {
+    rover_reference_orbit(reference_epoch(), frame)
+}
+
+/// Expresses [BASE_REFERENCE_COORDS_ECEF_M] as ANISE [Orbit] at initial reference [Epoch].
+pub fn base_reference_orbit_at_ref_epoch(frame: Frame) -> Orbit {
+    base_reference_orbit(reference_epoch(), frame)
 }
 
 #[test]
-fn verify_reference_orbit() {
+fn verify_rover_reference_orbit() {
     let earth_frame = earth_frame();
-    let reference_orbit = reference_orbit_at_ref_epoch(earth_frame);
+    let orbit = rover_reference_orbit_at_ref_epoch(earth_frame);
+    let apriori = rover_reference_apriori_at_ref_epoch();
+    assert_eq!(orbit, apriori.to_orbit(), "invalid rover reference setup!");
+}
+
+#[test]
+fn verify_rtkbase_reference_orbit() {
+    let earth_frame = earth_frame();
+    let orbit = base_reference_orbit_at_ref_epoch(earth_frame);
+    let apriori = base_reference_apriori_at_ref_epoch();
     assert_eq!(
-        reference_orbit.epoch,
-        reference_epoch(),
-        "invalid reference Epoch!"
+        orbit,
+        apriori.to_orbit(),
+        "invalid base station reference setup!"
     );
 }

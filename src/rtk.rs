@@ -1,4 +1,4 @@
-use crate::prelude::{Candidate, Epoch, SV};
+use crate::prelude::{Candidate, Epoch};
 
 /// Any [RTKBase] provides remote data by implementing the [RemoteSource] trait.
 pub trait RTKBase {
@@ -6,33 +6,39 @@ pub trait RTKBase {
     /// This is only used when reporting status and results and is not vital.
     fn name(&self) -> String;
 
-    /// Provide remote synchronous [Candidate] observations for this [SV] at this [Epoch].
-    /// If you fail to provide and fulfill the navigation technique requirements,
-    /// the [SV] will be dropped for this [Epoch]. In other words, it will not contribute to the process.
-    /// The [Observation] should be synchronous, ideally you should use an interpolation scheme.
-    /// For high sampling rates, taking the closest neighbouring point in time will do, but that only stands
-    /// if your [RTKBase] remained static in the meantime !
-    fn observe(&mut self, t: Epoch, sv: SV) -> Option<Candidate>;
+    /// Notifies the remote station that we're about to process a new [Epoch].
+    /// Since GNSS-RTK expects measurements in chronological order, and simply
+    /// follows the measurements, you should consider that any past [Epoch]
+    /// will no longer be processed.
+    fn new_epoch(&mut self, epoch: Epoch);
 
-    /// Any [RTKBase] should be able to desribe its absolute position, at all times,
-    /// with highest accuracy. These coordinates (in meters, ECEF), should correspond to the precise
-    /// position where all remote [Observation]s were made.
-    /// Any moving [RTKBase] should keep the position up to date and it should reflect through this method.
-    fn reference_position_ecef_m(&self, t: Epoch) -> Option<(f64, f64, f64)>;
+    /// Provide as many remote synchronous measurements (wrapped as [Candidate]s), at specified sampling [Epoch], as you can.
+    /// In practice, it is most often impossible to be truly be synchronous, you should
+    /// always minimize the time-difference, especially when the base is moving.
+    fn observe(&self, epoch: Epoch) -> Vec<Candidate>;
+
+    /// Provide the reference position of the base station, at sampling [Epoch].
+    /// Any moving base station should keep its position up to date and garatee the age of the
+    /// observations are kept to a minimal, the time-difference between directly related to the
+    /// base velocity.
+    /// Failure to provide this reference state will prohibit this RTK cycle completely.
+    fn reference_position_ecef_m(&self, epoch: Epoch) -> Option<(f64, f64, f64)>;
 }
 
 pub(crate) struct NullRTK {}
 
 impl RTKBase for NullRTK {
     fn name(&self) -> String {
-        "UNUSED".to_string()
+        "NULL".to_string()
     }
 
-    fn observe(&mut self, _: Epoch, _: SV) -> Option<Candidate> {
-        None
+    fn new_epoch(&mut self, _: Epoch) {}
+
+    fn observe(&self, _: Epoch) -> Vec<Candidate> {
+        Default::default()
     }
 
     fn reference_position_ecef_m(&self, _: Epoch) -> Option<(f64, f64, f64)> {
-        None
+        Default::default()
     }
 }

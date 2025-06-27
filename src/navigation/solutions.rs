@@ -1,6 +1,6 @@
 //! PVT Solution
 use crate::{
-    navigation::{DilutionOfPrecision, SVContribution, State},
+    navigation::{sv::SVContribution, DilutionOfPrecision, State},
     prelude::{Epoch, TimeScale},
 };
 
@@ -63,7 +63,7 @@ impl PVTSolution {
         <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
         <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
     {
-        let pos_vel_ecef_m = state.position_velocity_ecef_m();
+        let pos_vel_ecef_m = state.to_position_velocity_ecef_m();
         let (clock_offset_s, _) = state.clock_profile_s();
 
         Self {

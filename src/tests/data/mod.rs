@@ -4,6 +4,10 @@ pub use candidates::CandidatesBuilder;
 mod orbits;
 pub use orbits::OrbitsData;
 
+mod bias;
+pub use bias::TestEnvironment;
+pub use bias::TestSpacebornBiases;
+
 use crate::prelude::{Constellation, SV};
 
 pub const E01: SV = SV {
