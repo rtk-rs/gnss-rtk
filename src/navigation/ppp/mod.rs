@@ -365,7 +365,12 @@ impl PrefitSolver {
         let nrows = self.x_vec.nrows();
         let lambda_ndf = nrows - ndf;
 
-        let q_mat = params.q_matrix(ndf + lambda_ndf, Duration::ZERO);
+        let mut q_mat = params.q_matrix(ndf + lambda_ndf, Duration::ZERO);
+
+        for i in ndf..ndf+lambda_ndf {
+            q_mat[(i, i)] = 100.0_f64.powi(2);
+        }
+
         debug!("ndf(ppp)={} Q(ppp)={}", ndf, q_mat);
 
         // build F
@@ -394,7 +399,7 @@ impl PrefitSolver {
             .lambda
             .run(lambda_ndf, lambda_ndf, &self.lambda_x, &self.lambda_q)
         {
-            Ok((f_mat, s)) => {
+            Ok((f_mat, s_vec)) => {
                 // TODO fix confirmation / validation
 
                 for (i, (sv, _)) in self.sv_indexes.iter().enumerate() {
@@ -514,7 +519,11 @@ impl PrefitSolver {
         self.f_mat = DMatrix::identity(ndf, ndf);
 
         // build Q
-        let q_mat = params.q_matrix(ndf, Duration::ZERO);
+        let mut q_mat = params.q_matrix(ndf, Duration::ZERO);
+
+        for i in ndf..ndf+lambda_ndf {
+            q_mat[(i, i)] = 100.0_f64.powi(2);
+        }
 
         debug!("ndf(ppp)={} F(ppp)={} Q(ppp)={}", ndf, self.f_mat, q_mat);
 
@@ -572,7 +581,13 @@ impl PrefitSolver {
                 .lambda
                 .run(lambda_ndf, lambda_ndf, &self.lambda_x, &self.lambda_q)
             {
-                Ok(_) => {},
+                Ok((f_mat, s_vec)) => {
+                    // TODO fix confirmation / validation
+
+                    for (i, (sv, _)) in self.sv_indexes.iter().enumerate() {
+                        self.n_amb.insert(*sv, f_mat[(i, 0)].round() as u64);
+                    }
+                },
                 Err(e) => {
                     error!("lambda search failed with {}", e);
                     return Err(e);
