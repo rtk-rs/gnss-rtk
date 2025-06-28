@@ -4,10 +4,13 @@ use crate::{
     navigation::state::State,
     pool::Pool,
     prelude::{
-        Almanac, EnvironmentalBias, EphemerisSource, OrbitSource, SpacebornBias, Vector3,
-        EARTH_J2000, SUN_J2000,
+        Almanac, Candidate, EnvironmentalBias, EphemerisSource, Error, OrbitSource, SpacebornBias,
+        Vector3, EARTH_J2000, SUN_J2000,
     },
+    rtk::DoubleDifferences,
 };
+
+use std::cmp::Ordering;
 
 use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
@@ -382,49 +385,104 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
 
     /// Runs a postfit SD algorithm, between seld and rhs.
     /// NB: only shared measurements are preserved
-    pub fn post_fit_sd<D: DimName>(&mut self, rhs: &Self, state: &State<D>) -> Result<(), Error>
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
-        // select pivot measurement
-        let pivot_meas = self.post_fit_sd_pivot();
+    pub fn post_fit_sd(&mut self, pivot: &Candidate) -> Result<(), Error> {
+        let method = self.cfg.method;
 
-        if pivot_meas.is_none() {
-            error!("failed to select a pivot measurement (empty set?)");
-            return Err(Error::SdNoPivotMeasurement);
-        }
-
-        let pivot_meas = pivot_meas.unwrap();
-
-        // TODO verify pivot has 1 or two frequencies ?
-
-        self.retain_mut(|meas| {
-            let mut retained = false;
-
-            for freqz in meas.frequencies_iter() {
-                for rhs_freqz in pivot_meas.frequencies_iter() {
-                    if freqz == rhs_freqz {
-                        meas.sd_mut(&pivot_meas);
-                        retained = true;
-                    }
-                }
+        self.retain_mut(|cd| {
+            if cd.sv != pivot.sv {
+                cd.sd_mut(method, &pivot);
+                !cd.observations.is_empty()
+            } else {
+                false // drop pivot
             }
-
-            retained
         });
 
-        // TODO: verify the content is still compliant with
-        // navigation method and preferences
+        Ok(())
     }
 
     /// Select a pivot measurement
-    pub fn post_fit_sd_pivot(&self) -> Option<&Candidate> {
+    fn post_fit_sd_pivot_election(&self) -> Option<Candidate> {
         self.inner
             .iter()
-            .max_by(|meas_a, meas_b| meas_a.elevation_deg > meas_b.elevation_deg)
-            .reduce(|k, _| k)
+            .max_by(|meas_a, meas_b| {
+                if meas_a.elevation_deg > meas_b.elevation_deg {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            })
+            .cloned()
+    }
+
+    /// Run the double difference algorithm between [Self] and Rhs,
+    /// returning [DoubleDifferences].
+    pub fn post_fit_dd(&self, rhs: &Self) -> DoubleDifferences {
+        let mut dd = DoubleDifferences::default();
+
+        for cd in self.inner.iter() {
+            for rhs_cd in rhs.inner.iter() {
+                if rhs_cd.sv == cd.sv {
+                    for sd in cd.sd.iter() {
+                        for rhs_sd in rhs_cd.sd.iter() {
+                            if sd.carrier == rhs_sd.carrier {
+                                if let Some(l_1) = &sd.phase_range_m {
+                                    if let Some(l_2) = &rhs_sd.phase_range_m {
+                                        let value = l_1 - l_2;
+                                        debug!("{}({}) - DD phase={}", cd.epoch, cd.sv, value);
+                                        dd.insert_phase(cd.sv, sd.carrier, value);
+                                    }
+                                }
+                                if let Some(c_1) = &sd.pseudo_range_m {
+                                    if let Some(c_2) = &rhs_sd.pseudo_range_m {
+                                        let value = c_1 - c_2;
+                                        debug!("{}({}) - DD code={}", cd.epoch, cd.sv, value);
+                                        dd.insert_code(cd.sv, sd.carrier, value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dd
+    }
+
+    /// Runs the special post-fit prior RTK solving, where self is considered rover
+    /// returning DD'ed measurements.
+    pub fn rtk_post_fit(&mut self, base: &mut Self) -> Result<DoubleDifferences, Error> {
+        // run SD algorithm on both sites
+        let mob_pivot = self.post_fit_sd_pivot_election();
+
+        if mob_pivot.is_none() {
+            error!("rover failed to elect pivot satellite");
+            return Err(Error::SdPivotSatellite);
+        }
+
+        let mob_pivot = mob_pivot.unwrap();
+
+        let base_pivot = base.post_fit_sd_pivot_election();
+
+        if base_pivot.is_none() {
+            error!("base failed to elect pivot satellite");
+            return Err(Error::SdPivotSatellite);
+        }
+
+        let base_pivot = base_pivot.unwrap();
+
+        if base_pivot.sv != mob_pivot.sv {
+            error!(
+                "{}({}/{}) - pivot sat disagreement - baseline too long!",
+                mob_pivot.epoch, mob_pivot.sv, base_pivot.sv
+            );
+            return Err(Error::RtkBaselineTooLong);
+        }
+
+        // SD on both sites
+        self.post_fit_sd(&mob_pivot)?;
+        base.post_fit_sd(&mob_pivot)?;
+
+        // DD
+        Ok(self.post_fit_dd(base))
     }
 }

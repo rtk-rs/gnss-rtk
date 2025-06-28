@@ -195,8 +195,6 @@ where
         initial_state: &State<D>,
         candidates: &[Candidate],
         size: usize,
-        remote_candidates: &[Candidate],
-        remote_size: usize,
     ) -> Result<(), Error> {
         self.clear();
 

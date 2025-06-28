@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 use anise::{
     math::Vector3,
@@ -161,6 +161,9 @@ impl<
     }
 
     /// [PVTSolution] solving attempt using PPP technique (no reference).
+    /// Unlike RTK resolution attempt, PPP solving will resolve both
+    /// the position and the local clock state, but it is
+    /// a less accurate and much more complex process.
     ///
     /// ## Input
     /// - epoch: [Epoch] of measurement
@@ -191,7 +194,12 @@ impl<
     /// site and rover proposals must agree in their content (enough matches)
     /// and signals must fulfill the navigation [Method] being used.
     ///
-    /// ## Input
+    /// NB: unlike PPP solving, RTK solving will only resolve the spatial
+    /// state, the clock state can only remain undetermined. If you are
+    /// interested by both, you will either have to restrict to [Self::ppp_solving],
+    /// or do a PPP (time only) run after the RTK run.
+    ///
+    // ## Input
     /// - epoch: [Epoch] of measurement from the rover reported by the rover.
     /// The remote site must match the sampling instant closely, reducing
     /// the time-difference (RTK aging).
@@ -299,18 +307,37 @@ impl<
             }
         };
 
+        // rover post-fit
         self.rover_pool.post_fit("rover", &state).map_err(|e| {
             error!("{} rover postfit error {}", epoch, e);
             Error::PostfitPrenav
         })?;
 
-        if uses_rtk {
+        let double_differences = if uses_rtk {
+            // base post-fit
             self.base_pool
                 .post_fit(&rtk_base_name, &state)
                 .map_err(|e| {
                     error!("{} {} postfit error: {}", epoch, rtk_base_name, e);
                     Error::PostfitPrenav
                 })?;
+
+            // special RTK post-fit
+            match self.rover_pool.rtk_post_fit(&mut self.base_pool) {
+                Ok(dd_observations) => Some(dd_observations),
+                Err(e) => {
+                    error!("{} - rtk post-fit error: {}", epoch, e);
+                    return Err(e);
+                },
+            }
+        } else {
+            None
+        };
+
+        if let Some(double_differences) = &double_differences {
+            for ((sat, carrier), ddiff) in double_differences.inner.iter() {
+                debug!("{}({}) - DD({})={}", epoch, sat, carrier, ddiff);
+            }
         }
 
         let pool_size = self.rover_pool.len();
@@ -319,34 +346,6 @@ impl<
             return Err(Error::NotEnoughPostFitCandidates);
         }
 
-        if uses_rtk {
-            // at this point
-            // keep only matching remote measurements
-            self.base_pool.retain(|cd| {
-                let mut retained = self.rover_pool.contains(cd.sv);
-                if !retained {
-                    warn!("{}({}) dropped: not observed by rover", cd.epoch, cd.sv);
-                }
-                retained
-            });
-
-            // keep only matching local measurements
-            self.rover_pool.retain(|cd| {
-                let mut retained = self.base_pool.contains(cd.sv);
-                if !retained {
-                    warn!(
-                        "{}({}) dropped: not observed by {} reference",
-                        cd.epoch, cd.sv, rtk_base_name
-                    );
-                }
-                retained
-            });
-        }
-
-        let remote_size = if uses_rtk { self.base_pool.len() } else { 0 };
-
-        let remote_candidates = self.base_pool.candidates();
-
         // Solving attempt
         match self.navigation.solving(
             epoch,
@@ -354,8 +353,6 @@ impl<
             &state,
             &self.rover_pool.candidates(),
             pool_size,
-            &remote_candidates,
-            remote_size,
         ) {
             Ok(_) => {
                 info!("{} - iteration completed", epoch);

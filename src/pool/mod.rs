@@ -133,6 +133,13 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         self.inner.retain(f)
     }
 
+    pub fn retain_mut<F>(&mut self, f: F)
+    where
+        F: FnMut(&mut Candidate) -> bool,
+    {
+        self.inner.retain_mut(f)
+    }
+
     /// Determine orbital states
     pub fn orbital_states_fit(&mut self, name: &str) {
         self.inner

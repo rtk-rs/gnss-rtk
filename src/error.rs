@@ -195,6 +195,16 @@ pub enum Error {
     /// [Error::MissingPhaseRangeMeasurements] is returned when using PPP
     /// strategy and CP measurements were not associated to PR measurements
     /// (which is mandatory).
-    #[error("ppp issue: missing phase range measurements along cp measurements")]
+    #[error("missing phase range measurements")]
     MissingPhaseRangeMeasurements,
+
+    /// Unable to elect pivot satellite for SD algorithm,
+    /// empty dataset ? (should not happen, and potentially even be reached)
+    #[error("rtk prefit: unable to select pivot satellite")]
+    SdPivotSatellite,
+
+    /// RTK baseline is most liekly too long, and we
+    /// are limited to short baseliens currently.
+    #[error("rtk baseline most likely too long - internal limitation")]
+    RtkBaselineTooLong,
 }

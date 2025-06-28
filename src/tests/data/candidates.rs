@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::{
-    prelude::{Candidate, Carrier, Constellation, Epoch, Observation, RTKBase},
+    prelude::{Candidate, Carrier, Constellation, Epoch, Observation, RTKBase, SV},
     tests::{
         data::{E01, E03, E05, E09, E13, E15, E24, E31},
         BASE_REFERENCE_COORDS_ECEF_M,
@@ -42,11 +42,14 @@ impl CandidatesBuilder {
             .collect()
     }
 
-    pub fn build_gps_rover_data() -> Vec<Candidate> {
+    pub fn build_rover_sv_at(sv: SV, epoch: Epoch) -> Candidate {
         Self::build_rover_data()
             .into_iter()
-            .filter(|cd| cd.sv.constellation == Constellation::GPS)
-            .collect()
+            .filter(|cd| cd.epoch == epoch && cd.sv == sv)
+            .reduce(|k, _| k)
+            .unwrap_or_else(|| {
+                panic!("Failed to build {}({}) data", epoch, sv);
+            })
     }
 
     pub fn build_rover_data() -> Vec<Candidate> {
@@ -450,6 +453,16 @@ impl CandidatesBuilder {
         ]
         .into_iter()
         .collect::<Vec<_>>()
+    }
+
+    pub fn build_base_at(epoch: Epoch) -> Vec<Candidate> {
+        let mut station = Self::build_rtk_base();
+
+        station
+            .candidates
+            .into_iter()
+            .filter(|cd| cd.epoch == epoch)
+            .collect()
     }
 
     pub fn build_rtk_base() -> RTKStation {

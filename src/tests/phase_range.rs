@@ -1,4 +1,4 @@
-use crate::prelude::{Candidate, Carrier, Observation};
+use crate::prelude::{Candidate, Carrier, Epoch, Observation, SV};
 
 #[test]
 fn l1_widelane() {
@@ -131,4 +131,40 @@ fn l1_l5_mw_combination() {
         / (Carrier::L1.frequency_hz() + Carrier::L5.frequency_hz());
 
     assert_eq!(mw.value, pw - cn);
+}
+
+#[test]
+fn l1_l5_phase_if() {
+    let obs = vec![
+        Observation {
+            snr_dbhz: None,
+            doppler: None,
+            pseudo_range_m: None,
+            phase_range_m: Some(64.0),
+            ambiguity: None,
+            carrier: Carrier::L1,
+        },
+        Observation {
+            snr_dbhz: None,
+            doppler: None,
+            pseudo_range_m: None,
+            phase_range_m: Some(128.0),
+            ambiguity: None,
+            carrier: Carrier::L5,
+        },
+    ];
+
+    let cd = Candidate::new(SV::default(), Epoch::default(), obs);
+
+    let l_if = cd.phase_if_combination().unwrap_or_else(|| {
+        panic!("Failed to form L_if combination");
+    });
+
+    assert_eq!(l_if.lhs, Carrier::L5);
+    assert_eq!(l_if.rhs, Carrier::L1);
+
+    let (f1, f2) = (Carrier::L1.frequency_hz(), Carrier::L5.frequency_hz());
+    let (f1pow, f2pow) = (f1.powi(2), f2.powi(2));
+
+    assert_eq!(l_if.value, (f1pow * 64.0 - f2pow * 128.0) / (f1pow - f2pow));
 }

@@ -1,4 +1,5 @@
 use crate::{
+    navigation::{apriori::Apriori, state::State},
     pool::Pool,
     prelude::{Almanac, Config, Epoch, Frame, TimeScale},
     tests::{
@@ -7,10 +8,14 @@ use crate::{
     },
 };
 
+use rstest::*;
+
+use log::debug;
+use nalgebra::U4;
 use std::rc::Rc;
 
 use hifitime::Duration;
-use rstest::*;
+
 use std::str::FromStr;
 
 #[fixture]
@@ -29,6 +34,18 @@ fn build_earth_frame() -> Frame {
 fn build_orbit_source() -> OrbitsData {
     use crate::tests::test_orbits;
     test_orbits()
+}
+
+#[fixture]
+fn build_rover_apriori() -> Apriori {
+    use crate::tests::rover_reference_apriori_at_ref_epoch;
+    rover_reference_apriori_at_ref_epoch()
+}
+
+#[fixture]
+fn build_base_apriori() -> Apriori {
+    use crate::tests::base_reference_apriori_at_ref_epoch;
+    base_reference_apriori_at_ref_epoch()
 }
 
 #[test]
@@ -162,5 +179,90 @@ fn ppp_gst_pool_fit() {
             cd.epoch,
             cd.sv
         );
+    }
+}
+
+#[test]
+fn rtk_pool_fit() {
+    init_logger();
+
+    let almanac = build_almanac();
+    let default_cfg = Config::default();
+
+    let null_time = NullTime {};
+    let null_eph = Rc::new(NullEph {});
+
+    let earth_frame = build_earth_frame();
+    let orbits_data = Rc::new(build_orbit_source());
+    let environment = Rc::new(TestEnvironment::new());
+    let space_biases = Rc::new(TestSpacebornBiases::build());
+
+    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+    let mut rover = Pool::allocate(
+        almanac.clone(),
+        default_cfg.clone(),
+        earth_frame.clone(),
+        null_eph.clone(),
+        orbits_data.clone(),
+        environment.clone(),
+        space_biases.clone(),
+    );
+
+    let candidates = CandidatesBuilder::build_rover_at(t0_gpst);
+
+    rover.new_epoch(&candidates);
+
+    let mut base = Pool::allocate(
+        almanac,
+        default_cfg,
+        earth_frame,
+        null_eph,
+        orbits_data,
+        environment,
+        space_biases,
+    );
+
+    let candidates = CandidatesBuilder::build_base_at(t0_gpst);
+
+    base.new_epoch(&candidates);
+
+    let apriori = build_rover_apriori();
+
+    let rover_state = State::<U4>::from_apriori(&apriori).unwrap_or_else(|e| {
+        panic!("Failed to build rover initial state: {}", e);
+    });
+
+    let apriori = build_base_apriori();
+
+    let base_state = State::<U4>::from_apriori(&apriori).unwrap_or_else(|e| {
+        panic!("Failed to build base initial state: {}", e);
+    });
+
+    base.pre_fit("base", &null_time);
+    base.orbital_states_fit("base");
+
+    base.post_fit("base", &base_state).unwrap_or_else(|e| {
+        panic!("base station post-fit failed with {}", e);
+    });
+
+    rover.pre_fit("rover", &null_time);
+    rover.orbital_states_fit("rover");
+
+    rover.post_fit("rover", &rover_state).unwrap_or_else(|e| {
+        panic!("rover post-fit failed with {}", e);
+    });
+
+    let dbl_diff = rover.rtk_post_fit(&mut base).unwrap_or_else(|e| {
+        panic!("rtk post-fit failed with {}", e);
+    });
+
+    assert!(
+        dbl_diff.inner.len() == 8,
+        "did not form correct DD observations"
+    );
+
+    for ((sat, carrier), value) in dbl_diff.inner.iter() {
+        debug!("{}({}) - DD({}) {}", t0_gpst, sat, carrier, value,);
     }
 }

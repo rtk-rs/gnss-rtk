@@ -1,5 +1,6 @@
 //! Position solving candidate
 use hifitime::Unit;
+use itertools::Itertools;
 use log::debug;
 
 use crate::{
@@ -17,6 +18,7 @@ use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 mod bias;
 mod ppp;
 mod rtk;
+mod sd;
 mod signal;
 
 pub(crate) mod combination;
@@ -62,7 +64,7 @@ pub struct Candidate {
     /// [SatelliteClockCorrection]
     pub(crate) clock_corr: SatelliteClockCorrection,
 
-    /// Local [Observation]s
+    /// Signal [Observation]s
     pub(crate) observations: Vec<Observation>,
 
     /// Possible time system correction
@@ -73,6 +75,9 @@ pub struct Candidate {
 
     /// Resolved ambiguities
     pub(crate) amb: Option<Ambiguities>,
+
+    /// Possible Observations differentiated by SD algorithm
+    pub(crate) sd: Option<Observation>,
 }
 
 impl Candidate {
@@ -95,6 +100,7 @@ impl Candidate {
             observations,
             tx_epoch: epoch,
             tgd: Duration::ZERO,
+            sd: Default::default(),
             amb: Default::default(),
             orbit: Default::default(),
             windup: Default::default(),
@@ -107,8 +113,8 @@ impl Candidate {
     }
 
     /// Designs a measured frequency iterator
-    fn frequencies_iter(&self) -> Iterator<Item = Carrier> {
-        self.inner.iter().map(|meas| meas.carrier).unique()
+    fn frequencies_iter(&self) -> Box<dyn Iterator<Item = Carrier> + '_> {
+        Box::new(self.observations.iter().map(|obs| obs.carrier).unique())
     }
 
     /// Update pseudo range observation (in meters) for this frequency.
