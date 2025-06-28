@@ -172,11 +172,11 @@ impl UserParameters {
         }
     }
 
-    /// Allocates a (usize, usize) covariance [DMatrix]
-    pub(crate) fn q_matrix(&self, size: usize, dt: Duration) -> DMatrix<f64> {
-        assert!(size > 3, "internal error: requested invalid Q dimension");
+    /// Allocates a (ndf, ndf) square covariance [DMatrix]
+    pub(crate) fn q_matrix(&self, ndf: usize, dt: Duration) -> DMatrix<f64> {
+        assert!(ndf > 3, "invalid Q dimension");
 
-        let mut q = DMatrix::<f64>::zeros(size, size);
+        let mut q = DMatrix::<f64>::zeros(ndf, ndf);
 
         let dt_s = dt.to_seconds();
         let dt_s3 = dt_s.powi(3);
