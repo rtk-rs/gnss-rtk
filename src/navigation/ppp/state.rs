@@ -43,10 +43,12 @@ impl std::fmt::Display for PPPState {
         let position_vel_m = self.position_velocity_ecef_m();
         let (offset, drift) = self.clock_profile_s();
 
+        let x_amb = self.x.view_range(Navigation::<U4>::clock_index() +1.., 0);
+
         write!(
             f,
-            "{} dt={:.11E}s drift={:.11E}s/s",
-            position_vel_m, offset, drift,
+            "{} x_amb={}, dt={:.11E}s drift={:.11E}s/s",
+            position_vel_m, x_amb, offset, drift,
         )
     }
 }
