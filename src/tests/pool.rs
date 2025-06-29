@@ -1,7 +1,7 @@
 use crate::{
     navigation::{apriori::Apriori, state::State},
     pool::Pool,
-    prelude::{Almanac, Config, Epoch, Frame, TimeScale},
+    prelude::{Almanac, Config, Epoch, Frame, Method, TimeScale},
     tests::{
         data::CandidatesBuilder, ephemeris::NullEph, init_logger, time::NullTime, OrbitsData,
         TestEnvironment, TestSpacebornBiases,
@@ -183,11 +183,12 @@ fn ppp_gst_pool_fit() {
 }
 
 #[test]
-fn rtk_pool_fit() {
+fn rtk_spp_pool_fit() {
     init_logger();
 
     let almanac = build_almanac();
-    let default_cfg = Config::default();
+
+    let default_cfg = Config::default().with_navigation_method(Method::SPP);
 
     let null_time = NullTime {};
     let null_eph = Rc::new(NullEph {});
@@ -197,6 +198,7 @@ fn rtk_pool_fit() {
     let environment = Rc::new(TestEnvironment::new());
     let space_biases = Rc::new(TestSpacebornBiases::build());
 
+    const NUM_SV: usize = 8;
     let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
 
     let mut rover = Pool::allocate(
@@ -229,13 +231,13 @@ fn rtk_pool_fit() {
 
     let apriori = build_rover_apriori();
 
-    let rover_state = State::<U4>::from_apriori(&apriori).unwrap_or_else(|e| {
+    let rover_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
         panic!("Failed to build rover initial state: {}", e);
     });
 
     let apriori = build_base_apriori();
 
-    let base_state = State::<U4>::from_apriori(&apriori).unwrap_or_else(|e| {
+    let base_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
         panic!("Failed to build base initial state: {}", e);
     });
 
@@ -257,12 +259,180 @@ fn rtk_pool_fit() {
         panic!("rtk post-fit failed with {}", e);
     });
 
+    let expected_sat = NUM_SV - 2; // pivot+E13 below elevation mask
+
     assert!(
-        dbl_diff.inner.len() == 8,
+        dbl_diff.inner.len() == expected_sat,
         "did not form correct DD observations"
     );
+}
 
-    for ((sat, carrier), value) in dbl_diff.inner.iter() {
-        debug!("{}({}) - DD({}) {}", t0_gpst, sat, carrier, value,);
-    }
+#[test]
+fn rtk_cpp_pool_fit() {
+    init_logger();
+
+    let almanac = build_almanac();
+
+    let default_cfg = Config::default().with_navigation_method(Method::CPP);
+
+    let null_time = NullTime {};
+    let null_eph = Rc::new(NullEph {});
+
+    let earth_frame = build_earth_frame();
+    let orbits_data = Rc::new(build_orbit_source());
+    let environment = Rc::new(TestEnvironment::new());
+    let space_biases = Rc::new(TestSpacebornBiases::build());
+
+    const NUM_SV: usize = 8;
+    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+    let mut rover = Pool::allocate(
+        almanac.clone(),
+        default_cfg.clone(),
+        earth_frame.clone(),
+        null_eph.clone(),
+        orbits_data.clone(),
+        environment.clone(),
+        space_biases.clone(),
+    );
+
+    let candidates = CandidatesBuilder::build_rover_at(t0_gpst);
+
+    rover.new_epoch(&candidates);
+
+    let mut base = Pool::allocate(
+        almanac,
+        default_cfg,
+        earth_frame,
+        null_eph,
+        orbits_data,
+        environment,
+        space_biases,
+    );
+
+    let candidates = CandidatesBuilder::build_base_at(t0_gpst);
+
+    base.new_epoch(&candidates);
+
+    let apriori = build_rover_apriori();
+
+    let rover_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+        panic!("Failed to build rover initial state: {}", e);
+    });
+
+    let apriori = build_base_apriori();
+
+    let base_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+        panic!("Failed to build base initial state: {}", e);
+    });
+
+    base.pre_fit("base", &null_time);
+    base.orbital_states_fit("base");
+
+    base.post_fit("base", &base_state).unwrap_or_else(|e| {
+        panic!("base station post-fit failed with {}", e);
+    });
+
+    rover.pre_fit("rover", &null_time);
+    rover.orbital_states_fit("rover");
+
+    rover.post_fit("rover", &rover_state).unwrap_or_else(|e| {
+        panic!("rover post-fit failed with {}", e);
+    });
+
+    let dbl_diff = rover.rtk_post_fit(&mut base).unwrap_or_else(|e| {
+        panic!("rtk post-fit failed with {}", e);
+    });
+
+    let expected_sat = NUM_SV - 2; // pivot+E13 below elevation mask
+
+    assert!(
+        dbl_diff.inner.len() == expected_sat,
+        "did not form correct DD observations"
+    );
+}
+
+#[test]
+fn rtk_ppp_pool_fit() {
+    init_logger();
+
+    let almanac = build_almanac();
+
+    let default_cfg = Config::default().with_navigation_method(Method::PPP);
+
+    let null_time = NullTime {};
+    let null_eph = Rc::new(NullEph {});
+
+    let earth_frame = build_earth_frame();
+    let orbits_data = Rc::new(build_orbit_source());
+    let environment = Rc::new(TestEnvironment::new());
+    let space_biases = Rc::new(TestSpacebornBiases::build());
+
+    const NUM_SV: usize = 8;
+    let t0_gpst = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+    let mut rover = Pool::allocate(
+        almanac.clone(),
+        default_cfg.clone(),
+        earth_frame.clone(),
+        null_eph.clone(),
+        orbits_data.clone(),
+        environment.clone(),
+        space_biases.clone(),
+    );
+
+    let candidates = CandidatesBuilder::build_rover_at(t0_gpst);
+
+    rover.new_epoch(&candidates);
+
+    let mut base = Pool::allocate(
+        almanac,
+        default_cfg,
+        earth_frame,
+        null_eph,
+        orbits_data,
+        environment,
+        space_biases,
+    );
+
+    let candidates = CandidatesBuilder::build_base_at(t0_gpst);
+
+    base.new_epoch(&candidates);
+
+    let apriori = build_rover_apriori();
+
+    let rover_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+        panic!("Failed to build rover initial state: {}", e);
+    });
+
+    let apriori = build_base_apriori();
+
+    let base_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
+        panic!("Failed to build base initial state: {}", e);
+    });
+
+    base.pre_fit("base", &null_time);
+    base.orbital_states_fit("base");
+
+    base.post_fit("base", &base_state).unwrap_or_else(|e| {
+        panic!("base station post-fit failed with {}", e);
+    });
+
+    rover.pre_fit("rover", &null_time);
+    rover.orbital_states_fit("rover");
+
+    rover.post_fit("rover", &rover_state).unwrap_or_else(|e| {
+        panic!("rover post-fit failed with {}", e);
+    });
+
+    let dbl_diff = rover.rtk_post_fit(&mut base).unwrap_or_else(|e| {
+        panic!("rtk post-fit failed with {}", e);
+    });
+
+    let expected_sat = NUM_SV - 2; // pivot+E13 below elevation mask
+
+    assert!(
+        dbl_diff.inner.len() == expected_sat,
+        "did not form correct DD observations"
+    );
 }

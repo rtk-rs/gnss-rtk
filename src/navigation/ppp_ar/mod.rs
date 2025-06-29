@@ -3,20 +3,15 @@ use log::{debug, error};
 #[cfg(doc)]
 use crate::prelude::TimeScale;
 
-mod kalman;
 mod lambda;
-pub mod state;
 
-use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, U1, U4, U8};
+use nalgebra::{DMatrix, DVector, DimName, U1, U4, U8};
 
 use crate::{
     navigation::{
         dop::DilutionOfPrecision,
-        ppp_ar::{
-            kalman::{Kalman, KfEstimate},
-            lambda::LambdaAR,
-            state::PPPState,
-        },
+        kalman::{Kalman, KfEstimate},
+        ppp_ar::lambda::LambdaAR,
         state::State,
         sv::SVContribution,
         Navigation,
@@ -82,8 +77,8 @@ pub struct PrefitSolver {
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
 
-    /// current [PPPState]
-    pub state: PPPState,
+    /// current [State]
+    pub state: State,
 
     /// Null of first iter
     prev_epoch: Option<Epoch>,
@@ -101,13 +96,7 @@ impl PrefitSolver {
     /// - size: number of proposal
     /// ## Returns
     /// - [PPPPrefitSolver]
-    pub fn new<D: DimName>(cfg: &Config, initial_state: &State<D>, frame: Frame) -> Self
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    pub fn new(cfg: &Config, initial_state: &State, frame: Frame) -> Self {
         Self {
             frame,
             cfg: cfg.clone(),
@@ -122,7 +111,7 @@ impl PrefitSolver {
             x_vec: DVector::<f64>::zeros(U8::USIZE),
             sv: Vec::with_capacity(4),
             dop: DilutionOfPrecision::default(),
-            state: PPPState::from_initial_state(initial_state),
+            state: initial_state.clone(),
             lambda_x: DMatrix::<f64>::zeros(U4::USIZE, U1::USIZE),
             lambda_q: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
             w_mat: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
@@ -258,13 +247,13 @@ impl PrefitSolver {
                 self.g_mat[(2 * i, 0)] = dx;
                 self.g_mat[(2 * i, 1)] = dy;
                 self.g_mat[(2 * i, 2)] = dz;
-                self.g_mat[(2 * i, Navigation::<U4>::clock_index())] = 1.0;
+                self.g_mat[(2 * i, Navigation::clock_index())] = 1.0;
 
                 self.g_mat[(2 * i + 1, 0)] = dx;
                 self.g_mat[(2 * i + 1, 1)] = dy;
                 self.g_mat[(2 * i + 1, 2)] = dz;
-                self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index())] = 1.0;
-                self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index() + 1 + i)] = 1.0;
+                self.g_mat[(2 * i + 1, Navigation::clock_index())] = 1.0;
+                self.g_mat[(2 * i + 1, Navigation::clock_index() + 1 + i)] = 1.0;
             }
 
             debug!("(i={}) G(ppp): {} W(ppp): {}", ith, self.g_mat, self.w_mat);
@@ -298,7 +287,7 @@ impl PrefitSolver {
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
             // DoP update
-            dop = DilutionOfPrecision::from_ppp(&pending, gt_g_inv);
+            dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
             debug!("(i={}) {} - PPP pending state {}", ith, epoch, pending);
 
@@ -366,11 +355,11 @@ impl PrefitSolver {
         for i in 0..lambda_ndf {
             for j in 0..lambda_ndf {
                 self.lambda_q[(i, j)] = self.p_mat[(
-                    i + Navigation::<U4>::clock_index() + 1,
-                    j + Navigation::<U4>::clock_index() + 1,
+                    i + Navigation::clock_index() + 1,
+                    j + Navigation::clock_index() + 1,
                 )];
             }
-            self.lambda_x[i] = self.x_vec[i + Navigation::<U4>::clock_index() + 1];
+            self.lambda_x[i] = self.x_vec[i + Navigation::clock_index() + 1];
         }
 
         match self
@@ -437,6 +426,7 @@ impl PrefitSolver {
 
         let nrows = self.y_vec.len();
         let lambda_ndf = nrows / 2;
+
         let ndf = U4::USIZE + lambda_ndf;
 
         // verifications prior moving forward
@@ -462,13 +452,13 @@ impl PrefitSolver {
             self.g_mat[(2 * i, 0)] = dx;
             self.g_mat[(2 * i, 1)] = dy;
             self.g_mat[(2 * i, 2)] = dz;
-            self.g_mat[(2 * i, Navigation::<U4>::clock_index())] = 1.0;
+            self.g_mat[(2 * i, Navigation::clock_index())] = 1.0;
 
             self.g_mat[(2 * i + 1, 0)] = dx;
             self.g_mat[(2 * i + 1, 1)] = dy;
             self.g_mat[(2 * i + 1, 2)] = dz;
-            self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index())] = 1.0;
-            self.g_mat[(2 * i + 1, Navigation::<U4>::clock_index() + 1 + i)] = 1.0;
+            self.g_mat[(2 * i + 1, Navigation::clock_index())] = 1.0;
+            self.g_mat[(2 * i + 1, Navigation::clock_index() + 1 + i)] = 1.0;
         }
 
         debug!("G(ppp): {} W(ppp): {}", self.g_mat, self.w_mat);
@@ -510,7 +500,7 @@ impl PrefitSolver {
             .ok_or(Error::MatrixInversion)?;
 
         // DoP update
-        let dop = DilutionOfPrecision::from_ppp(&pending, gt_g_inv);
+        let dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
         // validation
         self.state_validation(&dop)?;
@@ -528,12 +518,12 @@ impl PrefitSolver {
             for i in 0..lambda_ndf {
                 for j in 0..lambda_ndf {
                     self.lambda_q[(i, j)] = self.p_mat[(
-                        i + Navigation::<U4>::clock_index() + 1,
-                        j + Navigation::<U4>::clock_index() + 1,
+                        i + Navigation::clock_index() + 1,
+                        j + Navigation::clock_index() + 1,
                     )];
                 }
 
-                self.lambda_x[i] = self.x_vec[i + Navigation::<U4>::clock_index() + 1];
+                self.lambda_x[i] = self.x_vec[i + Navigation::clock_index() + 1];
             }
 
             match self
@@ -564,21 +554,5 @@ impl PrefitSolver {
     pub fn fixed_ambiguity(&self, sv: &SV) -> Option<u64> {
         let n_fixed = self.n_amb.get(&sv)?;
         Some(*n_fixed)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::PPPState;
-    use crate::navigation::DilutionOfPrecision;
-    use nalgebra::{DMatrix, DVector};
-
-    #[test]
-    fn ppp_nav_dop() {
-        let state = PPPState::default();
-        let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
-        let dop = DilutionOfPrecision::from_ppp(&state, matrix);
-        assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());
-        assert_eq!(dop.tdop, 2.0);
     }
 }

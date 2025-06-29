@@ -4,8 +4,6 @@ use crate::{
     prelude::{Epoch, TimeScale},
 };
 
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
-
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
@@ -51,18 +49,12 @@ pub struct PVTSolution {
 }
 
 impl PVTSolution {
-    pub(crate) fn new<D: DimName>(
+    pub(crate) fn new(
         epoch: Epoch,
-        state: &State<D>,
+        state: &State,
         dop: &DilutionOfPrecision,
         contributions: &[SVContribution],
-    ) -> Self
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    ) -> Self {
         let pos_vel_ecef_m = state.to_position_velocity_ecef_m();
         let (clock_offset_s, _) = state.clock_profile_s();
 

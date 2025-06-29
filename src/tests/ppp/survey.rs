@@ -97,27 +97,27 @@ fn static_ppp() {
 
                 assert!(
                     err_x_m < 100.0,
-                    "epoch={} - x error={}m too large",
+                    "epoch={} - x error={:.4}m too large",
                     epoch_str,
                     err_x_m
                 );
 
                 assert!(
                     err_y_m < 100.0,
-                    "epoch={} - y error={}m too large",
+                    "epoch={} - y error={:.4}m too large",
                     epoch_str,
                     err_y_m
                 );
 
                 assert!(
                     err_z_m < 100.0,
-                    "epoch={} - z error={}m too large",
+                    "epoch={} - z error={:.4}m too large",
                     epoch_str,
                     err_z_m
                 );
 
                 info!(
-                    "{} (static) ppp survey error: x={}m y={}m z={}",
+                    "{} (static) ppp (survey) error: x={:.4}m y={:.4}m z={:.4}m",
                     epoch_str, err_x_m, err_y_m, err_z_m
                 );
             },

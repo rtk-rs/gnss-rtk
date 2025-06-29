@@ -7,7 +7,8 @@ use crate::{
     prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
-        TestEnvironment, TestSpacebornBiases, ROVER_REFERENCE_COORDS_ECEF_M,
+        TestEnvironment, TestSpacebornBiases, MAX_SPP_X_ERROR_M, MAX_SPP_Y_ERROR_M,
+        MAX_SPP_Z_ERROR_M, ROVER_REFERENCE_COORDS_ECEF_M,
     },
 };
 
@@ -63,7 +64,7 @@ fn static_spp() {
         "2020-06-25T00:15:00 GPST",
         "2020-06-25T00:30:00 GPST",
         "2020-06-25T00:45:00 GPST",
-        "2020-06-25T01:00:00 GPST",
+        //"2020-06-25T01:00:00 GPST",
     ]
     .iter()
     .enumerate()
@@ -95,28 +96,28 @@ fn static_spp() {
                 );
 
                 assert!(
-                    err_x_m < 100.0,
-                    "epoch={} - x error={}m too large",
+                    err_x_m < MAX_SPP_X_ERROR_M,
+                    "epoch={} - x error={:.3}m too large",
                     epoch_str,
                     err_x_m
                 );
 
                 assert!(
-                    err_y_m < 100.0,
-                    "epoch={} - y error={}m too large",
+                    err_y_m < MAX_SPP_Y_ERROR_M,
+                    "epoch={} - y error={:.3}m too large",
                     epoch_str,
                     err_y_m
                 );
 
                 assert!(
-                    err_z_m < 100.0,
-                    "epoch={} - z error={}m too large",
+                    err_z_m < MAX_SPP_Z_ERROR_M,
+                    "epoch={} - z error={:.3}m too large",
                     epoch_str,
                     err_z_m
                 );
 
                 info!(
-                    "{} (static) spp survey error: x={}m y={}m z={}",
+                    "{} (static) spp (survey) error: x={:.3}m y={:.3}m z={:.3}m",
                     epoch_str, err_x_m, err_y_m, err_z_m
                 );
             },

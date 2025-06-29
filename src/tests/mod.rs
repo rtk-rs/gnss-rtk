@@ -20,6 +20,8 @@ mod pool;
 mod ppp;
 mod ppp_ar;
 mod pseudo_range;
+mod rtk_cpp;
+mod rtk_ppp;
 mod rtk_spp;
 mod spp;
 mod time;
@@ -29,6 +31,14 @@ pub use number::TestNumber;
 
 use log::LevelFilter;
 use std::sync::Once;
+
+pub const MAX_SPP_X_ERROR_M: f64 = 60.0;
+pub const MAX_SPP_Y_ERROR_M: f64 = 39.0;
+pub const MAX_SPP_Z_ERROR_M: f64 = 51.0;
+
+pub const MAX_CPP_X_ERROR_M: f64 = 51.0;
+pub const MAX_CPP_Y_ERROR_M: f64 = 38.0;
+pub const MAX_CPP_Z_ERROR_M: f64 = 45.0;
 
 pub const MAX_SURVEY_BANCROFT_X_ERROR_M: f64 = 35.0;
 pub const MAX_SURVEY_BANCROFT_Y_ERROR_M: f64 = 110.0;
@@ -69,6 +79,7 @@ pub fn test_orbits() -> OrbitsData {
 
 pub const ROVER_REFERENCE_COORDS_ECEF_M: (f64, f64, f64) =
     (3582105.2910, 532589.7313, 5232754.8054);
+
 pub const BASE_REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3628427.9118, 562059.0936, 5197872.2150);
 
 pub fn reference_epoch() -> Epoch {

@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::info;
 use rstest::*;
 use std::str::FromStr;
 
@@ -30,8 +30,7 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
-#[ignore]
-fn static_ppp() {
+fn static_rtk_ppp() {
     init_logger();
 
     let cfg = Config::default().with_navigation_method(Method::PPP);
@@ -48,7 +47,9 @@ fn static_ppp() {
 
     let orbits_data = OrbitsData::new(earth_frame);
 
-    let mut solver = Solver::new(
+    let rtk_base = CandidatesBuilder::build_rtk_base();
+
+    let mut solver = Solver::new_survey(
         almanac,
         earth_frame,
         cfg,
@@ -57,15 +58,14 @@ fn static_ppp() {
         space_biases.into(),
         environment.into(),
         null_time,
-        Some(ROVER_REFERENCE_COORDS_ECEF_M),
     );
 
     for (nth, epoch_str) in [
         "2020-06-25T00:00:00 GPST",
         "2020-06-25T00:15:00 GPST",
-        // "2020-06-25T00:30:00 GPST",
-        // "2020-06-25T00:45:00 GPST",
-        // "2020-06-25T01:00:00 GPST",
+        "2020-06-25T00:30:00 GPST",
+        "2020-06-25T00:45:00 GPST",
+        "2020-06-25T01:00:00 GPST",
     ]
     .iter()
     .enumerate()
@@ -80,10 +80,10 @@ fn static_ppp() {
             epoch_str
         );
 
-        let status = solver.ppp_solving(t_gpst, default_params, &candidates);
+        let status = solver.rtk_solving(t_gpst, default_params, &candidates, &rtk_base);
 
         match status {
-            Err(e) => error!("Static PPP process failed with invalid error: {}", e),
+            Err(e) => panic!("Static RTK-PPP process failed with invalid error: {}", e),
             Ok(pvt) => {
                 info!("Solution #{} {:#?}", nth + 1, pvt);
 
@@ -98,27 +98,27 @@ fn static_ppp() {
 
                 assert!(
                     err_x_m < 100.0,
-                    "epoch={} - x error={:.4}m too large",
+                    "epoch={} - x error={}m too large",
                     epoch_str,
                     err_x_m
                 );
 
                 assert!(
                     err_y_m < 100.0,
-                    "epoch={} - y error={:.4}m too large",
+                    "epoch={} - y error={}m too large",
                     epoch_str,
                     err_y_m
                 );
 
                 assert!(
                     err_z_m < 100.0,
-                    "epoch={} - z error={:.4}m too large",
+                    "epoch={} - z error={}m too large",
                     epoch_str,
                     err_z_m
                 );
 
                 info!(
-                    "{} (static) ppp (with preset) error: x={:.4}m y={:.4}m z={:.4}m",
+                    "{} (static) rtk-ppp survey error: x={}m y={}m z={}",
                     epoch_str, err_x_m, err_y_m, err_z_m
                 );
             },

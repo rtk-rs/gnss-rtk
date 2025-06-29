@@ -53,6 +53,9 @@ pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, S
 
     /// [Ephemeris] Buffer
     eph_buffer: HashMap<SV, Ephemeris>,
+
+    /// Runtime selected pivot position (ECEF, meters)
+    pub pivot_position_ecef_m: Option<(f64, f64, f64)>,
 }
 
 fn orbit_rotation(t: Epoch, dt: Duration, orbit: &Orbit, modeling: bool, frame: Frame) -> Orbit {
@@ -103,6 +106,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
             almanac,
             past: Vec::with_capacity(8),
             inner: Vec::with_capacity(8),
+            pivot_position_ecef_m: None,
             amb_solver: HashMap::with_capacity(4),
             eph_buffer: HashMap::with_capacity(8),
         }
@@ -111,6 +115,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     /// Prepare for new epoch
     pub fn new_epoch(&mut self, candidates: &[Candidate]) {
         self.inner = candidates.to_vec();
+        self.pivot_position_ecef_m = None;
     }
 
     /// Returns total number of [Candidate]s

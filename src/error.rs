@@ -207,4 +207,8 @@ pub enum Error {
     /// are limited to short baseliens currently.
     #[error("rtk baseline most likely too long - internal limitation")]
     RtkBaselineTooLong,
+
+    /// RTK resolution non feasible: missing DD measurement postfit
+    #[error("missing rtk measurement DD post-fit")]
+    RtkDDPostfitMissing,
 }

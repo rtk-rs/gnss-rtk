@@ -13,7 +13,10 @@ impl Candidate {
                 if let Some((c_1, p_1)) = self.l1_pseudo_range() {
                     if let Some((c_2, p_2)) = pivot.l1_pseudo_range() {
                         if c_1 == c_2 {
-                            sd = Some(Observation::pseudo_range(c_1, p_1 - p_2, None));
+                            let value = p_1 - p_2;
+                            debug!("{}({}) - SD({})={}", self.epoch, self.sv, c_1, value);
+
+                            sd = Some(Observation::pseudo_range(c_1, value, None));
                         }
                     }
                 }
@@ -22,11 +25,13 @@ impl Candidate {
                 if let Some(pc_1) = self.code_if_combination() {
                     if let Some(pc_2) = pivot.code_if_combination() {
                         if pc_1.lhs == pc_2.lhs && pc_1.rhs == pc_2.rhs {
-                            sd = Some(Observation::pseudo_range(
-                                pc_1.rhs,
-                                pc_1.value - pc_2.value,
-                                None,
-                            ));
+                            let value = pc_1.value - pc_2.value;
+                            debug!(
+                                "{}({}) - SD({}_if/{}_if)={}",
+                                self.epoch, self.sv, pc_1.lhs, pc_1.rhs, value
+                            );
+
+                            sd = Some(Observation::pseudo_range(pc_1.rhs, value, None));
                         }
                     }
                 }
@@ -35,11 +40,13 @@ impl Candidate {
                 if let Some(lc_1) = self.phase_if_combination() {
                     if let Some(lc_2) = pivot.phase_if_combination() {
                         if lc_1.lhs == lc_2.lhs && lc_1.rhs == lc_2.rhs {
-                            sd = Some(Observation::ambiguous_phase_range(
-                                lc_1.rhs,
-                                lc_1.value - lc_2.value,
-                                None,
-                            ));
+                            let value = lc_1.value - lc_2.value;
+                            debug!(
+                                "{}({}) - SD({}_if/{}_if)={}",
+                                self.epoch, self.sv, lc_1.lhs, lc_1.rhs, value
+                            );
+
+                            sd = Some(Observation::ambiguous_phase_range(lc_1.rhs, value, None));
                         }
                     }
                 }

@@ -26,7 +26,7 @@ impl TestSpacebornBiases {
                     mw_bias: 0.0,
                     tgd: Duration::ZERO,
                     clock_bias: SatelliteClockCorrection::without_relativistic_correction(
-                        Duration::from_microseconds(-884.707516),
+                        Duration::from_seconds(-0.884707516318E-03),
                     ),
                 },
             ),
@@ -36,7 +36,7 @@ impl TestSpacebornBiases {
                     mw_bias: 0.0,
                     tgd: Duration::ZERO,
                     clock_bias: SatelliteClockCorrection::without_relativistic_correction(
-                        Duration::from_microseconds(-313.499771),
+                        Duration::from_seconds(-0.313499770596E-03),
                     ),
                 },
             ),
@@ -46,7 +46,7 @@ impl TestSpacebornBiases {
                     mw_bias: 0.0,
                     tgd: Duration::ZERO,
                     clock_bias: SatelliteClockCorrection::without_relativistic_correction(
-                        Duration::from_microseconds(-368.776159),
+                        Duration::from_seconds(-0.368776159133E-03),
                     ),
                 },
             ),
@@ -56,7 +56,7 @@ impl TestSpacebornBiases {
                     mw_bias: 0.0,
                     tgd: Duration::ZERO,
                     clock_bias: SatelliteClockCorrection::without_relativistic_correction(
-                        Duration::from_microseconds(6017.693914),
+                        Duration::from_seconds(0.601769391412E-02),
                     ),
                 },
             ),
@@ -66,7 +66,7 @@ impl TestSpacebornBiases {
                     mw_bias: 0.0,
                     tgd: Duration::ZERO,
                     clock_bias: SatelliteClockCorrection::without_relativistic_correction(
-                        Duration::from_microseconds(401.847044),
+                        Duration::from_seconds(0.401847043889E-03),
                     ),
                 },
             ),
@@ -76,7 +76,7 @@ impl TestSpacebornBiases {
                     mw_bias: 0.0,
                     tgd: Duration::ZERO,
                     clock_bias: SatelliteClockCorrection::without_relativistic_correction(
-                        Duration::from_microseconds(862.331400),
+                        Duration::from_seconds(0.862331400195E-03),
                     ),
                 },
             ),
@@ -86,7 +86,7 @@ impl TestSpacebornBiases {
                     mw_bias: 0.0,
                     tgd: Duration::ZERO,
                     clock_bias: SatelliteClockCorrection::without_relativistic_correction(
-                        Duration::from_microseconds(5385.035201),
+                        Duration::from_seconds(0.538503520147E-02),
                     ),
                 },
             ),
@@ -96,7 +96,7 @@ impl TestSpacebornBiases {
                     mw_bias: 0.0,
                     tgd: Duration::ZERO,
                     clock_bias: SatelliteClockCorrection::without_relativistic_correction(
-                        Duration::from_microseconds(-472.987972),
+                        Duration::from_seconds(-0.472987972013E-03),
                     ),
                 },
             ),

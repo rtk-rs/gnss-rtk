@@ -4,15 +4,13 @@ use crate::{
     navigation::state::State,
     pool::Pool,
     prelude::{
-        Almanac, Candidate, EnvironmentalBias, EphemerisSource, Error, OrbitSource, SpacebornBias,
-        Vector3, EARTH_J2000, SUN_J2000,
+        Almanac, Candidate, EnvironmentalBias, EphemerisSource, Error, Method, OrbitSource,
+        SpacebornBias, Vector3, EARTH_J2000, SUN_J2000,
     },
     rtk::DoubleDifferences,
 };
 
 use std::cmp::Ordering;
-
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
 
 use log::{debug, error, info};
 
@@ -24,13 +22,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     Pool<EPH, ORB, EB, SB>
 {
     /// Apply Post fit algorithms
-    pub fn post_fit<D: DimName>(&mut self, name: &str, state: &State<D>) -> AlmanacResult<()>
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    pub fn post_fit(&mut self, name: &str, state: &State) -> AlmanacResult<()> {
         // fix attitudes & derivatives
         self.post_fit_attitudes(name, state);
         self.post_fit_velocities(name);
@@ -53,17 +45,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     }
 
     /// Post fit phase windup correction
-    fn post_fit_phase_windup<D: DimName>(
-        &mut self,
-        almanac: &Almanac,
-        state: &State<D>,
-    ) -> AlmanacResult<()>
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    fn post_fit_phase_windup(&mut self, almanac: &Almanac, state: &State) -> AlmanacResult<()> {
         let epoch = self.inner[0].epoch;
 
         let earth_sun = almanac.transform(SUN_J2000, EARTH_J2000, epoch, None)?;
@@ -94,13 +76,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     }
 
     /// Apply Attitudes Post fit
-    fn post_fit_attitudes<D: DimName>(&mut self, name: &str, state: &State<D>)
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    fn post_fit_attitudes(&mut self, name: &str, state: &State) {
         let rx_orbit = state.to_orbit(self.earth_cef);
 
         self.inner.retain_mut(
@@ -328,13 +304,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         }
     }
 
-    fn post_fit_biases<D: DimName>(&mut self, name: &str, state: &State<D>)
-    where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    fn post_fit_biases(&mut self, name: &str, state: &State) {
         let rcvr_position_ecef_m = state.to_position_ecef_m();
 
         for cd in self.inner.iter_mut() {
@@ -391,7 +361,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         self.retain_mut(|cd| {
             if cd.sv != pivot.sv {
                 cd.sd_mut(method, &pivot);
-                !cd.observations.is_empty()
+                cd.sd.is_some()
             } else {
                 false // drop pivot
             }
@@ -414,31 +384,72 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
             .cloned()
     }
 
-    /// Run the double difference algorithm between [Self] and Rhs,
+    /// Run the double difference algorithm between [Self] and [Self] considered "base",
     /// returning [DoubleDifferences].
-    pub fn post_fit_dd(&self, rhs: &Self) -> DoubleDifferences {
+    pub fn post_fit_dd(&self, base: &Self) -> DoubleDifferences {
         let mut dd = DoubleDifferences::default();
 
         for cd in self.inner.iter() {
-            for rhs_cd in rhs.inner.iter() {
-                if rhs_cd.sv == cd.sv {
-                    for sd in cd.sd.iter() {
-                        for rhs_sd in rhs_cd.sd.iter() {
-                            if sd.carrier == rhs_sd.carrier {
-                                if let Some(l_1) = &sd.phase_range_m {
-                                    if let Some(l_2) = &rhs_sd.phase_range_m {
-                                        let value = l_1 - l_2;
-                                        debug!("{}({}) - DD phase={}", cd.epoch, cd.sv, value);
-                                        dd.insert_phase(cd.sv, sd.carrier, value);
-                                    }
+            for base_cd in base.inner.iter() {
+                if base_cd.sv == cd.sv {
+                    if let Some(sd) = cd.sd {
+                        if let Some(base_sd) = base_cd.sd {
+                            if sd.carrier == base_sd.carrier {
+                                match self.cfg.method {
+                                    Method::SPP | Method::CPP => {
+                                        if let Some(p1) = &sd.pseudo_range_m {
+                                            if let Some(p2) = &base_sd.pseudo_range_m {
+                                                let value = *p1 - *p2;
+
+                                                debug!(
+                                                    "{}({}) - DD({})={}",
+                                                    cd.epoch, cd.sv, sd.carrier, value
+                                                );
+
+                                                dd.insert(cd.sv, sd.carrier, value);
+                                            } else {
+                                                error!(
+                                                    "{} - SD(base) missing {} pseudo range",
+                                                    cd.epoch, sd.carrier
+                                                );
+                                            }
+                                        } else {
+                                            error!(
+                                                "{} - SD(rover) missing {} pseudo range",
+                                                cd.epoch, sd.carrier
+                                            );
+                                        }
+                                    },
+                                    Method::PPP | Method::PPP_AR => {
+                                        if let Some(l1) = &sd.phase_range_m {
+                                            if let Some(l2) = &base_sd.phase_range_m {
+                                                let value = *l1 - *l2;
+
+                                                debug!(
+                                                    "{}({}) - DD({})={}",
+                                                    cd.epoch, cd.sv, sd.carrier, value
+                                                );
+
+                                                dd.insert(cd.sv, sd.carrier, value);
+                                            } else {
+                                                error!(
+                                                    "{} - SD(base) missing {} phase",
+                                                    cd.epoch, sd.carrier
+                                                );
+                                            }
+                                        } else {
+                                            error!(
+                                                "{} - SD(rover) missing {} phase",
+                                                cd.epoch, sd.carrier
+                                            );
+                                        }
+                                    },
                                 }
-                                if let Some(c_1) = &sd.pseudo_range_m {
-                                    if let Some(c_2) = &rhs_sd.pseudo_range_m {
-                                        let value = c_1 - c_2;
-                                        debug!("{}({}) - DD code={}", cd.epoch, cd.sv, value);
-                                        dd.insert_code(cd.sv, sd.carrier, value);
-                                    }
-                                }
+                            } else {
+                                error!(
+                                    "{} - SD carrier mismatch rover={}/base={}",
+                                    cd.epoch, sd.carrier, base_sd.carrier
+                                );
                             }
                         }
                     }
@@ -479,10 +490,30 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         }
 
         // SD on both sites
+        debug!(
+            "{} - using {} as pivot satellite",
+            mob_pivot.epoch, mob_pivot.sv
+        );
+
         self.post_fit_sd(&mob_pivot)?;
-        base.post_fit_sd(&mob_pivot)?;
+        base.post_fit_sd(&base_pivot)?;
+
+        let pos_vel = mob_pivot
+            .orbit
+            .as_ref()
+            .expect("internal error: undefined pivot sat state")
+            .to_cartesian_pos_vel()
+            * 1.0E3;
+
+        self.pivot_position_ecef_m = Some((pos_vel[0], pos_vel[1], pos_vel[2]));
 
         // DD
-        Ok(self.post_fit_dd(base))
+        let ddiffs = self.post_fit_dd(base);
+
+        // remove pivot from both sites
+        self.retain_mut(|cd| cd.sv != mob_pivot.sv);
+        base.retain_mut(|cd| cd.sv != mob_pivot.sv);
+
+        Ok(ddiffs)
     }
 }

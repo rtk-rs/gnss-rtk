@@ -13,8 +13,6 @@ use crate::{
 
 use anise::errors::AlmanacResult;
 
-use nalgebra::{allocator::Allocator, DefaultAllocator, DimName};
-
 mod bias;
 mod ppp;
 mod rtk;
@@ -182,17 +180,12 @@ impl Candidate {
     }
 
     /// Computes phase windup correction term.
-    pub(crate) fn phase_windup_correction<D: DimName>(
+    pub(crate) fn phase_windup_correction(
         &mut self,
-        rx_state: &State<D>,
+        rx_state: &State,
         r_sun: Vector3<f64>,
         past_correction: Option<f64>,
-    ) where
-        DefaultAllocator: Allocator<D> + Allocator<D, D>,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-        <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-    {
+    ) {
         let sv_state = self.orbit.unwrap_or_else(|| {
             panic!("internal error: phase windup while state is not fully resolved");
         });

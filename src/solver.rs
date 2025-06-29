@@ -18,8 +18,6 @@ use crate::{
     time::AbsoluteTime,
 };
 
-use nalgebra::U4;
-
 /// [Solver] to resolve [PVTSolution]s.
 ///
 /// ## Generics:
@@ -38,9 +36,6 @@ pub struct Solver<
     /// Solver [Config]uration
     pub cfg: Config,
 
-    /// [Almanac]
-    almanac: Almanac,
-
     /// [Frame]
     earth_cef: Frame,
 
@@ -51,7 +46,7 @@ pub struct Solver<
     base_pool: Pool<EPH, ORB, EB, SB>,
 
     /// [Navigation] solver
-    navigation: Navigation<U4>,
+    navigation: Navigation,
 
     /// [AbsoluteTime] implementation
     absolute_time: TIM,
@@ -113,7 +108,7 @@ impl<
         );
 
         let base_pool = Pool::allocate(
-            almanac.clone(),
+            almanac,
             cfg.clone(),
             earth_cef,
             eph_source,
@@ -123,7 +118,6 @@ impl<
         );
 
         Self {
-            almanac,
             earth_cef,
             navigation,
             rover_pool,
@@ -199,7 +193,7 @@ impl<
     /// interested by both, you will either have to restrict to [Self::ppp_solving],
     /// or do a PPP (time only) run after the RTK run.
     ///
-    // ## Input
+    /// ## Input
     /// - epoch: [Epoch] of measurement from the rover reported by the rover.
     /// The remote site must match the sampling instant closely, reducing
     /// the time-difference (RTK aging).
@@ -229,7 +223,7 @@ impl<
         uses_rtk: bool,
     ) -> Result<PVTSolution, Error> {
         let rtk_base_name = rtk_base.name();
-        let min_required = self.min_sv_required();
+        let min_required = self.min_sv_required(uses_rtk);
 
         if pool.len() < min_required {
             // no need to proceed further
@@ -324,7 +318,7 @@ impl<
 
             // special RTK post-fit
             match self.rover_pool.rtk_post_fit(&mut self.base_pool) {
-                Ok(dd_observations) => Some(dd_observations),
+                Ok(double_differences) => Some(double_differences),
                 Err(e) => {
                     error!("{} - rtk post-fit error: {}", epoch, e);
                     return Err(e);
@@ -353,6 +347,10 @@ impl<
             &state,
             &self.rover_pool.candidates(),
             pool_size,
+            uses_rtk,
+            rtk_base,
+            &self.rover_pool.pivot_position_ecef_m,
+            &double_differences,
         ) {
             Ok(_) => {
                 info!("{} - iteration completed", epoch);
@@ -363,7 +361,7 @@ impl<
             },
         }
 
-        // Publish solution
+        // Form P.V.T solution
         let solution = PVTSolution::new(
             epoch,
             &self.navigation.state,
@@ -383,116 +381,17 @@ impl<
         self.navigation.reset();
     }
 
-    fn min_sv_required(&self) -> usize {
+    fn min_sv_required(&self, uses_rtk: bool) -> usize {
         let mut min_sv = 4;
 
         if self.navigation.initialized && self.cfg.fixed_altitude.is_some() {
             min_sv -= 1;
         }
 
+        if uses_rtk {
+            min_sv += 1;
+        }
+
         min_sv
     }
-}
-
-#[cfg(test)]
-mod test {
-    // #[test]
-    // fn test_min_sv_required() {
-    //     for (preset, expected) in [
-    //         (Config::default(), 4),
-    //         (
-    //             Config::default().with_pvt_solutions_type(PVTSolutionType::PositionVelocityTime),
-    //             4,
-    //         ),
-    //     ] {
-    //         let null_bias = NullBias {};
-    //         let solver = Solver::new(preset, NullOrbits {}, null_bias, None).unwrap();
-
-    //         assert_eq!(solver.min_sv_required(), expected);
-    //     }
-
-    //     let mut preset = Config::default();
-    //     preset.fixed_altitude = Some(1.0);
-
-    //     let solver = Solver::new(preset.clone(), NullOrbits {}, NullBias {}, None).unwrap();
-    //     assert_eq!(solver.min_sv_required(), 4);
-
-    //     let solver = Solver::new(
-    //         preset.clone(),
-    //         NullOrbits {},
-    //         NullBias {},
-    //         Some((1.0, 2.0, 3.0)),
-    //     )
-    //     .unwrap();
-    //     assert_eq!(solver.min_sv_required(), 3);
-
-    //     let preset = Config::default().with_pvt_solutions_type(PVTSolutionType::TimeOnly);
-
-    //     let solver = Solver::new(preset.clone(), NullOrbits {}, NullBias {}, None).unwrap();
-    //     assert_eq!(solver.min_sv_required(), 4);
-
-    //     let solver = Solver::new(
-    //         preset.clone(),
-    //         NullOrbits {},
-    //         NullBias {},
-    //         Some((1.0, 2.0, 3.0)),
-    //     )
-    //     .unwrap();
-    //     assert_eq!(solver.min_sv_required(), 1);
-    // }
-
-    // #[test]
-    // fn test_attitude_filters() {
-    //     let mut preset = Config::default();
-    //     preset.min_sv_elev = Some(14.0);
-
-    //     let almanac = Almanac::until_2035().unwrap();
-    //     let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
-
-    //     let t0_gpst: Epoch = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
-
-    //     let rx_orbit = reference_orbit(frame);
-
-    //     let mut gpst_orbits = GpsOrbits::build();
-
-    //     let mut candidates = vec![
-    //         Candidate::new(G02, t0_gpst, vec![]),
-    //         Candidate::new(G05, t0_gpst, vec![]),
-    //         Candidate::new(G07, t0_gpst, vec![]),
-    //         Candidate::new(G08, t0_gpst, vec![]),
-    //         Candidate::new(G09, t0_gpst, vec![]),
-    //         Candidate::new(G13, t0_gpst, vec![]),
-    //         Candidate::new(G15, t0_gpst, vec![]),
-    //     ];
-
-    //     for cd in candidates.iter_mut() {
-    //         let orbit = gpst_orbits.next_at(t0_gpst, cd.sv, frame).unwrap();
-    //         cd.set_orbit(orbit);
-    //     }
-
-    //     sv_orbital_attitude_fixup(&almanac, t0_gpst, rx_orbit, &mut candidates);
-    //     assert_eq!(candidates.len(), 7, "invalid test initialization");
-
-    //     sv_attitude_filters(&preset, &mut candidates);
-
-    //     let remainder = candidates
-    //         .iter()
-    //         .map(|cd| cd.sv)
-    //         .sorted()
-    //         .collect::<Vec<_>>();
-
-    //     assert_eq!(remainder, vec![G05, G07, G13, G15]);
-
-    //     preset.min_sv_elev = Some(16.0);
-
-    //     sv_attitude_filters(&preset, &mut candidates);
-
-    //     let remainder = candidates
-    //         .iter()
-    //         .map(|cd| cd.sv)
-    //         .sorted()
-    //         .collect::<Vec<_>>();
-
-    //     assert_eq!(remainder, vec![G05, G07, G13]);
-    // }
 }

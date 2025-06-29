@@ -22,8 +22,9 @@ pub trait RTKBase {
     /// Any moving base station should keep its position up to date and garatee the age of the
     /// observations are kept to a minimal, the time-difference between directly related to the
     /// base velocity.
-    /// Failure to provide this reference state will prohibit this RTK cycle completely.
-    fn reference_position_ecef_m(&self, epoch: Epoch) -> Option<(f64, f64, f64)>;
+    /// This information is mandatory. Any error on this value will automatically
+    /// decrease the accuracy of the solution.
+    fn reference_position_ecef_m(&self, epoch: Epoch) -> (f64, f64, f64);
 }
 
 pub(crate) struct NullRTK {}
@@ -39,7 +40,7 @@ impl RTKBase for NullRTK {
         Default::default()
     }
 
-    fn reference_position_ecef_m(&self, _: Epoch) -> Option<(f64, f64, f64)> {
+    fn reference_position_ecef_m(&self, _: Epoch) -> (f64, f64, f64) {
         Default::default()
     }
 }
@@ -79,29 +80,19 @@ impl DoubleDifference {
 #[derive(Default, Debug)]
 pub(crate) struct DoubleDifferences {
     /// [DoubleDifference]s per [SV] and [Carrier].
-    pub inner: HashMap<(SV, Carrier), DoubleDifference>,
+    pub inner: HashMap<(SV, Carrier), f64>,
 }
 
 impl DoubleDifferences {
-    pub fn insert_code(&mut self, sv: SV, carrier: Carrier, value: f64) {
+    pub fn insert(&mut self, sv: SV, carrier: Carrier, value: f64) {
         if let Some(inner) = self.inner.get_mut(&(sv, carrier)) {
-            inner.code = Some(value);
+            *inner = value;
         } else {
-            self.inner
-                .insert((sv, carrier), DoubleDifference::from_code(value));
+            self.inner.insert((sv, carrier), value);
         }
     }
 
-    pub fn insert_phase(&mut self, sv: SV, carrier: Carrier, value: f64) {
-        if let Some(inner) = self.inner.get_mut(&(sv, carrier)) {
-            inner.phase = Some(value);
-        } else {
-            self.inner
-                .insert((sv, carrier), DoubleDifference::from_phase(value));
-        }
-    }
-
-    pub fn double_difference(&self, sv: SV, carrier: Carrier) -> Option<&DoubleDifference> {
+    pub fn double_difference(&self, sv: SV, carrier: Carrier) -> Option<&f64> {
         self.inner.get(&(sv, carrier))
     }
 }

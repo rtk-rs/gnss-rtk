@@ -30,8 +30,7 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
-#[ignore]
-fn static_spp() {
+fn static_rtk_spp() {
     init_logger();
 
     let cfg = Config::default().with_navigation_method(Method::SPP);
