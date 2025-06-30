@@ -7,7 +7,7 @@ use crate::{
     prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
-        TestEnvironment, TestSpacebornBiases, MAX_SPP_X_ERROR_M, MAX_SPP_Y_ERROR_M,
+        TestEnvironment, TestSpacebornBiases, MAX_SPP_GDOP, MAX_SPP_X_ERROR_M, MAX_SPP_Y_ERROR_M,
         MAX_SPP_Z_ERROR_M, ROVER_REFERENCE_COORDS_ECEF_M,
     },
 };
@@ -115,6 +115,12 @@ fn static_spp() {
                     "epoch={} - z error={:.3}m too large",
                     epoch_str,
                     err_z_m
+                );
+
+                assert!(
+                    pvt.gdop < MAX_SPP_GDOP,
+                    "{} (static) spp survey GDOP too large!",
+                    epoch_str
                 );
 
                 info!(

@@ -22,6 +22,9 @@ pub enum Error {
 
     #[error("invalid user profile")]
     InvalidUserProfile,
+
+    #[error("invalid clock profile")]
+    InvalidClockProfile,
 }
 
 const fn default_timescale() -> TimeScale {

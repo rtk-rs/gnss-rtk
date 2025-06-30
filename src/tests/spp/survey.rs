@@ -4,10 +4,12 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
+    prelude::{
+        Almanac, ClockProfile, Config, Epoch, Frame, Method, Solver, UserParameters, UserProfile,
+    },
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
-        TestEnvironment, TestSpacebornBiases, MAX_SPP_X_ERROR_M, MAX_SPP_Y_ERROR_M,
+        TestEnvironment, TestSpacebornBiases, MAX_SPP_GDOP, MAX_SPP_X_ERROR_M, MAX_SPP_Y_ERROR_M,
         MAX_SPP_Z_ERROR_M, ROVER_REFERENCE_COORDS_ECEF_M,
     },
 };
@@ -36,7 +38,7 @@ fn static_spp() {
 
     let cfg = Config::default().with_navigation_method(Method::SPP);
 
-    let default_params = UserParameters::default();
+    let default_params = UserParameters::new(UserProfile::Static, ClockProfile::Quartz);
 
     let almanac = build_almanac();
     let earth_frame = build_earth_frame();
@@ -114,6 +116,12 @@ fn static_spp() {
                     "epoch={} - z error={:.3}m too large",
                     epoch_str,
                     err_z_m
+                );
+
+                assert!(
+                    pvt.gdop < MAX_SPP_GDOP,
+                    "{} (static) spp survey GDOP too large!",
+                    epoch_str
                 );
 
                 info!(

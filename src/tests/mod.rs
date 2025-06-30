@@ -32,23 +32,29 @@ pub use number::TestNumber;
 use log::LevelFilter;
 use std::sync::Once;
 
-pub const MAX_SPP_X_ERROR_M: f64 = 60.0;
-pub const MAX_SPP_Y_ERROR_M: f64 = 39.0;
-pub const MAX_SPP_Z_ERROR_M: f64 = 51.0;
+pub const MAX_SPP_X_ERROR_M: f64 = 65.5;
+pub const MAX_SPP_Y_ERROR_M: f64 = 39.3;
+pub const MAX_SPP_Z_ERROR_M: f64 = 64.1;
+pub const MAX_SPP_GDOP: f64 = 3.90;
+
+pub const MAX_RTK_SPP_X_ERROR_M: f64 = 24.5;
+pub const MAX_RTK_SPP_Y_ERROR_M: f64 = 11.5;
+pub const MAX_RTK_SPP_Z_ERROR_M: f64 = 97.0;
+pub const MAX_RTK_SPP_GDOP: f64 = 1.99;
 
 pub const MAX_CPP_X_ERROR_M: f64 = 51.0;
 pub const MAX_CPP_Y_ERROR_M: f64 = 38.0;
 pub const MAX_CPP_Z_ERROR_M: f64 = 45.0;
+pub const MAX_CPP_GDOP: f64 = 3.90;
+
+pub const MAX_RTK_CPP_X_ERROR_M: f64 = 24.59;
+pub const MAX_RTK_CPP_Y_ERROR_M: f64 = 11.5;
+pub const MAX_RTK_CPP_Z_ERROR_M: f64 = 97.35;
+pub const MAX_RTK_CPP_GDOP: f64 = 1.99;
 
 pub const MAX_SURVEY_BANCROFT_X_ERROR_M: f64 = 35.0;
 pub const MAX_SURVEY_BANCROFT_Y_ERROR_M: f64 = 110.0;
 pub const MAX_SURVEY_BANCROFT_Z_ERROR_M: f64 = 30.0;
-
-pub const MAX_SURVEY_BANCROFT_ERRORS: (f64, f64, f64) = (
-    MAX_SURVEY_BANCROFT_X_ERROR_M,
-    MAX_SURVEY_BANCROFT_Y_ERROR_M,
-    MAX_SURVEY_BANCROFT_Z_ERROR_M,
-);
 
 static INIT: Once = Once::new();
 

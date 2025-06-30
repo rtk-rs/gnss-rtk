@@ -337,7 +337,9 @@ impl PrefitSolver {
         let nrows = self.x_vec.nrows();
         let lambda_ndf = nrows - ndf;
 
-        let q_mat = params.q_matrix(ndf + lambda_ndf, Duration::ZERO);
+        let mut q_mat = DMatrix::identity(ndf + lambda_ndf, ndf + lambda_ndf);
+        params.q_matrix(true, &mut q_mat, Duration::ZERO, ndf + lambda_ndf);
+
         debug!("ndf(ppp)={} Q(ppp)={}", ndf, q_mat);
 
         // build F
@@ -472,7 +474,8 @@ impl PrefitSolver {
         self.f_mat = DMatrix::identity(ndf, ndf);
 
         // build Q
-        let q_mat = params.q_matrix(ndf, Duration::ZERO);
+        let mut q_mat = DMatrix::identity(ndf, ndf);
+        params.q_matrix(false, &mut q_mat, Duration::ZERO, ndf);
 
         debug!("ndf(ppp)={} F(ppp)={} Q(ppp)={}", ndf, self.f_mat, q_mat);
 

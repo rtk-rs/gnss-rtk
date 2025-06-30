@@ -10,17 +10,17 @@ use serde::{Deserialize, Serialize};
 
 /// Default acceleration PSD
 const fn default_accel_psd() -> f64 {
-    0.5_f64 * 0.5_f64
+    UserProfile::Pedestrian.psd()
 }
 
 /// Default clock PSD
 const fn default_clock_psd() -> f64 {
-    0.5_f64 * 2.0E-19
+    ClockProfile::Quartz.bias_psd()
 }
 
 /// Default clock PSD
 const fn default_clock_drift_psd() -> f64 {
-    2.0_f64 * PI * PI * 2.0E-20
+    ClockProfile::Quartz.drift_psd()
 }
 
 /// [UserProfile] can be used to generate a set of [UserParameters] easily.
@@ -52,13 +52,13 @@ pub enum UserProfile {
 }
 
 impl UserProfile {
-    pub(crate) fn psd(&self) -> f64 {
+    pub(crate) const fn psd(&self) -> f64 {
         match self {
-            Self::Static => 0.0,
-            Self::Pedestrian => 0.5f64.powi(2),
-            Self::Car => 2.0f64.powi(2),
-            Self::Airplane => 50.0f64.powi(2),
-            Self::Rocket => 1000.0f64.powi(2),
+            Self::Static => 1.0,
+            Self::Pedestrian => 2.0,
+            Self::Car => 4.0,
+            Self::Airplane => 2_500.0,
+            Self::Rocket => 1_000_000.0,
         }
     }
 }
@@ -82,8 +82,8 @@ impl std::str::FromStr for UserProfile {
 impl std::fmt::Display for UserProfile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Static => write!(f, "Static"),
-            Self::Pedestrian => write!(f, "Pedestrian"),
+            Self::Static => write!(f, "static"),
+            Self::Pedestrian => write!(f, "pedestrian"),
             Self::Car => write!(f, "car"),
             Self::Airplane => write!(f, "airplane"),
             Self::Rocket => write!(f, "rocket"),
@@ -93,31 +93,57 @@ impl std::fmt::Display for UserProfile {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ClockProfile {
-    /// [ClockProfile::Quartz] low quality clock
+    /// [ClockProfile::Quartz] low quality clock,
+    /// poorer than GNSS constellation clocks.
     #[default]
     Quartz,
 
-    /// [ClockProfile::Oscillator] medium quality clock
+    /// [ClockProfile::Oscillator] medium quality clock,
+    /// poorer than GNSS constellation clocks.
     Oscillator,
 
-    /// [ClockProfile::Atomic] high quality clock
+    /// [ClockProfile::Atomic] high quality clock, that may be
+    /// at the level of the constellation .
     Atomic,
+
+    /// [ClockProfile::H_MASER] (Hydrogen Maser) ultra high quality clock
+    /// which is actually more performant than the constellation.
+    H_MASER,
+}
+
+impl std::str::FromStr for ClockProfile {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.to_lowercase();
+        let trimmed = s.trim();
+        match trimmed {
+            "quartz" => Ok(Self::Quartz),
+            "maser" | "h-maser" => Ok(Self::H_MASER),
+            "oscillator" | "ocxo" => Ok(Self::Oscillator),
+            "atomic" | "rb" | "rubidium" => Ok(Self::Atomic),
+            _ => Err(Error::InvalidClockProfile),
+        }
+    }
 }
 
 impl ClockProfile {
-    pub(crate) fn bias_psd(&self) -> f64 {
+    /// Returns bias PSD for this [ClockProfile].
+    pub(crate) const fn bias_psd(&self) -> f64 {
         match self {
             Self::Quartz => 0.5 * 2.0E-19,
             Self::Oscillator => 0.5 * 2.0E-19,
             Self::Atomic => 0.5 * 2.0E-19,
+            Self::H_MASER => 0.5 * 2.0E-19,
         }
     }
 
-    pub(crate) fn drift_psd(&self) -> f64 {
+    /// Returns drift PSD for this [ClockProfile].
+    pub(crate) const fn drift_psd(&self) -> f64 {
         match self {
             Self::Quartz => 2.0 * 2.0E-20,
             Self::Oscillator => 2.0 * 2.0E-20,
             Self::Atomic => 2.0 * 2.0E-20,
+            Self::H_MASER => 2.0 * 2.0E-20,
         }
     }
 }
@@ -172,31 +198,35 @@ impl UserParameters {
         }
     }
 
-    /// Allocates a (usize, usize) covariance [DMatrix]
-    pub(crate) fn q_matrix(&self, size: usize, dt: Duration) -> DMatrix<f64> {
-        assert!(size > 3, "internal error: requested invalid Q dimension");
-
-        let mut q = DMatrix::<f64>::zeros(size, size);
+    /// Parametrization of the coveriance [DMatrix]
+    pub(crate) fn q_matrix(
+        &self,
+        is_init: bool,
+        q_mat: &mut DMatrix<f64>,
+        dt: Duration,
+        ndf: usize,
+    ) {
+        assert!(ndf > 2, "Q cov: minimal dimension");
 
         let dt_s = dt.to_seconds();
         let dt_s3 = dt_s.powi(3);
 
-        q[(0, 0)] = self.accel_psd * dt_s3 / 3.0; // TODO
+        for i in 0..=2 {
+            // if is_init {
+            //} else {
+            // q_mat[(i, i)] = self.accel_psd * dt_s3 / 3.0;
+            q_mat[(i, i)] = 1.0;
+            //}
+        }
 
-        // TODO
-        q[(0, 0)] = 1.0;
-        q[(1, 1)] = 1.0;
-        q[(2, 2)] = 1.0;
-
-        // TODO
-        q[(3, 3)] = SPEED_OF_LIGHT_M_S.powi(2)
-            * (self.clock_psd * dt_s + self.clock_drift_psd * dt_s3 / 3.0);
-
-        //  self.q[(Self::clock_index(), Self::clock_index())] =
-        //      (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
-
-        q[(3, 3)] = (100e-3 * SPEED_OF_LIGHT_M_S).powi(2); // TODO
-
-        q
+        if ndf > 3 {
+            if dt == Duration::ZERO {
+                q_mat[(3, 3)] = (100.0e-3 * SPEED_OF_LIGHT_M_S).powi(2);
+            } else {
+                // q_mat[(3, 3)] = SPEED_OF_LIGHT_M_S.powi(2)
+                //    * (self.clock_psd * dt_s + self.clock_drift_psd * dt_s3 / 3.0);
+                q_mat[(3, 3)] = (100.0e-3 * SPEED_OF_LIGHT_M_S).powi(2);
+            }
+        }
     }
 }

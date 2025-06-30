@@ -137,7 +137,7 @@ impl State {
 
         let clock_index = Navigation::clock_index();
 
-        if dt > 0.0 && ndf >= clock_index {
+        if dt > 0.0 && ndf > clock_index {
             self.clock_drift_s_s =
                 ((dx[clock_index] / SPEED_OF_LIGHT_M_S) - self.x[clock_index]) / dt;
         }

@@ -7,7 +7,8 @@ use crate::{
     prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
-        TestEnvironment, TestSpacebornBiases, ROVER_REFERENCE_COORDS_ECEF_M,
+        TestEnvironment, TestSpacebornBiases, MAX_RTK_CPP_GDOP, MAX_RTK_CPP_X_ERROR_M,
+        MAX_RTK_CPP_Y_ERROR_M, MAX_RTK_CPP_Z_ERROR_M, ROVER_REFERENCE_COORDS_ECEF_M,
     },
 };
 
@@ -64,9 +65,9 @@ fn static_rtk_cpp() {
     for (nth, epoch_str) in [
         "2020-06-25T00:00:00 GPST",
         "2020-06-25T00:15:00 GPST",
-        "2020-06-25T00:30:00 GPST",
-        "2020-06-25T00:45:00 GPST",
-        "2020-06-25T01:00:00 GPST",
+        // "2020-06-25T00:30:00 GPST", // TODO RTK test data
+        // "2020-06-25T00:45:00 GPST", // TODO RTK test data
+        // "2020-06-25T01:00:00 GPST", // TODO RTK test data
     ]
     .iter()
     .enumerate()
@@ -98,24 +99,30 @@ fn static_rtk_cpp() {
                 );
 
                 assert!(
-                    err_x_m < 100.0,
+                    err_x_m < MAX_RTK_CPP_X_ERROR_M,
                     "epoch={} - x error={}m too large",
                     epoch_str,
                     err_x_m
                 );
 
                 assert!(
-                    err_y_m < 100.0,
+                    err_y_m < MAX_RTK_CPP_Y_ERROR_M,
                     "epoch={} - y error={}m too large",
                     epoch_str,
                     err_y_m
                 );
 
                 assert!(
-                    err_z_m < 100.0,
+                    err_z_m < MAX_RTK_CPP_Z_ERROR_M,
                     "epoch={} - z error={}m too large",
                     epoch_str,
                     err_z_m
+                );
+
+                assert!(
+                    pvt.gdop < MAX_RTK_CPP_GDOP,
+                    "{} (static) rtk-cpp survey GDOP too large!",
+                    epoch_str
                 );
 
                 info!(

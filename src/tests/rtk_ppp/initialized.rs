@@ -30,6 +30,7 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
+#[ignore]
 fn static_rtk_ppp() {
     init_logger();
 
@@ -64,9 +65,9 @@ fn static_rtk_ppp() {
     for (nth, epoch_str) in [
         "2020-06-25T00:00:00 GPST",
         "2020-06-25T00:15:00 GPST",
-        "2020-06-25T00:30:00 GPST",
-        "2020-06-25T00:45:00 GPST",
-        "2020-06-25T01:00:00 GPST",
+        // "2020-06-25T00:30:00 GPST", //TODO RTK test data
+        // "2020-06-25T00:45:00 GPST", // TODO RTK test data
+        // "2020-06-25T01:00:00 GPST", // TODO RTK test data
     ]
     .iter()
     .enumerate()

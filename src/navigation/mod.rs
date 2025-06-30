@@ -26,7 +26,10 @@ use crate::{
         state::State,
         sv::SVContribution,
     },
-    prelude::{Candidate, Config, Epoch, Error, Frame, Method, UserParameters, SPEED_OF_LIGHT_M_S},
+    prelude::{
+        Candidate, Config, Duration, Epoch, Error, Frame, Method, UserParameters,
+        SPEED_OF_LIGHT_M_S,
+    },
     rtk::{DoubleDifferences, RTKBase},
 };
 
@@ -207,23 +210,19 @@ impl Navigation {
         self.f_k.resize_mut(ndf, ndf, 0.0);
         self.q_k.resize_mut(ndf, ndf, 0.0);
 
-        self.q_k[(0, 0)] = 1.0; // TODO improve Q model
-        self.q_k[(1, 1)] = 1.0; // TODO improve Q model
-        self.q_k[(2, 2)] = 1.0; // TODO improve Q model
-
         for i in 0..ndf {
             self.f_k[(i, i)] = 1.0;
         }
 
-        if !uses_rtk {
-            // TODO improve Q model
-            // self.q_k[(Self::clock_index(), Self::clock_index())] =
-            //     (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
-            self.q_k[(Self::clock_index(), Self::clock_index())] =
-                (100e-3 * SPEED_OF_LIGHT_M_S).powi(2);
-        }
+        let dt = if let Some(past_epoch) = self.prev_epoch {
+            epoch - past_epoch
+        } else {
+            Duration::ZERO
+        };
 
         if !self.kalman.initialized {
+            params.q_matrix(true, &mut self.q_k, dt, ndf);
+
             self.kf_initialization(
                 epoch,
                 &initial_state,
@@ -235,45 +234,48 @@ impl Navigation {
                 double_differences,
             )?;
         } else {
+            params.q_matrix(false, &mut self.q_k, dt, ndf);
+
             self.kf_run(
                 epoch,
                 candidates,
                 size,
                 uses_rtk,
+                rtk_base,
                 pivot_position_ecef_m,
                 double_differences,
             )?;
         }
 
-        // if self.cfg.solver.postfit_denoising > 0.0 {
-        //     if let Some(postfit) = &mut self.postfit {
-        //         let prev_epoch = self
-        //             .prev_epoch
-        //             .expect("internal error: undetermined past epoch");
+        if self.cfg.solver.postfit_denoising > 0.0 {
+            if let Some(postfit) = &mut self.postfit {
+                let prev_epoch = self
+                    .prev_epoch
+                    .expect("internal error: undetermined past epoch");
 
-        //         let dt = epoch - prev_epoch;
-        //         let dx = postfit.run(&self.state, dt)?;
+                let dt = epoch - prev_epoch;
+                let dx = postfit.run(&self.state, dt)?;
 
-        //         // update state
-        //         self.state
-        //             .postfit_update_mut(self.frame, &dx.x)
-        //             .map_err(|e| {
-        //                 error!(
-        //                     "{} - postfit state update failed with physical error: {}",
-        //                     epoch, e
-        //                 );
-        //                 Error::StateUpdate
-        //             })?;
-        //     } else {
-        //         self.postfit = Some(PostfitKf::new(
-        //             &self.state,
-        //             1.0 / self.cfg.solver.postfit_denoising,
-        //             1.0 / self.cfg.solver.postfit_denoising,
-        //             1.0,
-        //             1.0,
-        //         ));
-        //     }
-        // }
+                // update state
+                self.state
+                    .postfit_update_mut(self.frame, &dx.x)
+                    .map_err(|e| {
+                        error!(
+                            "{} - postfit state update failed with physical error: {}",
+                            epoch, e
+                        );
+                        Error::StateUpdate
+                    })?;
+            } else {
+                self.postfit = Some(PostfitKf::new(
+                    &self.state,
+                    1.0 / self.cfg.solver.postfit_denoising,
+                    1.0 / self.cfg.solver.postfit_denoising,
+                    1.0,
+                    1.0,
+                ));
+            }
+        }
 
         self.prev_epoch = Some(epoch);
         self.initialized = true;
@@ -313,8 +315,6 @@ impl Navigation {
 
         let mut pending = state.clone();
         let mut dop = DilutionOfPrecision::default();
-
-        let position_ecef_m = pending.to_position_ecef_m();
         let (base_x0, base_y0, base_z0) = rtk_base.reference_position_ecef_m(t);
 
         // measurement
@@ -590,16 +590,18 @@ impl Navigation {
     /// - size: number of proposed [Cadndidate]s
     /// - uses_rtk: true when RTK mode nav is being used
     /// - double_differences: possible [DoubleDifferences]
-    pub fn kf_run(
+    pub fn kf_run<RTK: RTKBase>(
         &mut self,
         t: Epoch,
         candidates: &[Candidate],
         size: usize,
         uses_rtk: bool,
+        rtk_base: &RTK,
         pivot_position_ecef_m: &Option<(f64, f64, f64)>,
         double_differences: &Option<DoubleDifferences>,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
+        let (base_x0, base_y0, base_z0) = rtk_base.reference_position_ecef_m(t);
 
         // measurement
         for i in 0..size {
@@ -729,6 +731,20 @@ impl Navigation {
 
         for i in 0..ndf {
             self.x_k[i] = estimate.x[i];
+        }
+
+        if uses_rtk {
+            let position_ecef_m = pending.to_position_ecef_m();
+
+            let (baseline_dx, baseline_dy, baseline_dz) = (
+                position_ecef_m[0] - base_x0,
+                position_ecef_m[1] - base_y0,
+                position_ecef_m[2] - base_z0,
+            );
+
+            self.x_k[0] -= baseline_dx;
+            self.x_k[1] -= baseline_dy;
+            self.x_k[2] -= baseline_dz;
         }
 
         pending
