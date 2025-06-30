@@ -4,7 +4,7 @@ use log::debug;
 use crate::{
     constants::SPEED_OF_LIGHT_M_S,
     navigation::{sv::SVContribution, vector::VectorContribution},
-    prelude::{Candidate, Config, Duration, Epoch, Error, Method, Signal, Vector3},
+    prelude::{Candidate, Config, Duration, Error, Method, Signal, Vector3},
 };
 
 impl Candidate {
@@ -25,7 +25,6 @@ impl Candidate {
     /// - b_i contribution, r_i contribution, dr: relativistic path range
     pub(crate) fn ppp_vector_contribution(
         &self,
-        t: Epoch,
         cfg: &Config,
         two_rows: bool,
         amb: Option<u64>,
@@ -76,8 +75,6 @@ impl Candidate {
                 (SPEED_OF_LIGHT_M_S * (f1 - f2) / f1 / f2, comb.value)
             },
         };
-
-        let frequency_hz = SPEED_OF_LIGHT_M_S / lambda;
 
         let mut cp = match cfg.method {
             Method::PPP => {

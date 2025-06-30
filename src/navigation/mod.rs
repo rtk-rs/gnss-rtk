@@ -26,10 +26,7 @@ use crate::{
         state::State,
         sv::SVContribution,
     },
-    prelude::{
-        Candidate, Config, Duration, Epoch, Error, Frame, Method, UserParameters,
-        SPEED_OF_LIGHT_M_S,
-    },
+    prelude::{Candidate, Config, Duration, Epoch, Error, Frame, Method, UserParameters},
     rtk::{DoubleDifferences, RTKBase},
 };
 
@@ -359,7 +356,6 @@ impl Navigation {
                 }
             } else {
                 match candidates[i].ppp_vector_contribution(
-                    t,
                     &self.cfg,
                     false,
                     amb,
@@ -424,11 +420,7 @@ impl Navigation {
                         panic!("internal error: undefined pivot satellite position");
                     });
 
-                    candidates[*index].rtk_matrix_contribution(
-                        &self.cfg,
-                        position_m,
-                        pivot_position_ecef_m,
-                    )
+                    candidates[*index].rtk_matrix_contribution(position_m, pivot_position_ecef_m)
                 } else {
                     candidates[*index].ppp_matrix_contribution(&self.cfg, position_m)
                 };
@@ -534,7 +526,6 @@ impl Navigation {
                     }
                 } else {
                     match candidates[*i].ppp_vector_contribution(
-                        t,
                         &self.cfg,
                         false,
                         amb,
@@ -645,7 +636,6 @@ impl Navigation {
                 }
             } else {
                 match candidates[i].ppp_vector_contribution(
-                    t,
                     &self.cfg,
                     false,
                     amb,
@@ -703,11 +693,7 @@ impl Navigation {
                     panic!("internal error: undefined pivot satellite position");
                 });
 
-                candidates[*index].rtk_matrix_contribution(
-                    &self.cfg,
-                    position_m,
-                    pivot_position_ecef_m,
-                )
+                candidates[*index].rtk_matrix_contribution(position_m, pivot_position_ecef_m)
             } else {
                 candidates[*index].ppp_matrix_contribution(&self.cfg, position_m)
             };
@@ -784,7 +770,7 @@ impl Navigation {
 #[cfg(test)]
 mod test {
     use crate::navigation::{DilutionOfPrecision, Navigation, State};
-    use nalgebra::{DMatrix, DVector, U4, U7, U9};
+    use nalgebra::{DMatrix, DVector};
 
     #[test]
     fn navigation_dimensions_clock_index() {

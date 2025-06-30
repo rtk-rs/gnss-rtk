@@ -193,7 +193,6 @@ impl PrefitSolver {
             let position_m = pending.to_position_ecef_m();
 
             match candidates[i].ppp_vector_contribution(
-                epoch,
                 &self.cfg,
                 true,
                 None,
@@ -301,7 +300,6 @@ impl PrefitSolver {
                 let position_m = pending.to_position_ecef_m();
 
                 match candidates[*i].ppp_vector_contribution(
-                    epoch,
                     &self.cfg,
                     true,
                     None,
@@ -405,7 +403,6 @@ impl PrefitSolver {
             let position_m = pending.to_position_ecef_m();
 
             match candidates[i].ppp_vector_contribution(
-                t,
                 &self.cfg,
                 true,
                 None,
