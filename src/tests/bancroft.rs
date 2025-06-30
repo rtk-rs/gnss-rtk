@@ -35,7 +35,7 @@ fn bancroft_gpst() {
         "2020-06-25T01:00:00 GPST",
     ] {
         let epoch = Epoch::from_str(t_str).unwrap_or_else(|e| {
-            panic!("invalid test epoch {}", t_str);
+            panic!("invalid test epoch {}: {}", t_str, e);
         });
 
         let mut pool = CandidatesBuilder::build_rover_at(epoch);

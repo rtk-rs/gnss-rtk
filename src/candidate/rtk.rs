@@ -57,7 +57,6 @@ impl Candidate {
     ///  - x0_y0_z0: position coordinates as ECEF (m)
     pub(crate) fn rtk_matrix_contribution(
         &self,
-        cfg: &Config,
         x0_y0_z0_m: Vector3<f64>,
         pivot_position_ecef_m: (f64, f64, f64),
     ) -> (f64, f64, f64) {
@@ -100,7 +99,7 @@ impl Candidate {
 #[cfg(test)]
 mod test {
     use crate::{
-        prelude::{Candidate, Config, Epoch, Frame, Method, Orbit},
+        prelude::{Config, Epoch, Frame, Method, Orbit},
         tests::{CandidatesBuilder, E05, ROVER_REFERENCE_COORDS_ECEF_M},
     };
 
@@ -154,7 +153,7 @@ mod test {
             ROVER_REFERENCE_COORDS_ECEF_M.2,
         );
 
-        let (dx, dy, dz) = rover.rtk_matrix_contribution(&cfg, x0_y0_z0_m, pivot_position_ecef_m);
+        let (dx, dy, dz) = rover.rtk_matrix_contribution(x0_y0_z0_m, pivot_position_ecef_m);
 
         let rho_i = ((e01_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0).powi(2)
             + (e01_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1).powi(2)
@@ -224,7 +223,7 @@ mod test {
             ROVER_REFERENCE_COORDS_ECEF_M.2,
         );
 
-        let (dx, dy, dz) = rover.rtk_matrix_contribution(&cfg, x0_y0_z0_m, pivot_position_ecef_m);
+        let (dx, dy, dz) = rover.rtk_matrix_contribution(x0_y0_z0_m, pivot_position_ecef_m);
 
         let rho_i = ((e01_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0).powi(2)
             + (e01_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1).powi(2)
@@ -294,7 +293,7 @@ mod test {
             ROVER_REFERENCE_COORDS_ECEF_M.2,
         );
 
-        let (dx, dy, dz) = rover.rtk_matrix_contribution(&cfg, x0_y0_z0_m, pivot_position_ecef_m);
+        let (dx, dy, dz) = rover.rtk_matrix_contribution(x0_y0_z0_m, pivot_position_ecef_m);
 
         let rho_i = ((e01_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0).powi(2)
             + (e01_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1).powi(2)

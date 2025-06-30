@@ -131,19 +131,19 @@ impl ClockProfile {
     pub(crate) const fn bias_psd(&self) -> f64 {
         match self {
             Self::Quartz => 0.5 * 2.0E-19,
-            Self::Oscillator => 0.5 * 2.0E-19,
-            Self::Atomic => 0.5 * 2.0E-19,
-            Self::H_MASER => 0.5 * 2.0E-19,
+            Self::Oscillator => 0.5 * 2.0E-20,
+            Self::Atomic => 0.5 * 2.0E-20,
+            Self::H_MASER => 0.5 * 2.0E-20,
         }
     }
 
     /// Returns drift PSD for this [ClockProfile].
     pub(crate) const fn drift_psd(&self) -> f64 {
         match self {
-            Self::Quartz => 2.0 * 2.0E-20,
-            Self::Oscillator => 2.0 * 2.0E-20,
-            Self::Atomic => 2.0 * 2.0E-20,
-            Self::H_MASER => 2.0 * 2.0E-20,
+            Self::Quartz => 2.0 * PI * PI * 2.0E-20,
+            Self::Oscillator => 2.0 * PI * PI * 2.0E-23,
+            Self::Atomic => 2.0 * PI * PI * 2.0E-23,
+            Self::H_MASER => 2.0 * PI * PI * 2.0E-23,
         }
     }
 }

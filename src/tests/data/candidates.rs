@@ -27,7 +27,7 @@ impl RTKBase for RTKStation {
             .collect()
     }
 
-    fn reference_position_ecef_m(&self, epoch: Epoch) -> (f64, f64, f64) {
+    fn reference_position_ecef_m(&self, _: Epoch) -> (f64, f64, f64) {
         BASE_REFERENCE_COORDS_ECEF_M
     }
 }
@@ -456,9 +456,7 @@ impl CandidatesBuilder {
     }
 
     pub fn build_base_at(epoch: Epoch) -> Vec<Candidate> {
-        let mut station = Self::build_rtk_base();
-
-        station
+        Self::build_rtk_base()
             .candidates
             .into_iter()
             .filter(|cd| cd.epoch == epoch)
