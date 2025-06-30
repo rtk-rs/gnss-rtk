@@ -16,15 +16,19 @@ mod bias;
 mod candidate;
 mod carrier;
 mod cfg;
+mod ephemeris;
 mod navigation;
 mod orbit;
 mod pool;
+mod rtk;
 mod smoothing;
 mod time;
+mod user;
+
+// mod kinematic;
+// mod implementations;
 
 pub(crate) mod constants;
-pub(crate) mod ppp;
-pub(crate) mod rtk;
 pub(crate) mod solver;
 
 #[cfg(test)]
@@ -34,17 +38,25 @@ mod tests;
 pub mod prelude {
     // pub use crate::ambiguity::Ambiguities;
     pub use crate::{
-        bias::{Bias, BiasRuntime, IonosphereBias, IonosphereModel, KbModel, TroposphereModel},
-        candidate::{Candidate, ClockCorrection, Observation},
+        bias::{
+            environment::{
+                EnvironmentalBias, IonosphereBias, IonosphereModel, KbModel, TroposphereModel,
+            },
+            spaceborn::{SatelliteClockCorrection, SpacebornBias},
+            BiasRuntime,
+        },
+        candidate::{Candidate, Observation},
         carrier::{Carrier, Signal},
-        cfg::{Config, Method, Profile, User},
+        cfg::{Config, Method},
         constants::SPEED_OF_LIGHT_M_S,
+        ephemeris::{Ephemeris, EphemerisSource},
         error::Error,
-        navigation::PVTSolution,
+        navigation::solutions::PVTSolution,
         orbit::OrbitSource,
-        ppp::PPP,
-        rtk::{RTKBase, RTK},
+        rtk::RTKBase,
+        solver::Solver,
         time::AbsoluteTime,
+        user::{ClockProfile, UserParameters, UserProfile},
     };
 
     // std types

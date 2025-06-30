@@ -4,18 +4,23 @@ use std::cmp::Ordering;
 
 use crate::prelude::{Candidate, Carrier};
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct Observation {
     /// [Carrier] frequency.
     pub carrier: Carrier,
+
     /// Pseudo range observation in meters.
     pub pseudo_range_m: Option<f64>,
+
     /// Ambiguous phase range observation, in meters.
     pub phase_range_m: Option<f64>,
+
     /// Possible doppler observation (in Hz/Hz).
     pub doppler: Option<f64>,
+
     /// Possible SNR indication (in dB/Hz).
     pub snr_dbhz: Option<f64>,
+
     /// Phase range ambiguity (in cycles)
     pub(crate) ambiguity: Option<f64>,
 }
@@ -61,27 +66,24 @@ impl Observation {
 
     /// Copies and returns new [Observation] with defined ambiguous phase range (in meters)
     /// for that frequency.
-    pub fn with_ambiguous_phase_range_m(&self, phase_range_m: f64) -> Self {
-        let mut s = self.clone();
-        s.ambiguity = None;
-        s.phase_range_m = Some(phase_range_m);
-        s
+    pub fn with_ambiguous_phase_range_m(mut self, phase_range_m: f64) -> Self {
+        self.ambiguity = None;
+        self.phase_range_m = Some(phase_range_m);
+        self
     }
 
     /// Copies and returns new [Observation] with defined pseudo range (in meters)
     /// for that frequency.
-    pub fn with_pseudo_range_m(&self, pseudo_range_m: f64) -> Self {
-        let mut s = self.clone();
-        s.pseudo_range_m = Some(pseudo_range_m);
-        s
+    pub fn with_pseudo_range_m(mut self, pseudo_range_m: f64) -> Self {
+        self.pseudo_range_m = Some(pseudo_range_m);
+        self
     }
 
     /// Copies and returns new [Observation] with defined doppler shift (in Hz/Hz),
     /// for that frequency.
-    pub fn with_doppler(&self, doppler_hz_hz: f64) -> Self {
-        let mut s = self.clone();
-        s.doppler = Some(doppler_hz_hz);
-        s
+    pub fn with_doppler(mut self, doppler_hz_hz: f64) -> Self {
+        self.doppler = Some(doppler_hz_hz);
+        self
     }
 }
 
@@ -124,13 +126,8 @@ impl Candidate {
     pub(crate) fn best_snr_range_m(&self) -> Option<(Carrier, f64)> {
         let obs = self.best_snr_observation()?;
 
-        let range_m = if let Some(ambiguity) = obs.ambiguity {
-            obs.pseudo_range_m
-        } else {
-            obs.pseudo_range_m
-        };
+        let range_m = obs.pseudo_range_m?;
 
-        let range_m = range_m?;
         Some((obs.carrier, range_m))
     }
 
@@ -153,14 +150,14 @@ impl Candidate {
             > 1
     }
 
-    /// True if dual pseudo range measurement is present
-    pub(crate) fn has_triple_pseudo_range(&self) -> bool {
-        self.pseudo_range_iter()
-            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
-            .unique()
-            .count()
-            > 2
-    }
+    // /// True if dual pseudo range measurement is present
+    // pub(crate) fn has_triple_pseudo_range(&self) -> bool {
+    //     self.pseudo_range_iter()
+    //         .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+    //         .unique()
+    //         .count()
+    //         > 2
+    // }
 
     /// True if dual phase range measurement exist.
     pub(crate) fn has_dual_phase_range(&self) -> bool {
@@ -171,14 +168,14 @@ impl Candidate {
             > 1
     }
 
-    /// True if dual phase range measurement exist.
-    pub(crate) fn has_triple_phase_range(&self) -> bool {
-        self.phase_range_iter()
-            .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
-            .unique()
-            .count()
-            > 2
-    }
+    // /// True if dual phase range measurement exist.
+    // pub(crate) fn has_triple_phase_range(&self) -> bool {
+    //     self.phase_range_iter()
+    //         .map(|(signal, _)| (signal.frequency_mega_hz() * 100.0) as u32)
+    //         .unique()
+    //         .count()
+    //         > 2
+    // }
 
     /// Returns the L1 Pseudo Range observation [m] if it exists
     pub(crate) fn l1_pseudo_range(&self) -> Option<(Carrier, f64)> {
@@ -189,6 +186,11 @@ impl Candidate {
             .reduce(|k, _| k)?;
 
         Some((l1.carrier, l1.pseudo_range_m.unwrap()))
+    }
+
+    pub(crate) fn prefered_carrier(&self) -> Option<Carrier> {
+        let (carrier, _) = self.l1_pseudo_range()?;
+        Some(carrier)
     }
 
     /// Returns the L1 Phase Range observation [m] if it exists
@@ -233,7 +235,7 @@ impl Candidate {
     }
 
     /// Discards all observations below given SNR mask (>)
-    pub(crate) fn min_snr_mask(&mut self, min_snr_dbhz: f64) {
+    pub(crate) fn min_c_n0_mask(&mut self, min_snr_dbhz: f64) {
         self.observations.retain(|ob| {
             if let Some(snr_dbhz) = ob.snr_dbhz {
                 snr_dbhz > min_snr_dbhz
@@ -243,7 +245,7 @@ impl Candidate {
                 // and this would prohibit using the solver
                 true
             }
-        })
+        });
     }
 }
 

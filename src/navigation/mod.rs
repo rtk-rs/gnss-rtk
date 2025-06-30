@@ -1,46 +1,40 @@
-use log::{debug, error, info};
-
-#[cfg(feature = "serde")]
-use serde::Serialize;
+use log::{debug, error};
 
 #[cfg(doc)]
 use crate::prelude::TimeScale;
 
-pub(crate) mod apriori;
-pub(crate) mod solutions;
-
 mod dop;
 mod kalman;
 mod postfit;
-mod sv;
+mod ppp_ar;
 
+pub(crate) mod apriori;
+pub(crate) mod solutions;
 pub(crate) mod state;
+pub(crate) mod sv;
+pub(crate) mod vector;
 
-use nalgebra::{allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix};
+use nalgebra::{DMatrix, DVector, DimName, U3, U4};
 
 use crate::{
-    cfg::User,
     navigation::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
         kalman::{Kalman, KfEstimate},
         postfit::PostfitKf,
+        ppp_ar::PrefitSolver as PPPPrefitSolver,
         state::State,
+        sv::SVContribution,
     },
-    prelude::{Bias, Candidate, Config, Epoch, Error, Frame, SPEED_OF_LIGHT_M_S},
-    rtk::RTKBase,
+    prelude::{
+        Candidate, Config, Duration, Epoch, Error, Frame, Method, UserParameters,
+        SPEED_OF_LIGHT_M_S,
+    },
+    rtk::{DoubleDifferences, RTKBase},
 };
 
-pub use solutions::PVTSolution;
-pub use sv::SVContribution;
-
 /// [Navigation] Solver
-pub(crate) struct Navigation<D: DimName>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+pub(crate) struct Navigation {
     /// [Config] preset
     cfg: Config,
 
@@ -60,10 +54,10 @@ where
     g_k: DMatrix<f64>,
 
     /// F
-    f_k: OMatrix<f64, D, D>,
+    f_k: DMatrix<f64>,
 
     /// Q
-    q_k: OMatrix<f64, D, D>,
+    q_k: DMatrix<f64>,
 
     /// X
     x_k: DVector<f64>,
@@ -72,7 +66,7 @@ where
     p_k: DMatrix<f64>,
 
     /// [Kalman]
-    kalman: Kalman<D>,
+    kalman: Kalman,
 
     /// contribution allocation
     indexes: Vec<usize>,
@@ -83,11 +77,14 @@ where
     /// Postfit [Kalman]
     postfit: Option<PostfitKf>,
 
+    /// PPP specific prefit
+    ppp_prefit: Option<PPPPrefitSolver>,
+
     /// True if this filter has been initialized
     pub initialized: bool,
 
     /// Current [State]
-    pub state: State<D>,
+    pub state: State,
 
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
@@ -96,60 +93,43 @@ where
     prev_epoch: Option<Epoch>,
 }
 
-impl<D: DimName> Navigation<D>
-where
-    DefaultAllocator: Allocator<D> + Allocator<D, D>,
-    <DefaultAllocator as Allocator<D>>::Buffer<f64>: Copy,
-    <DefaultAllocator as Allocator<D, D>>::Buffer<f64>: Copy,
-{
+impl Navigation {
     /// Creates new [Navigation] solver.
     /// ## Input
     /// - cfg: [Config] preset
     /// - apriori: [Apriori] input
     /// - candidates: selected [Candidate]s
     /// - size: number of proposal
-    /// - bias: [Bias] model implementation
     /// ## Returns
     /// - [Navigation], [Error]
     pub fn new(cfg: &Config, frame: Frame) -> Self {
-        match D::USIZE {
-            4 | 7 => {},
-            u => panic!("non supported dimensions: {}", u),
+        let mut f_k = DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE);
+        let mut q_k = DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE);
+
+        for i in 0..=U3::USIZE {
+            f_k[(i, i)] = 1.0;
         }
-
-        let mut f_k = OMatrix::<f64, D, D>::zeros();
-        let mut q_k = OMatrix::<f64, D, D>::zeros();
-
-        if D::USIZE == 4 {
-            for i in 0..=2 {
-                f_k[(i, i)] = 1.0;
-            }
-        }
-
-        // TODO: improve this model
-        q_k[(0, 0)] = 1.0;
-        q_k[(1, 1)] = 1.0;
-        q_k[(2, 2)] = 1.0;
 
         Self {
             f_k,
             q_k,
             frame,
             postfit: None,
-            cfg: cfg.clone(),
             prev_epoch: None,
             initialized: false,
+            ppp_prefit: None,
+            cfg: cfg.clone(),
             state: State::default(),
             sv: Vec::with_capacity(8),
-            kalman: Kalman::<D>::new(),
+            kalman: Kalman::new(U4::USIZE),
             y_k_vec: Vec::with_capacity(8),
             w_k_vec: Vec::with_capacity(8),
             indexes: Vec::with_capacity(8),
-            x_k: DVector::zeros(D::USIZE),
+            x_k: DVector::zeros(U4::USIZE),
             dop: DilutionOfPrecision::default(),
-            g_k: DMatrix::<f64>::zeros(4, 4),
-            w_k: DMatrix::<f64>::zeros(4, 4),
-            p_k: DMatrix::<f64>::zeros(D::USIZE, D::USIZE),
+            g_k: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
+            w_k: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
+            p_k: DMatrix::<f64>::zeros(U4::USIZE, U4::USIZE),
         }
     }
 
@@ -165,8 +145,12 @@ where
         self.clear();
         self.kalman.reset();
 
-        if self.postfit.is_some() {
-            self.postfit = None;
+        if let Some(prefit) = &mut self.ppp_prefit {
+            prefit.reset();
+        }
+
+        if let Some(postfit) = &mut self.postfit {
+            postfit.reset();
         }
 
         self.prev_epoch = None;
@@ -176,37 +160,91 @@ where
 
     /// Returns clock index
     pub(crate) fn clock_index() -> usize {
-        D::USIZE - 1
+        U4::USIZE - 1
     }
 
-    /// Iterates mutable [Navigation] filter.
+    /// Mutable iteartion of the [Navigation] filter.
+    ///
     /// ## Input
-    /// - t: sampling [Epoch]
+    /// - epoch: sampling [Epoch]
     /// - user: [User] profile
     /// - past_state: past [State]
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
-    /// - rtk_base: possible [RTKBase] implementation]
-    /// - bias: external [Bias] implementation
-    pub fn solving<B: Bias, R: RTKBase>(
+    /// - uses_rtk: true when RTK mode nav is being used
+    /// - double_differences: possible [DoubleDifferences]
+    pub fn solving<RTK: RTKBase>(
         &mut self,
-        t: Epoch,
-        user: User,
-        past_state: &State<D>,
+        epoch: Epoch,
+        params: UserParameters,
+        initial_state: &State,
         candidates: &[Candidate],
         size: usize,
-        rtk_base: &R,
-        bias: &B,
+        uses_rtk: bool,
+        rtk_base: &RTK,
+        pivot_position_ecef_m: &Option<(f64, f64, f64)>,
+        double_differences: &Option<DoubleDifferences>,
     ) -> Result<(), Error> {
         self.clear();
 
-        self.q_k[(Self::clock_index(), Self::clock_index())] =
-            (user.clock_sigma_s * SPEED_OF_LIGHT_M_S).powi(2);
+        let mut initial_state = initial_state.clone();
+
+        if self.cfg.method == Method::PPP_AR {
+            if self.ppp_prefit.is_none() {
+                self.ppp_prefit = Some(PPPPrefitSolver::new(&self.cfg, &initial_state, self.frame));
+            }
+        }
+
+        if let Some(ppp_prefit) = &mut self.ppp_prefit {
+            // PPP prefit
+            ppp_prefit.run(epoch, params, candidates, size)?;
+            initial_state = ppp_prefit.state.clone();
+        }
+
+        let mut ndf = U4::USIZE;
+
+        if uses_rtk {
+            ndf -= 1;
+        }
+
+        self.f_k.resize_mut(ndf, ndf, 0.0);
+        self.q_k.resize_mut(ndf, ndf, 0.0);
+
+        for i in 0..ndf {
+            self.f_k[(i, i)] = 1.0;
+        }
+
+        let dt = if let Some(past_epoch) = self.prev_epoch {
+            epoch - past_epoch
+        } else {
+            Duration::ZERO
+        };
 
         if !self.kalman.initialized {
-            self.kf_initialization(t, past_state, candidates, size, rtk_base, bias)?;
+            params.q_matrix(true, &mut self.q_k, dt, ndf);
+
+            self.kf_initialization(
+                epoch,
+                &initial_state,
+                candidates,
+                size,
+                uses_rtk,
+                rtk_base,
+                pivot_position_ecef_m,
+                double_differences,
+            )?;
         } else {
-            self.kf_run(t, candidates, size, rtk_base, bias)?;
+            params.q_matrix(false, &mut self.q_k, dt, ndf);
+
+            self.kf_run(
+                epoch,
+                candidates,
+                size,
+                uses_rtk,
+                rtk_base,
+                pivot_position_ecef_m,
+                double_differences,
+            )?;
         }
 
         if self.cfg.solver.postfit_denoising > 0.0 {
@@ -215,16 +253,16 @@ where
                     .prev_epoch
                     .expect("internal error: undetermined past epoch");
 
-                let dt = t - prev_epoch;
+                let dt = epoch - prev_epoch;
                 let dx = postfit.run(&self.state, dt)?;
 
                 // update state
                 self.state
-                    .postfit_update_mut(self.frame, dx.x)
+                    .postfit_update_mut(self.frame, &dx.x)
                     .map_err(|e| {
                         error!(
                             "{} - postfit state update failed with physical error: {}",
-                            t, e
+                            epoch, e
                         );
                         Error::StateUpdate
                     })?;
@@ -239,7 +277,7 @@ where
             }
         }
 
-        self.prev_epoch = Some(t);
+        self.prev_epoch = Some(epoch);
         self.initialized = true;
 
         Ok(())
@@ -253,88 +291,155 @@ where
     }
 
     /// Filter first iteration.
-    pub fn kf_initialization<B: Bias, RTK: RTKBase>(
+    ///
+    /// ## Input
+    /// - epoch: sampling [Epoch]
+    /// - user: [User] profile
+    /// - past_state: past [State]
+    /// - candidates: proposed [Candidate]s
+    /// - size: number of proposed [Cadndidate]s
+    /// - uses_rtk: true when RTK mode nav is being used
+    /// - double_differences: possible [DoubleDifferences]
+    pub fn kf_initialization<RTK: RTKBase>(
         &mut self,
         t: Epoch,
-        state: &State<D>,
+        state: &State,
         candidates: &[Candidate],
         size: usize,
+        uses_rtk: bool,
         rtk_base: &RTK,
-        bias: &B,
+        pivot_position_ecef_m: &Option<(f64, f64, f64)>,
+        double_differences: &Option<DoubleDifferences>,
     ) -> Result<(), Error> {
-        let nb_iter = 10;
+        const NB_ITER: usize = 10;
 
         let mut pending = state.clone();
+        let mut dop = DilutionOfPrecision::default();
+        let (base_x0, base_y0, base_z0) = rtk_base.reference_position_ecef_m(t);
 
         // measurement
         for i in 0..size {
             let mut contrib = SVContribution::default();
 
             contrib.sv = candidates[i].sv;
-            let position_m = pending.position_ecef_m();
 
-            match candidates[i].vector_contribution(
-                t,
-                &self.cfg,
-                position_m,
-                pending.lat_long_alt_deg_deg_km,
-                &mut contrib,
-                bias,
-            ) {
-                Ok((y_i, r_i, dr_i)) => {
-                    self.y_k_vec.push(y_i);
-                    self.w_k_vec.push(1.0 / r_i);
-                    self.indexes.push(i);
-                    self.sv.push(contrib);
+            let position_m = pending.to_position_ecef_m();
 
-                    if self.cfg.modeling.relativistic_path_range {
-                        debug!(
-                            "{}({}) - relativistic path range: {:.3}m",
-                            t, candidates[i].sv, dr_i
-                        );
+            let amb = match self.cfg.method {
+                Method::PPP_AR => {
+                    if let Some(prefit) = &self.ppp_prefit {
+                        if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[i].sv) {
+                            Some(n_amb)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
                     }
                 },
-                Err(e) => {
-                    error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
-                },
+                Method::SPP | Method::CPP | Method::PPP => None,
+            };
+
+            let vec = if uses_rtk {
+                let double_differences = double_differences
+                    .as_ref()
+                    .expect("internal error: invalid rtk measurement/post fit");
+
+                match candidates[i].rtk_vector_contribution(
+                    t,
+                    &self.cfg,
+                    double_differences,
+                    &mut contrib,
+                ) {
+                    Ok(vec) => Some(vec),
+                    Err(e) => {
+                        error!("{}({}) - rtk measurement error: {}", t, candidates[i].sv, e);
+                        None
+                    },
+                }
+            } else {
+                match candidates[i].ppp_vector_contribution(
+                    t,
+                    &self.cfg,
+                    false,
+                    amb,
+                    position_m,
+                    pending.lat_long_alt_deg_deg_km,
+                    &mut contrib,
+                ) {
+                    Ok(vec) => Some(vec),
+                    Err(e) => {
+                        error!("{}({}) - ppp measurement error: {}", t, candidates[i].sv, e);
+                        None
+                    },
+                }
+            };
+
+            if vec.is_none() {
+                continue;
             }
+
+            let vec = vec.unwrap();
+
+            self.y_k_vec.push(vec.row_1);
+            self.w_k_vec.push(1.0); // TODO improve model
+            self.indexes.push(i);
+            self.sv.push(contrib);
         }
 
         let y_len = self.indexes.len();
 
-        if y_len < D::USIZE {
+        if y_len < U4::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        self.g_k.resize_mut(y_len, D::USIZE, 0.0);
+        let mut ndf = U4::USIZE;
+
+        if uses_rtk {
+            ndf -= 1;
+        }
+
+        self.g_k.resize_mut(y_len, ndf, 0.0);
 
         // run
-        for _ in 0..nb_iter {
+        for ith in 0..NB_ITER {
             let y_len = self.y_k_vec.len();
 
-            //self.y_k.resize_mut(y_len, 0.0); // TODO: vector
+            // Form W
             self.w_k.resize_mut(y_len, y_len, 0.0);
 
             for i in 0..y_len {
                 self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
             }
 
-            let y_k = DVector::from_row_slice(&self.y_k_vec);
+            let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
+            debug!("(i={}) Y: {}", ith, y_k);
 
-            // form g_k
+            // Form G
             for (i, index) in self.indexes.iter().enumerate() {
-                let dr_i = self.sv[i].relativistic_path_range_m;
+                let position_m = pending.to_position_ecef_m();
 
-                let position_m = pending.position_ecef_m();
+                let (dx, dy, dz) = if uses_rtk {
+                    let pivot_position_ecef_m = pivot_position_ecef_m.unwrap_or_else(|| {
+                        panic!("internal error: undefined pivot satellite position");
+                    });
 
-                let (dx, dy, dz) =
-                    candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
+                    candidates[*index].rtk_matrix_contribution(
+                        &self.cfg,
+                        position_m,
+                        pivot_position_ecef_m,
+                    )
+                } else {
+                    candidates[*index].ppp_matrix_contribution(&self.cfg, position_m)
+                };
 
                 self.g_k[(i, 0)] = dx;
                 self.g_k[(i, 1)] = dy;
                 self.g_k[(i, 2)] = dz;
 
-                self.g_k[(i, Self::clock_index())] = 1.0;
+                if !uses_rtk {
+                    self.g_k[(i, Self::clock_index())] = 1.0;
+                }
             }
 
             // run
@@ -349,19 +454,37 @@ where
             self.x_k = gt_w_g_inv_gt_w * y_k.clone();
             self.p_k = gt_w_g_inv.clone();
 
-            debug!("state correction: dx={}", self.x_k);
+            let ndf = self.x_k.nrows();
 
-            pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
-                Error::StateUpdate
-            })?;
+            if uses_rtk {
+                let position_ecef_m = pending.to_position_ecef_m();
+
+                let (baseline_dx, baseline_dy, baseline_dz) = (
+                    position_ecef_m[0] - base_x0,
+                    position_ecef_m[1] - base_y0,
+                    position_ecef_m[2] - base_z0,
+                );
+
+                self.x_k[0] -= baseline_dx;
+                self.x_k[1] -= baseline_dy;
+                self.x_k[2] -= baseline_dz;
+            }
+
+            debug!("(i={}) dx={}", ith, self.x_k);
+
+            pending
+                .correct_mut(self.frame, t, &self.x_k, ndf)
+                .map_err(|e| {
+                    error!("{} - state update failed with physical error: {}", t, e);
+                    Error::StateUpdate
+                })?;
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
             // update latest DoP
-            self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+            dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
-            debug!("{} - pending state {}", t, pending);
+            debug!("(i={}) {} - pending state {}", ith, t, pending);
 
             // models update
             self.y_k_vec.clear();
@@ -370,37 +493,87 @@ where
             self.indexes.retain(|i| {
                 let mut unused = SVContribution::default();
 
-                let position_m = pending.position_ecef_m();
+                let position_m = pending.to_position_ecef_m();
 
-                match candidates[*i].vector_contribution(
-                    t,
-                    &self.cfg,
-                    position_m,
-                    pending.lat_long_alt_deg_deg_km,
-                    &mut unused,
-                    bias,
-                ) {
-                    Ok((y_i, r_i, _)) => {
-                        self.y_k_vec.push(y_i);
-                        self.w_k_vec.push(1.0 / r_i);
-                        true
+                let amb = match self.cfg.method {
+                    Method::PPP_AR => {
+                        if let Some(prefit) = &self.ppp_prefit {
+                            if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[*i].sv) {
+                                Some(n_amb)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
                     },
-                    Err(e) => {
-                        error!("{}({}) - cannot contribute: {}", t, candidates[*i].sv, e);
-                        false
-                    },
+                    Method::SPP | Method::CPP | Method::PPP => None,
+                };
+
+                let mut unused = SVContribution::default();
+
+                let vec = if uses_rtk {
+                    let double_differences = double_differences
+                        .as_ref()
+                        .expect("internal error: invalid rtk measurement/post fit");
+
+                    match candidates[*i].rtk_vector_contribution(
+                        t,
+                        &self.cfg,
+                        double_differences,
+                        &mut unused,
+                    ) {
+                        Ok(vec) => Some(vec),
+                        Err(e) => {
+                            error!(
+                                "{}({}) - rtk measurement error: {}",
+                                t, candidates[*i].sv, e
+                            );
+                            None
+                        },
+                    }
+                } else {
+                    match candidates[*i].ppp_vector_contribution(
+                        t,
+                        &self.cfg,
+                        false,
+                        amb,
+                        position_m,
+                        pending.lat_long_alt_deg_deg_km,
+                        &mut unused,
+                    ) {
+                        Ok(vec) => Some(vec),
+                        Err(e) => {
+                            error!(
+                                "{}({}) - ppp measurement error: {}",
+                                t, candidates[*i].sv, e
+                            );
+                            None
+                        },
+                    }
+                };
+
+                if let Some(vec) = vec {
+                    self.y_k_vec.push(vec.row_1);
+                    self.w_k_vec.push(1.0); // TODO improve model
+                    true
+                } else {
+                    false
                 }
             });
         }
 
         // validation
-        self.state_validation()?;
+        self.state_validation(&dop)?;
 
-        let initial_estimate = KfEstimate::from_dynamic(self.x_k.clone(), self.p_k.clone());
+        let initial_estimate = KfEstimate::new(&self.x_k, &self.p_k);
 
-        self.kalman.initialize(self.f_k, self.q_k, initial_estimate);
+        self.kalman
+            .initialize(&self.f_k, self.q_k.clone(), initial_estimate);
 
         self.state = pending;
+        self.dop = dop;
+
         debug!("{} - new state {}", t, self.state);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
@@ -408,15 +581,27 @@ where
     }
 
     /// [Kalman] filter run
-    pub fn kf_run<B: Bias, RTK: RTKBase>(
+    ///
+    /// ## Input
+    /// - epoch: sampling [Epoch]
+    /// - user: [User] profile
+    /// - past_state: past [State]
+    /// - candidates: proposed [Candidate]s
+    /// - size: number of proposed [Cadndidate]s
+    /// - uses_rtk: true when RTK mode nav is being used
+    /// - double_differences: possible [DoubleDifferences]
+    pub fn kf_run<RTK: RTKBase>(
         &mut self,
         t: Epoch,
         candidates: &[Candidate],
         size: usize,
+        uses_rtk: bool,
         rtk_base: &RTK,
-        bias: &B,
+        pivot_position_ecef_m: &Option<(f64, f64, f64)>,
+        double_differences: &Option<DoubleDifferences>,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
+        let (base_x0, base_y0, base_z0) = rtk_base.reference_position_ecef_m(t);
 
         // measurement
         for i in 0..size {
@@ -424,63 +609,116 @@ where
 
             contrib.sv = candidates[i].sv;
 
-            let pos_m = pending.position_ecef_m();
+            let pos_m = pending.to_position_ecef_m();
 
-            match candidates[i].vector_contribution(
-                t,
-                &self.cfg,
-                pos_m,
-                pending.lat_long_alt_deg_deg_km,
-                &mut contrib,
-                bias,
-            ) {
-                Ok((y_i, r_i, dr_i)) => {
-                    self.y_k_vec.push(y_i);
-                    self.w_k_vec.push(1.0 / r_i);
-                    self.indexes.push(i);
-                    self.sv.push(contrib);
-
-                    if self.cfg.modeling.relativistic_path_range {
-                        debug!(
-                            "{}({}) - relativistic path range: {:.3}m",
-                            t, candidates[i].sv, dr_i
-                        );
+            let amb = match self.cfg.method {
+                Method::PPP_AR => {
+                    if let Some(prefit) = &self.ppp_prefit {
+                        if let Some(n_amb) = prefit.fixed_ambiguity(&candidates[i].sv) {
+                            Some(n_amb)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
                     }
                 },
-                Err(e) => {
-                    error!("{}({}) - cannot contribute: {}", t, candidates[i].sv, e);
-                },
+                Method::SPP | Method::CPP | Method::PPP => None,
+            };
+
+            let vec = if uses_rtk {
+                let double_differences = double_differences
+                    .as_ref()
+                    .expect("internal error: invalid rtk measurement/post fit");
+
+                match candidates[i].rtk_vector_contribution(
+                    t,
+                    &self.cfg,
+                    double_differences,
+                    &mut contrib,
+                ) {
+                    Ok(vec) => Some(vec),
+                    Err(e) => {
+                        error!("{}({}) - rtk measurement error: {}", t, candidates[i].sv, e);
+                        None
+                    },
+                }
+            } else {
+                match candidates[i].ppp_vector_contribution(
+                    t,
+                    &self.cfg,
+                    false,
+                    amb,
+                    pos_m,
+                    pending.lat_long_alt_deg_deg_km,
+                    &mut contrib,
+                ) {
+                    Ok(vec) => Some(vec),
+                    Err(e) => {
+                        error!("{}({}) - ppp measurement error: {}", t, candidates[i].sv, e);
+                        None
+                    },
+                }
+            };
+
+            if let Some(vec) = vec {
+                self.y_k_vec.push(vec.row_1);
+                self.w_k_vec.push(1.0); // TODO improve model
+                self.indexes.push(i);
+                self.sv.push(contrib);
+            } else {
+                error!("{}({}) - cannot contribute", t, candidates[i].sv);
             }
         }
 
         let y_len = self.y_k_vec.len();
 
-        if y_len < D::USIZE {
+        if y_len < U4::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
-        let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO vector
+        let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
+        debug!("Y: {}", y_k);
 
         self.w_k.resize_mut(y_len, y_len, 0.0);
-        self.g_k.resize_mut(y_len, D::USIZE, 0.0);
+
+        let mut ndf = U4::USIZE;
+
+        if uses_rtk {
+            ndf -= 1;
+        }
+
+        self.g_k.resize_mut(y_len, ndf, 0.0);
 
         for i in 0..y_len {
             self.w_k[(i, i)] = 1.0 / self.w_k_vec[i];
         }
 
-        // form g_k
+        // Form G
         for (i, index) in self.indexes.iter().enumerate() {
-            let dr_i = self.sv[i].relativistic_path_range_m;
+            let position_m = pending.to_position_ecef_m();
 
-            let position_m = pending.position_ecef_m();
+            let (dx, dy, dz) = if uses_rtk {
+                let pivot_position_ecef_m = pivot_position_ecef_m.unwrap_or_else(|| {
+                    panic!("internal error: undefined pivot satellite position");
+                });
 
-            let (dx, dy, dz) = candidates[*index].matrix_contribution(&self.cfg, dr_i, position_m);
+                candidates[*index].rtk_matrix_contribution(
+                    &self.cfg,
+                    position_m,
+                    pivot_position_ecef_m,
+                )
+            } else {
+                candidates[*index].ppp_matrix_contribution(&self.cfg, position_m)
+            };
 
             self.g_k[(i, 0)] = dx;
             self.g_k[(i, 1)] = dy;
             self.g_k[(i, 2)] = dz;
 
-            self.g_k[(i, Self::clock_index())] = 1.0;
+            if !uses_rtk {
+                self.g_k[(i, Self::clock_index())] = 1.0;
+            }
         }
 
         let estimate = self
@@ -489,50 +727,56 @@ where
 
         debug!("state correction: dx={}", estimate.x);
 
-        for i in 0..estimate.x.nrows() {
+        let ndf = estimate.x.nrows();
+
+        for i in 0..ndf {
             self.x_k[i] = estimate.x[i];
         }
 
-        pending.correct_mut(self.frame, t, &self.x_k).map_err(|e| {
-            error!("{} - state update failed with physical error: {}", t, e);
-            Error::StateUpdate
-        })?;
+        if uses_rtk {
+            let position_ecef_m = pending.to_position_ecef_m();
+
+            let (baseline_dx, baseline_dy, baseline_dz) = (
+                position_ecef_m[0] - base_x0,
+                position_ecef_m[1] - base_y0,
+                position_ecef_m[2] - base_z0,
+            );
+
+            self.x_k[0] -= baseline_dx;
+            self.x_k[1] -= baseline_dy;
+            self.x_k[2] -= baseline_dz;
+        }
+
+        pending
+            .correct_mut(self.frame, t, &self.x_k, ndf)
+            .map_err(|e| {
+                error!("{} - state update failed with physical error: {}", t, e);
+                Error::StateUpdate
+            })?;
 
         let gt_g_inv = (self.g_k.transpose() * self.g_k.clone())
             .try_inverse()
             .ok_or(Error::MatrixInversion)?;
 
         // update
-        self.dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+        let dop = DilutionOfPrecision::new(&pending, gt_g_inv);
+
+        self.state_validation(&dop)?;
+
+        self.dop = dop;
+        self.state = pending.clone();
 
         debug!("{} - new state {}", t, pending);
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
-
-        self.state_validation()?;
-        self.state = pending;
 
         Ok(())
     }
 
     /// Validate pending [State]
-    fn state_validation(&self) -> Result<(), Error> {
-        // const n: usize = 4; // x, y, z, dt
-
-        if self.dop.gdop > self.cfg.solver.max_gdop {
+    fn state_validation(&self, dop: &DilutionOfPrecision) -> Result<(), Error> {
+        if dop.gdop > self.cfg.solver.max_gdop {
             return Err(Error::MaxGdopExceeded);
         }
-
-        // let m = pres.len();
-
-        // let pres = pres.transpose().dot(pres);
-        // let denom = pres.len() as f64 - 4.0 - 1.0; /// x, y, z ,dt
-        //
-        // let chisqr = chisqr(0.001, m-n-1);
-        //
-        // if pres >= chisqr {
-        //     error!("{} - measurement residual test failed! setup is too noisy ({}/{})", t, pres, chisqr);
-        // }
-
         Ok(())
     }
 }
@@ -544,26 +788,12 @@ mod test {
 
     #[test]
     fn navigation_dimensions_clock_index() {
-        assert_eq!(
-            Navigation::<U4>::clock_index(),
-            3,
-            "invalid clock index for U4"
-        );
-        assert_eq!(
-            Navigation::<U7>::clock_index(),
-            6,
-            "invalid clock index for U7"
-        );
-        assert_eq!(
-            Navigation::<U9>::clock_index(),
-            8,
-            "invalid clock index for U9"
-        );
+        assert_eq!(Navigation::clock_index(), 3, "invalid clock index for U4");
     }
 
     #[test]
     fn dilution_of_navigation_precision() {
-        let state = State::<U4>::default();
+        let state = State::default();
         let matrix = DMatrix::from_diagonal(&DVector::from_row_slice(&[1.0, 2.0, 3.0, 4.0]));
         let dop = DilutionOfPrecision::new(&state, matrix);
         assert_eq!(dop.gdop, (1.0_f64 + 2.0_f64 + 3.0_f64 + 4.0_f64).sqrt());

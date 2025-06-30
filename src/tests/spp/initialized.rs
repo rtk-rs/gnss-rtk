@@ -1,60 +1,133 @@
-// use crate::{
-//     prelude::{Almanac, Config, Epoch, Method, Solver, EARTH_J2000},
-//     tests::{init_logger, orbits::OrbitDataSet, signals::SignalSource, REFERENCE_COORDS_ECEF_M},
-// };
+use log::info;
+use rstest::*;
+use std::str::FromStr;
 
-// use log::info;
+use crate::{
+    navigation::apriori::Apriori,
+    prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
+    tests::{
+        ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
+        TestEnvironment, TestSpacebornBiases, MAX_SPP_GDOP, MAX_SPP_X_ERROR_M, MAX_SPP_Y_ERROR_M,
+        MAX_SPP_Z_ERROR_M, ROVER_REFERENCE_COORDS_ECEF_M,
+    },
+};
 
-// use std::str::FromStr;
+#[fixture]
+fn build_almanac() -> Almanac {
+    use crate::tests::almanac;
+    almanac()
+}
 
-// use rinex::prelude::Rinex;
-// use sp3::prelude::SP3;
+#[fixture]
+fn build_earth_frame() -> Frame {
+    use crate::tests::earth_frame;
+    earth_frame()
+}
 
-// #[test]
-// fn gps_l1() {
-//     init_logger();
+#[fixture]
+fn build_initial_apriori() -> Apriori {
+    use crate::tests::rover_reference_apriori_at_ref_epoch;
+    rover_reference_apriori_at_ref_epoch()
+}
 
-//     let almanac = Almanac::until_2035().unwrap();
-//     let frame = almanac.frame_from_uid(EARTH_J2000).unwrap();
+#[test]
+fn static_spp() {
+    init_logger();
 
-//     let mut cfg = Config::default();
+    let cfg = Config::default().with_navigation_method(Method::SPP);
 
-//     cfg.method = Method::SPP;
-//     cfg.min_sv_elev = None;
-//     cfg.min_snr = None;
+    let default_params = UserParameters::default();
 
-//     let rinex = Rinex::from_gzip_file("data/ESBC00DNK_R_20201770000_01D_30S_MO.crx.gz").unwrap();
+    let almanac = build_almanac();
+    let earth_frame = build_earth_frame();
 
-//     let mut source = SignalSource::from_rinex_gps(&rinex);
+    let null_time = NullTime {};
+    let null_eph = NullEph {};
+    let environment = TestEnvironment::new();
+    let space_biases = TestSpacebornBiases::build();
 
-//     let sp3 = SP3::from_gzip_file("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz").unwrap();
+    let orbits_data = OrbitsData::new(earth_frame);
 
-//     let gps_orbits =
-//         OrbitDataSet::from_sp3("data/GRG0MGXFIN_20201770000_01D_15M_ORB.SP3.gz", &almanac);
+    let mut solver = Solver::new(
+        almanac,
+        earth_frame,
+        cfg,
+        null_eph.into(),
+        orbits_data.into(),
+        space_biases.into(),
+        environment.into(),
+        null_time,
+        Some(ROVER_REFERENCE_COORDS_ECEF_M),
+    );
 
-//     let mut solver = Solver::new(cfg, gps_orbits, Some(REFERENCE_COORDS_ECEF_M))
-//         .unwrap_or_else(|e| panic!("Failed to deploy with default setup: {}", e));
+    for (nth, epoch_str) in [
+        "2020-06-25T00:00:00 GPST",
+        "2020-06-25T00:15:00 GPST",
+        "2020-06-25T00:30:00 GPST",
+        "2020-06-25T00:45:00 GPST",
+        //"2020-06-25T01:00:00 GPST",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let t_gpst = Epoch::from_str(epoch_str).unwrap();
 
-//     for t_gpst_str in ["2020-06-25T00:00:00 GPST"] {
-//         let t_gpst = Epoch::from_str(t_gpst_str).unwrap();
+        let candidates = CandidatesBuilder::build_rover_at(t_gpst);
 
-//         let pool = source.next().unwrap();
+        assert!(
+            candidates.len() > 0,
+            "no measurements to propose at \"{}\"",
+            epoch_str
+        );
 
-//         // verify data correctness
-//         for cd in pool.iter() {
-//             assert_eq!(cd.t, t_gpst, "invalid test setup!");
-//         }
+        let status = solver.ppp_solving(t_gpst, default_params, &candidates);
 
-//         let sv = pool.iter().map(|cd| cd.sv).collect::<Vec<_>>();
-//         info!("Testing: {} ({}x SV)", t_gpst, sv.len());
+        match status {
+            Err(e) => panic!("Static SPP process failed with invalid error: {}", e),
+            Ok(pvt) => {
+                info!("Solution #{} {:#?}", nth + 1, pvt);
 
-//         match solver.resolve(t_gpst, &pool) {
-//             Ok((t, pvt)) => {
-//                 panic!("t={} | pvt: {:?}", t, pvt);
-//             },
-//             Err(e) => {
-//                 panic!("err={}", e);
-//             },
-//         }
-//     }
-// }
+                let (pos_x_m, pos_y_m, pos_z_m) = pvt.pos_m;
+                let (expected_x_m, expected_y_m, expected_z_m) = ROVER_REFERENCE_COORDS_ECEF_M;
+
+                let (err_x_m, err_y_m, err_z_m) = (
+                    (pos_x_m - expected_x_m).abs(),
+                    (pos_y_m - expected_y_m).abs(),
+                    (pos_z_m - expected_z_m).abs(),
+                );
+
+                assert!(
+                    err_x_m < MAX_SPP_X_ERROR_M,
+                    "epoch={} - x error={:.3}m too large",
+                    epoch_str,
+                    err_x_m
+                );
+
+                assert!(
+                    err_y_m < MAX_SPP_Y_ERROR_M,
+                    "epoch={} - y error={:.3}m too large",
+                    epoch_str,
+                    err_y_m
+                );
+
+                assert!(
+                    err_z_m < MAX_SPP_Z_ERROR_M,
+                    "epoch={} - z error={:.3}m too large",
+                    epoch_str,
+                    err_z_m
+                );
+
+                assert!(
+                    pvt.gdop < MAX_SPP_GDOP,
+                    "{} (static) spp survey GDOP too large!",
+                    epoch_str
+                );
+
+                info!(
+                    "{} (static) spp (with preset) error: x={:.3}m y={:.3}m z={:.3}m",
+                    epoch_str, err_x_m, err_y_m, err_z_m
+                );
+            },
+        }
+    }
+}

@@ -115,3 +115,39 @@ fn l1_l5_narrowlane() {
             / (Carrier::L1.frequency_hz() + Carrier::L5.frequency_hz())
     );
 }
+
+#[test]
+fn l1_l5_code_if() {
+    let obs = vec![
+        Observation {
+            snr_dbhz: None,
+            phase_range_m: None,
+            doppler: None,
+            pseudo_range_m: Some(64.0),
+            ambiguity: None,
+            carrier: Carrier::L1,
+        },
+        Observation {
+            snr_dbhz: None,
+            phase_range_m: None,
+            doppler: None,
+            pseudo_range_m: Some(128.0),
+            ambiguity: None,
+            carrier: Carrier::L5,
+        },
+    ];
+
+    let cd = Candidate::new(SV::default(), Epoch::default(), obs);
+
+    let c_if = cd.code_if_combination().unwrap_or_else(|| {
+        panic!("Failed to form C_if combination");
+    });
+
+    assert_eq!(c_if.lhs, Carrier::L5);
+    assert_eq!(c_if.rhs, Carrier::L1);
+
+    let (f1, f2) = (Carrier::L1.frequency_hz(), Carrier::L5.frequency_hz());
+    let (f1pow, f2pow) = (f1.powi(2), f2.powi(2));
+
+    assert_eq!(c_if.value, (f1pow * 64.0 - f2pow * 128.0) / (f1pow - f2pow));
+}

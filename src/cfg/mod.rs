@@ -6,16 +6,11 @@ use serde::{Deserialize, Serialize};
 mod method;
 mod modeling;
 mod solver;
-mod user;
 
 pub use crate::{
     carrier::Signal,
     cfg::solver::SolverOpts,
-    cfg::{
-        method::Method,
-        modeling::Modeling,
-        user::{Profile, User},
-    },
+    cfg::{method::Method, modeling::Modeling},
     prelude::TimeScale,
 };
 
@@ -24,8 +19,12 @@ pub use crate::{
 pub enum Error {
     #[error("invalid troposphere model")]
     InvalidTroposphereModel,
+
     #[error("invalid user profile")]
     InvalidUserProfile,
+
+    #[error("invalid clock profile")]
+    InvalidClockProfile,
 }
 
 const fn default_timescale() -> TimeScale {
@@ -64,6 +63,7 @@ const fn default_eclipse_rate_percent() -> f64 {
 pub struct InternalDelay {
     /// Delay [s]
     pub delay: f64,
+
     /// Carrier frequency [Hz]
     pub frequency: f64,
 }
@@ -119,11 +119,9 @@ pub struct Config {
     /// Time Reference Delay. According to BIPM ""GPS Receivers Accurate Time Comparison""
     /// this is the time delay between the receiver external reference clock
     /// and the internal sampling clock. This is typically needed in
-    /// ultra high precision timing applications or geodetic surveys.
-    /// Compensation is only effective if [Modeling.cable_delay]
-    /// is also turned on.
+    /// precision timing applications.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub externalref_delay: Option<f64>,
+    pub externalref_delay_s: Option<f64>,
 
     /// Maximal Earth / Sun occultation tolerated for each satellite.
     /// For example, 20.0% means that we require satellites to be 80% illmuinated.
@@ -181,10 +179,10 @@ impl Default for Config {
             fixed_altitude: None,
             prefered_signal: None,
             arp_enu: None,
-            externalref_delay: None,
             min_snr: None, // TODO
             min_sv_azim: None,
             max_sv_azim: None,
+            externalref_delay_s: None,
             min_sv_elev: min_sv_elev(),
             max_iono_bias: max_iono_bias(),
             max_tropo_bias: max_tropo_bias(),
@@ -215,7 +213,6 @@ impl Config {
 #[cfg(feature = "serde")]
 mod test {
     use super::*;
-    use serde::Serialize;
     use std::io::Write;
 
     #[test]

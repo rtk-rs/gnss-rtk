@@ -2,10 +2,9 @@
 use log::debug;
 
 use crate::{
-    bias::IonosphereBias,
-    constants::{EARTH_GRAVITATION, SPEED_OF_LIGHT_M_S},
-    navigation::SVContribution,
-    prelude::{Bias, Candidate, Config, Duration, Epoch, Error, Method, Signal, Vector3},
+    constants::SPEED_OF_LIGHT_M_S,
+    navigation::{sv::SVContribution, vector::VectorContribution},
+    prelude::{Candidate, Config, Duration, Epoch, Error, Method, Signal, Vector3},
 };
 
 impl Candidate {
@@ -14,6 +13,7 @@ impl Candidate {
     /// - State has been previously resolved
     /// - Range estimate is available
     /// - Preset modeling are matched
+    ///
     /// ## Input
     /// - t: [Epoch] of computation
     /// - cfg: [Config] preset
@@ -21,22 +21,20 @@ impl Candidate {
     /// - rx_lat_long_alt_ddeg_km: state as geodetic lat, long both
     /// in decimal degrees, and altitude above mean sea level (km)
     /// - contribution: mutable [SVContribution]
-    /// - bias: [Bias] model
     /// ## Returns
     /// - b_i contribution, r_i contribution, dr: relativistic path range
-    pub(crate) fn vector_contribution<B: Bias>(
+    pub(crate) fn ppp_vector_contribution(
         &self,
         t: Epoch,
         cfg: &Config,
+        two_rows: bool,
+        amb: Option<u64>,
         x0_y0_z0_m: Vector3<f64>,
         rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
         contribution: &mut SVContribution,
-        bias: &B,
-    ) -> Result<(f64, f64, f64), Error> {
-        let mu = EARTH_GRAVITATION;
-
-        let mut dr = 0.0;
+    ) -> Result<VectorContribution, Error> {
         let mut bias_m = 0.0;
+        let mut vec = VectorContribution::default();
 
         let (x0_m, y0_m, z0_m) = (x0_y0_z0_m[0], x0_y0_z0_m[1], x0_y0_z0_m[2]);
 
@@ -53,139 +51,140 @@ impl Candidate {
         let mut rho =
             ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
 
-        if cfg.modeling.relativistic_path_range {
-            let r_sat = (sv_x_m.powi(2) + sv_y_m.powi(2) + sv_z_m.powi(2)).sqrt();
-            let r_0 = (x0_m.powi(2) + y0_m.powi(2) + z0_m.powi(2)).sqrt();
+        rho += self.relativistic_path_range;
+        contribution.relativistic_path_range_m = self.relativistic_path_range;
 
-            let r_sat_0 = r_0 - r_sat;
-
-            dr = 2.0 * mu / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
-                * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
-
-            rho += dr;
-            contribution.relativistic_path_range_m = dr;
-        } else {
-            contribution.relativistic_path_range_m = 0.0_f64;
-        }
-
-        let (frequency_hz, range_m) = match cfg.method {
+        let (lambda, range_m) = match cfg.method {
             Method::SPP => {
                 let (carrier, pr) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
-
                 contribution.signal = Signal::Single(carrier);
 
-                (carrier.frequency_hz(), pr)
+                (carrier.wavelength(), pr)
             },
-            Method::CPP => {
+            _ => {
                 let comb = self
                     .code_if_combination()
                     .ok_or(Error::PseudoRangeCombination)?;
 
                 contribution.signal = Signal::Dual((comb.lhs, comb.rhs));
 
-                (comb.rhs.frequency_hz(), comb.value)
-            },
-            Method::PPP => {
-                let comb = self
-                    .code_if_combination()
-                    .ok_or(Error::PhaseRangeCombination)?;
+                let (f1, f2) = (
+                    comb.rhs.frequency_hz().powi(2),
+                    comb.lhs.frequency_hz().powi(2),
+                );
 
-                contribution.signal = Signal::Dual((comb.lhs, comb.rhs));
-
-                (comb.rhs.frequency_hz(), comb.value)
+                (SPEED_OF_LIGHT_M_S * (f1 - f2) / f1 / f2, comb.value)
             },
         };
 
-        if cfg.modeling.sv_clock_bias {
-            let dt = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
-            contribution.clock_correction = Some(dt.duration);
-            bias_m -= dt.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
+        let frequency_hz = SPEED_OF_LIGHT_M_S / lambda;
 
-            let correction = self.system_correction.unwrap_or(Duration::ZERO);
-            bias_m += correction.to_seconds() * SPEED_OF_LIGHT_M_S;
+        let mut cp = match cfg.method {
+            Method::PPP => {
+                let comb = self
+                    .phase_if_combination()
+                    .ok_or(Error::PhaseRangeCombination)?;
 
+                Some(comb.value)
+            },
+            _ => None,
+        };
+
+        if let Some(amb) = amb {
+            if let Some(cp) = &mut cp {
+                let amb = amb as f64;
+                debug!("{}({}) n_amb={}", self.epoch, self.sv, amb.round() as u64);
+                *cp -= amb * lambda;
+            }
+        }
+
+        bias_m -= self.clock_corr.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
+
+        let sys_t = self.system_correction.unwrap_or(Duration::ZERO);
+
+        bias_m += sys_t.to_seconds() * SPEED_OF_LIGHT_M_S;
+
+        if sys_t >= Duration::MIN_POSITIVE {
             debug!(
                 "{}({}) - system correction : {}",
-                self.t, self.sv, correction
+                self.epoch, self.sv, sys_t
             );
         }
 
-        if cfg.modeling.sv_total_group_delay {
-            bias_m -= self.tgd.unwrap_or_default().to_seconds() * SPEED_OF_LIGHT_M_S;
+        bias_m -= self.tgd.to_seconds() * SPEED_OF_LIGHT_M_S;
+
+        if let Some(delay_s) = cfg.externalref_delay_s {
+            bias_m -= delay_s * SPEED_OF_LIGHT_M_S;
         }
 
-        if cfg.modeling.cable_delay {
-            if let Some(delay) = cfg.externalref_delay {
-                bias_m -= delay * SPEED_OF_LIGHT_M_S;
+        for _ in cfg.int_delay.iter() {
+            // TODO
+        }
+
+        bias_m += self.ionod;
+
+        bias_m += self.tropod;
+        contribution.tropo_bias = Some(self.tropod);
+
+        vec.sigma = 1.0; // TODO
+
+        let pr = range_m - rho - bias_m;
+
+        let cp = if let Some(cp) = cp {
+            // TODO: lambda_n * windup
+            Some(cp - rho - bias_m)
+        } else {
+            None
+        };
+
+        if two_rows || cfg.method == Method::PPP {
+            if cp.is_none() {
+                return Err(Error::MissingPhaseRangeMeasurements)?;
             }
-
-            for _ in cfg.int_delay.iter() {
-                // TODO frequency dependent delays
-            }
         }
 
-        let rtm = self
-            .to_bias_runtime(
-                t,
-                frequency_hz,
-                Vector3::new(x0_m, y0_m, z0_m),
-                rx_lat_long_alt_deg_deg_km,
-            )
-            .expect("internal error: unresolved attitude (bias runtime)");
-
-        if cfg.modeling.iono_delay && cfg.method == Method::SPP {
-            let iono_bias_m = bias.ionosphere_bias_m(&rtm);
-
-            // TODO: model verification (iono)
-            // if iono_bias_m < cfg.max_tropo_bias {
-
-            debug!("{}({}) - iono delay {:.3E}[m]", t, self.sv, iono_bias_m);
-
-            bias_m += iono_bias_m;
-            contribution.iono_bias = Some(IonosphereBias::modeled(iono_bias_m));
-        }
-
-        if cfg.modeling.tropo_delay {
-            let tropo_bias_m = bias.troposphere_bias_m(&rtm);
-
-            if tropo_bias_m < cfg.max_tropo_bias {
-                debug!("{}({}) - tropo delay {:.3E}[m]", t, self.sv, tropo_bias_m);
-
-                bias_m += tropo_bias_m;
-                contribution.tropo_bias = Some(tropo_bias_m);
+        if two_rows {
+            vec.row_1 = pr;
+            vec.row_2 = cp.unwrap_or_default();
+        } else {
+            if cfg.method == Method::PPP {
+                vec.row_1 = cp.unwrap_or_default();
             } else {
-                return Err(Error::RejectedTropoDelay);
+                vec.row_1 = pr;
             }
         }
 
-        Ok((range_m - rho - bias_m, 1.0, dr))
+        Ok(vec)
     }
 
     /// Matrix contribution.
+    ///
     /// ## Input
     ///  - i: matrix row
     ///  - cfg: [Config] preset
     ///  - x0_y0_z0: position coordinates as ECEF (m)
-    pub(crate) fn matrix_contribution(
+    pub(crate) fn ppp_matrix_contribution(
         &self,
         cfg: &Config,
-        dr: f64,
         x0_y0_z0_m: Vector3<f64>,
     ) -> (f64, f64, f64) {
         let (x0_m, y0_m, z0_m) = (x0_y0_z0_m[0], x0_y0_z0_m[1], x0_y0_z0_m[2]);
 
         let orbit = self.orbit.unwrap_or_else(|| {
-            panic!("internal error: matrix contribution prior vector contribution")
+            panic!(
+                "internal error: {}({}) state not fully resolved!",
+                self.epoch, self.sv
+            );
         });
 
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
         let (sv_x_m, sv_y_m, sv_z_m) = (pos_vel_m[0], pos_vel_m[1], pos_vel_m[2]);
 
         let mut rho =
-            ((sv_x_m - x0_m).powi(2) + (sv_y_m - y0_m).powi(2) + (sv_z_m - z0_m).powi(2)).sqrt();
+            ((x0_m - sv_x_m).powi(2) + (y0_m - sv_y_m).powi(2) + (z0_m - sv_z_m).powi(2)).sqrt();
 
         if cfg.modeling.relativistic_path_range {
-            rho += dr;
+            rho += self.relativistic_path_range;
         }
 
         let (dx_m, dy_m, dz_m) = (
@@ -195,5 +194,171 @@ impl Candidate {
         );
 
         (dx_m, dy_m, dz_m)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        prelude::{Candidate, Config, Epoch, Frame, Method, Orbit},
+        tests::{CandidatesBuilder, E05, ROVER_REFERENCE_COORDS_ECEF_M},
+    };
+
+    use nalgebra::Vector3;
+    use rstest::*;
+
+    use std::str::FromStr;
+
+    #[fixture]
+    fn build_earth_frame() -> Frame {
+        use crate::tests::earth_frame;
+        earth_frame()
+    }
+
+    #[test]
+    fn spp_matrix_contribution() {
+        let earth_frame = build_earth_frame();
+        let t0 = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+        let e01_position_ecef_km = (-11562.163582, 14053.114306, 23345.128269);
+
+        let e01_position_ecef_m = (
+            e01_position_ecef_km.0 * 1000.0,
+            e01_position_ecef_km.1 * 1000.0,
+            e01_position_ecef_km.2 * 1000.0,
+        );
+
+        let mut rover = CandidatesBuilder::build_rover_sv_at(E05, t0);
+
+        rover.orbit = Some(Orbit::from_position(
+            e01_position_ecef_km.0,
+            e01_position_ecef_km.1,
+            e01_position_ecef_km.2,
+            t0,
+            earth_frame,
+        ));
+
+        let cfg = Config::default().with_navigation_method(Method::SPP);
+
+        let x0_y0_z0_m = Vector3::new(
+            ROVER_REFERENCE_COORDS_ECEF_M.0,
+            ROVER_REFERENCE_COORDS_ECEF_M.1,
+            ROVER_REFERENCE_COORDS_ECEF_M.2,
+        );
+
+        let (dx, dy, dz) = rover.ppp_matrix_contribution(&cfg, x0_y0_z0_m);
+
+        let rho = ((ROVER_REFERENCE_COORDS_ECEF_M.0 - e01_position_ecef_m.0).powi(2)
+            + (ROVER_REFERENCE_COORDS_ECEF_M.1 - e01_position_ecef_m.1).powi(2)
+            + (ROVER_REFERENCE_COORDS_ECEF_M.2 - e01_position_ecef_m.2).powi(2))
+        .sqrt();
+
+        let e_i = (
+            (ROVER_REFERENCE_COORDS_ECEF_M.0 - e01_position_ecef_m.0) / rho,
+            (ROVER_REFERENCE_COORDS_ECEF_M.1 - e01_position_ecef_m.1) / rho,
+            (ROVER_REFERENCE_COORDS_ECEF_M.2 - e01_position_ecef_m.2) / rho,
+        );
+
+        assert!((dx - e_i.0).abs() < 1E-6, "x error too large");
+        assert!((dy - e_i.1).abs() < 1E-6, "y error too large");
+        assert!((dz - e_i.2).abs() < 1E-6, "z error too large");
+    }
+
+    #[test]
+    fn cpp_matrix_contribution() {
+        let earth_frame = build_earth_frame();
+        let t0 = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+        let e01_position_ecef_km = (-11562.163582, 14053.114306, 23345.128269);
+
+        let e01_position_ecef_m = (
+            e01_position_ecef_km.0 * 1000.0,
+            e01_position_ecef_km.1 * 1000.0,
+            e01_position_ecef_km.2 * 1000.0,
+        );
+
+        let mut rover = CandidatesBuilder::build_rover_sv_at(E05, t0);
+
+        rover.orbit = Some(Orbit::from_position(
+            e01_position_ecef_km.0,
+            e01_position_ecef_km.1,
+            e01_position_ecef_km.2,
+            t0,
+            earth_frame,
+        ));
+
+        let cfg = Config::default().with_navigation_method(Method::CPP);
+
+        let x0_y0_z0_m = Vector3::new(
+            ROVER_REFERENCE_COORDS_ECEF_M.0,
+            ROVER_REFERENCE_COORDS_ECEF_M.1,
+            ROVER_REFERENCE_COORDS_ECEF_M.2,
+        );
+
+        let (dx, dy, dz) = rover.ppp_matrix_contribution(&cfg, x0_y0_z0_m);
+
+        let rho = ((ROVER_REFERENCE_COORDS_ECEF_M.0 - e01_position_ecef_m.0).powi(2)
+            + (ROVER_REFERENCE_COORDS_ECEF_M.1 - e01_position_ecef_m.1).powi(2)
+            + (ROVER_REFERENCE_COORDS_ECEF_M.2 - e01_position_ecef_m.2).powi(2))
+        .sqrt();
+
+        let e_i = (
+            (ROVER_REFERENCE_COORDS_ECEF_M.0 - e01_position_ecef_m.0) / rho,
+            (ROVER_REFERENCE_COORDS_ECEF_M.1 - e01_position_ecef_m.1) / rho,
+            (ROVER_REFERENCE_COORDS_ECEF_M.2 - e01_position_ecef_m.2) / rho,
+        );
+
+        assert!((dx - e_i.0).abs() < 1E-6, "x error too large");
+        assert!((dy - e_i.1).abs() < 1E-6, "y error too large");
+        assert!((dz - e_i.2).abs() < 1E-6, "z error too large");
+    }
+
+    #[test]
+    fn ppp_matrix_contribution() {
+        let earth_frame = build_earth_frame();
+        let t0 = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
+
+        let e01_position_ecef_km = (-11562.163582, 14053.114306, 23345.128269);
+
+        let e01_position_ecef_m = (
+            e01_position_ecef_km.0 * 1000.0,
+            e01_position_ecef_km.1 * 1000.0,
+            e01_position_ecef_km.2 * 1000.0,
+        );
+
+        let mut rover = CandidatesBuilder::build_rover_sv_at(E05, t0);
+
+        rover.orbit = Some(Orbit::from_position(
+            e01_position_ecef_km.0,
+            e01_position_ecef_km.1,
+            e01_position_ecef_km.2,
+            t0,
+            earth_frame,
+        ));
+
+        let cfg = Config::default().with_navigation_method(Method::PPP);
+
+        let x0_y0_z0_m = Vector3::new(
+            ROVER_REFERENCE_COORDS_ECEF_M.0,
+            ROVER_REFERENCE_COORDS_ECEF_M.1,
+            ROVER_REFERENCE_COORDS_ECEF_M.2,
+        );
+
+        let (dx, dy, dz) = rover.ppp_matrix_contribution(&cfg, x0_y0_z0_m);
+
+        let rho = ((ROVER_REFERENCE_COORDS_ECEF_M.0 - e01_position_ecef_m.0).powi(2)
+            + (ROVER_REFERENCE_COORDS_ECEF_M.1 - e01_position_ecef_m.1).powi(2)
+            + (ROVER_REFERENCE_COORDS_ECEF_M.2 - e01_position_ecef_m.2).powi(2))
+        .sqrt();
+
+        let e_i = (
+            (ROVER_REFERENCE_COORDS_ECEF_M.0 - e01_position_ecef_m.0) / rho,
+            (ROVER_REFERENCE_COORDS_ECEF_M.1 - e01_position_ecef_m.1) / rho,
+            (ROVER_REFERENCE_COORDS_ECEF_M.2 - e01_position_ecef_m.2) / rho,
+        );
+
+        assert!((dx - e_i.0).abs() < 1E-6, "x error too large");
+        assert!((dy - e_i.1).abs() < 1E-6, "y error too large");
+        assert!((dz - e_i.2).abs() < 1E-6, "z error too large");
     }
 }

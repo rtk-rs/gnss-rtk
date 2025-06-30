@@ -10,8 +10,11 @@ GNSS-RTK
 [![License](https://img.shields.io/badge/license-MPL_2.0-orange?style=for-the-badge&logo=mozilla)](https://github.com/rtk-rs/gnss-rtk/blob/main/LICENSE)
 
 The `GNSS-RTK` library provides Position Velocity Time (PVT) solution solvers,
-with abstract and flexible interfaces, so it may apply to most navigation scenarios,
-whether your application is real-time or post-processing does not matter.
+with abstract and flexible interfaces that may apply to most navigation scenarios
+and applications. Whether the application is real-time or post-processing oriented does not matter.
+
+This library is thoroughly validated, including performance of the accuracy of the solutions
+validated for each release.
 
 <div align="center">
     <p>
@@ -47,56 +50,88 @@ Licensing
 This library is part of the [RTK-rs framework](https://github.com/rtk-rs) which
 is delivered under the [Mozilla V2 Public](https://www.mozilla.org/en-US/MPL/2.0) license.
 
-P.V.T Solutions
-===============
+GNSS-RTK / P.V.T solutions
+==========================
 
-The objective of each solver is to resolve the state of the target device: the GNSS receiver,
-in space time, with high accuracy. The solutions are called P. V. T. for Position Velocity Time
-solution, that emphasizes the space & time coordinates. 
+The main objective of this library is to propose efficient GNSS solvers, that
+perform the rather complex task of solving Position, Velocity and Timing (P.V.T) solutions.
+Indeed, GNSS navigation allows to obtain the position of the receiver in 3D (in space) 
+and in time as well, and may include the instantaneous velocity of the target as well. 
 
-Whether the receiver is moving or not is application dependent. You should select the solver
-that suites your application best.
+The timing solutions (4th component) is the state of the receiver in the navigation timescale. 
+It is possible to express the solutions in any of the supported Timescales. 
 
-GNSS-RTK is limited to ground based (=low altitude, within atmosphere) navigation on planet Earth. 
-Although it would be possible to make GNSS-RTK more abstract and compatible with other Planets, it
-is not planned to this day. You can reach out to us and join forces, if you want to see this happen !
+For the spatial coordinates, whether the receiver is moving or not is application dependent and the
+solver should be able to determine the target state in any case. 
 
-PVT Solvers
-===========
+The proposed API is compatible with both real-time and post-processed navigation, read the dedicated chapter.
 
-This library proposes the `PPP` solver and the `RTK` solver, which you can select
-depending on your application. Currently we do not offer a hybrid solver that can do both,
-but that will be easily created in near future.
+GNSS-RTK is currently limited to ground navigation on planet Earth. It should be rather easy to modify the current
+API to propose ground-based navigation on any solid body supported by the `Nyx/ANISE` library. Mainly
+by modifying the `EnvironmentalBias` trait, and possibly the `SpacebornBias` trait as well. But this is unscheduled work
+as of today.
 
-- `PPP` is used when you cannot access an RTK network (or reference sites).
-- `RTK` is used for differential navigation, with at least one RTK reference site.
+Solver, strategies and API
+==========================
 
-`RTK` is currently limited to a single reference, but we will augment this to N base in very near future.  
-`RTK` should always be prefered over `PPP` to obtain higher accuracy more easily.  
-Both solvers can operate without initial preset and can make a very good first guess to initialize themselves.
+The current version proposes a unique object called `Solver` that is compatible to both absolute
+and differential (1 reference) navigation. Once your measurements have been collected,
+you select the navigation technique with want to deploy with either `ppp_solving` and `rtk_solving`.
+:warning: RTK navigation is currently under development and should not be used until further notice.
 
-In static applications, it is important you keep the user `Profile` up to date, if the range of velocity varies.  
-`Profile` also contains the perturbations of the measurement system, this applies to all cases, either
-static or dynamic.
+This means, once RTK becomes available, if your network goes down you can always switch back to PPP (absolute navigation)
+temporarily. Eventually, RTK (differential) should always be prefered because it gives the highest accuracy.
+
+This of course applies to any use case, whether it is static or dynamic (roaming).
+
+Tied to the navigation technique, you need to select a mode via the `Method` object. This determines which
+signal strategy you will be using. We propose 4 modes, each one of them applies to either RTK or absolute navigation:
+
+- `SPP` : single frequency pseudo-range based navigation. This is dedicated to low-cost degraded setups.
+- `CPP` : dual frequency pseudo-range based navigation. It is about 20x more accurate than the previous mode
+and gives 0.1m accuracy with high quality data. The secondary frequency is used to cancelled the ionosphere phsically.
+- `PPP` : dual frequency phase based navigation (raw signal). Although the navigation uses raw signal, you still have
+to pass on the pseudo-range on both frequencies, which makes this strategy the most demanding in terms of measurement.
+- `PPP+AR` : same as PPP but a secondary prefit kalman filter is deployed. :warning: this is under development
+and should not be used as of right now. 
+
+For each mode, you can either deploy using absolute (`ppp_solving` attempt) or differential (`rtk_solving` attempt).
+`rtk_solving` is not fully available yet and still under development. When it becomes feasible, that means the
+mode defines your measurement strategy, but differential navigation is being used. Starting from `PPP` and `PPP+AR`,
+it means the navigation algorithm becomes `RTK-PPP` as defined in the "litterature".
+
+Recommendations: because this solver should not fail but report errors instead, you should always prefer
+the highest / most advanced technique, and adapt/degrade that choice according to the returned message.
+If such a strategy fails to apply, please fill an issue online and we will patch the library.
+For example: always prefer `PPP` mode, and the library will let you know when it failed to deploy the mode
+(for example, L5 phase is lost). In this case, you can always switch back to `CPP` mode temporarily.
+That is particularly true if PPP convergence has been achieved.
+Of course, this strategy only applies to people targetting highest accuracy. If you know your measurement
+setup and context is not compatible with one strategy, it does not make sense to attempt it.
 
 Application Programming Interface (API)
 =======================================
 
-The API requires a few function pointers to be implemented. The orbit provider
-is mandatory. Other are actually optional, if you return `None` or `0.0` in those,
-you will just degrade the accuracy of the solution.
+The API requires you implement of several `Traits` to provide information
+that the solving process demands:
 
-The API is designed to allow real-time applications, which requires
-real-time collection of orbital data and measurements. For each measurement,
-which happen in chronological order, you should group them as a list of Candidates
-(solving attempt proposal) that are synchronous and attempt solving, which requires mutable access.
+- `OrbitSource` must be implemented to provide the orbital states of each satellites
+at a specifing point in time. It is the only mandatory traits, all the others can be tied to zero
+and you will still obtain a (poor) solution
 
-When solving attempt is requested, the solver will soon after issue a request on the orbit
-provider interface, which is non mutable. In real-time application, the measurement
-and orbit collection should live in separate threads. The API is designed to allow
-the Solver and the Orbit provider to live in the same thread. Assuming orbit collection
-will require mutable access (on your side), you can use the concept of `Interior Mutability`,
-because the orbit provider is wrapped in a `Rc<>` structure.
+- `EnvironmentalBias` must be implemented to describe the environmental perturbations. 
+On earth ground navigation, it comprises the ionospheric and tropospheric perturbation.
+Depending on the selected mode, some of it may be disregarded. Starting from `CPP` mode,
+the ionospheric delay is physically canceled: if you tie this bias to zero, you will still obtain
+a solution of good quality. For the tropospheric delay, you can either implement one of the models we propose
+or implement your own. It is mandatory to do so to obtain a high quality solution;
+
+- `SpacebornBias` must be implemented to obtain a basic solution. Indeed, if you don't provide the
+`SatelliteClockCorrection` at the requested point in time, the solution will be off by thousands of kilometers.
+
+Each traits are wrapped inside an `Rc<>` (Reference Counter) which makes this API compatible with real-time navigation.
+This allows your structure(s) to live elsewhere, with so called "internal multability" (read on this pseudo concept)
+that the data collection process demands.
 
 Orbit Provider
 ==============
@@ -132,12 +167,12 @@ precision for people who have access to such data.
 Examples
 ========
 
-This library is no longer shipped with examples. But our framework hosts applications that illustrate
-all use cases: 
+This library is no longer shipped with examples, for the simple reason that they are complicated to maintain,
+and our framework now offers the two kind of applications you can think of to this library:
 
-- [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) is dedicated to post processing workflows (more complex workflow).
-- [RT-Navi](https://github.com/rtk-rs/rt-navi) is a real-time application which therefore, requires multi-threading and 
-respect the threading requirements. It is also hardware dependent (obviously).
+- [RT-Navi](https://github.com/rtk-rs/rt-navi) for real-time navigation, which is obviously hardware dependent,
+and involves multi-threading.
+- [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) for post-processed navigation, which is more complex
 
 Logs
 ====

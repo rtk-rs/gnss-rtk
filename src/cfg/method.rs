@@ -7,24 +7,35 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Method {
-    /// Single Point Positioning (SPP).
-    /// Code based navigation on a single carrier frequency.
-    /// Phase observations are completely discarded and are not required from the RX side.
-    /// When prefered signal is defined, we expect a pseudo range on that particular frequency.
-    /// When prefered signal is not defined, we might switch depending on the best SNR.
+    /// Single Point Positioning is a code based navigation technique
+    /// using a single carrier frequency. Any secondary frequency
+    /// is disregarded by the entire process.
     /// Expect +/- 10m accuracy is you correctly tune other parameters.
     /// You might hope for +/- 5m on high quality data.
     SPP,
-    /// Code based Precise Point Positioning (CPP).
-    /// Code based dual carrier frequency technique.
-    /// Phase observations are completely discarded and are not required from the RX side.
-    /// Expect +/- 5m accuracy is you correctly tune other parameters.
-    /// You might hope for +/- 1m on high quality data.
+
+    /// Code Precise Positioning is a code based navigation technique,
+    /// that uses two carrier frequencies to cancel the ionospheric perturbation.
+    /// It is much more precise than SPP. When the full model is implemented, the
+    /// accuracy is always smaller than 5m, you can reach decimeter accuracy
+    /// on high quality setups. Phase range observations are disregarded by the entire
+    /// process.
     #[default]
     CPP,
-    /// Phase range Precise Point Positioning (PPP).
-    /// Requires two carrier signals and two decoded pseudo range codes.
+
+    /// Precise Point Positioning is a dual frequency navigation technique
+    /// that requires both code and phase measurements. For both frequencies, you must
+    /// provide both types of observation, otherwise the process cannot complete.
+    /// It is about 10 times more accurate than [Method::CPP].
     PPP,
+
+    /// Precise Point Positioning with advanced Ambiguity Resolution (AR),
+    /// is the same algorithm as [Method::PPP], therefore has the same requirements,
+    /// but deploys an advanced AR method, using a secondary filter and is more
+    /// computationnally intense. [Method::PPP_AR] is not completed to this day,
+    /// do not use.
+    #[allow(non_snake_case)]
+    PPP_AR,
 }
 
 impl std::fmt::Display for Method {
@@ -33,6 +44,7 @@ impl std::fmt::Display for Method {
             Self::SPP => write!(fmt, "SPP"),
             Self::CPP => write!(fmt, "CPP"),
             Self::PPP => write!(fmt, "PPP"),
+            Self::PPP_AR => write!(fmt, "PPP-AR"),
         }
     }
 }
@@ -44,7 +56,14 @@ impl std::str::FromStr for Method {
             "spp" => Ok(Self::SPP),
             "cpp" => Ok(Self::CPP),
             "ppp" => Ok(Self::PPP),
-            _ => Err(Error::InvalidStrategy),
+            "ppp-ar" => Ok(Self::PPP_AR),
+            _ => Err(Error::UnknownNavigationMethod),
         }
+    }
+}
+
+impl Method {
+    pub(crate) fn is_ppp(&self) -> bool {
+        matches!(self, Self::PPP | Self::PPP_AR)
     }
 }

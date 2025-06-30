@@ -103,6 +103,7 @@ pub fn solid_tides(
 mod test {
     use super::*;
     use hifitime::{TimeSeries, Duration, Unit};
+    
     #[test]
     fn earth_france_solid_tides() {
         // solid tidal effect is said to be between [-2mm;+2mm]
@@ -128,11 +129,13 @@ mod test {
             println!("solid tide: {:?}", dr);
         }
     }
+    
     #[test]
     fn earth_north_pole_tides() {
         let almanac = Almanac::until_2035().unwrap();
         // solid tidal effect is larger @ poles than equatorial latitudes
     }
+
     #[test]
     fn earth_south_pole_tides() {
         let almanac = Almanac::until_2035().unwrap();

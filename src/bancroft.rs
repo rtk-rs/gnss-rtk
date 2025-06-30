@@ -51,28 +51,26 @@ impl Bancroft {
                 let (x_i, y_i, z_i) = (state[0], state[1], state[2]);
 
                 if let Some((_, r_i)) = cd[i].best_snr_range_m() {
-                    if let Some(clock_corr) = cd[i].clock_corr {
-                        let dt_i = clock_corr.duration.to_seconds();
-                        let tgd_i = cd[i].tgd.unwrap_or_default().to_seconds();
-                        let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
+                    let dt_i = cd[i].clock_corr.duration.to_seconds();
+                    let tgd_i = cd[i].tgd.to_seconds();
+                    let pr_i = r_i + dt_i * SPEED_OF_LIGHT_M_S - tgd_i;
 
-                        b[(j, 0)] = x_i;
-                        b[(j, 1)] = y_i;
-                        b[(j, 2)] = z_i;
-                        b[(j, 3)] = pr_i;
-                        a[j] = 0.5 * (x_i.powi(2) + y_i.powi(2) + z_i.powi(2) - pr_i.powi(2));
+                    b[(j, 0)] = x_i;
+                    b[(j, 1)] = y_i;
+                    b[(j, 2)] = z_i;
+                    b[(j, 3)] = pr_i;
+                    a[j] = 0.5 * (x_i.powi(2) + y_i.powi(2) + z_i.powi(2) - pr_i.powi(2));
 
-                        j += 1;
+                    j += 1;
 
-                        if j == 4 {
-                            break;
-                        }
+                    if j == 4 {
+                        break;
                     }
                 }
             } else {
                 error!(
                     "{}({}) bancroft unresolved orbital state",
-                    cd[i].t, cd[i].sv
+                    cd[i].epoch, cd[i].sv
                 );
             }
         }
@@ -107,10 +105,12 @@ impl Bancroft {
         if delta > 0.0 {
             let delta_sqrt = delta.sqrt();
             let x = ((-b + delta_sqrt) / 2.0 / a, (-b - delta_sqrt) / 2.0 / a);
+
             let solutions = (
                 self.m * b_inv * (x.0 * self.ones + self.a),
                 self.m * b_inv * (x.1 * self.ones + self.a),
             );
+
             let rho = (
                 (solutions.0[0].powi(2) + solutions.0[1].powi(2) + solutions.0[2].powi(2)).sqrt(),
                 (solutions.1[0].powi(2) + solutions.1[1].powi(2) + solutions.1[2].powi(2)).sqrt(),

@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
     constants::EARTH_ANGULAR_VEL_RAD,
-    prelude::{Candidate, Config, Duration, Epoch, Frame, Orbit, OrbitSource, Rc, SV},
+    prelude::{
+        Almanac, Candidate, Config, Duration, EnvironmentalBias, Ephemeris, EphemerisSource, Epoch,
+        Frame, Orbit, OrbitSource, Rc, SpacebornBias, SV,
+    },
     smoothing::Smoother,
 };
 
@@ -14,20 +17,48 @@ use nalgebra::{Matrix3, Vector3};
 pub mod postfit;
 pub mod prefit;
 
-pub struct Pool {
+pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: SpacebornBias> {
+    /// [Config]uration preset
+    cfg: Config,
+
+    /// Internal [Almanac]
+    almanac: Almanac,
+
     /// ECEF [Frame]
     earth_cef: Frame,
+
     /// Current [Candidate]s pool
     inner: Vec<Candidate>,
+
+    /// Ambiguity solver
+    amb_solver: HashMap<SV, AmbiguitySolver>,
+
     /// Previous [Candidate]s pool
     past: Vec<Candidate>,
-    /// [Smoother]
+
+    /// Measurements [Smoother]
     smoother: Smoother,
-    /// [AmbiguitySolver]
-    solver: HashMap<SV, AmbiguitySolver>,
+
+    /// [OrbitSource]
+    orb_source: Rc<ORB>,
+
+    /// [EphemerisSource]
+    eph_source: Rc<EPH>,
+
+    /// Environmental biases
+    env_bias: Rc<EB>,
+
+    /// Spaceborn biases
+    space_bias: Rc<SB>,
+
+    /// [Ephemeris] Buffer
+    eph_buffer: HashMap<SV, Ephemeris>,
+
+    /// Runtime selected pivot position (ECEF, meters)
+    pub pivot_position_ecef_m: Option<(f64, f64, f64)>,
 }
 
-fn orbit_rotation(t: Epoch, dt: Duration, orbit: Orbit, modeling: bool, frame: Frame) -> Orbit {
+fn orbit_rotation(t: Epoch, dt: Duration, orbit: &Orbit, modeling: bool, frame: Frame) -> Orbit {
     let we = EARTH_ANGULAR_VEL_RAD * dt.to_seconds();
     let (we_sin, we_cos) = we.sin_cos();
     let dcm3 = if modeling {
@@ -49,37 +80,45 @@ fn orbit_rotation(t: Epoch, dt: Duration, orbit: Orbit, modeling: bool, frame: F
     )
 }
 
-impl Pool {
+impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: SpacebornBias>
+    Pool<EPH, ORB, EB, SB>
+{
     /// Allocate new [Pool]
-    pub fn allocate(smoothing_win_len: usize, earth_cef: Frame) -> Self {
+    pub fn allocate(
+        almanac: Almanac,
+        cfg: Config,
+        earth_cef: Frame,
+        eph_source: Rc<EPH>,
+        orb_source: Rc<ORB>,
+        env_bias: Rc<EB>,
+        space_bias: Rc<SB>,
+    ) -> Self {
+        let smoother = Smoother::new(cfg.code_smoothing);
+
         Self {
+            cfg,
             earth_cef,
+            eph_source,
+            orb_source,
+            env_bias,
+            space_bias,
+            smoother,
+            almanac,
             past: Vec::with_capacity(8),
             inner: Vec::with_capacity(8),
-            solver: HashMap::with_capacity(8),
-            smoother: Smoother::new(smoothing_win_len),
+            pivot_position_ecef_m: None,
+            amb_solver: HashMap::with_capacity(4),
+            eph_buffer: HashMap::with_capacity(8),
         }
     }
 
     /// Prepare for new epoch
     pub fn new_epoch(&mut self, candidates: &[Candidate]) {
         self.inner = candidates.to_vec();
+        self.pivot_position_ecef_m = None;
     }
 
-    // pub fn retain<F>(&mut self, f: F)
-    // where
-    //     F: FnMut(&Candidate) -> bool,
-    // {
-    //     self.inner.retain(f)
-    // }
-
-    // pub fn retain_mut<F>(&mut self, f: F)
-    // where
-    //     F: FnMut(&mut Candidate) -> bool,
-    // {
-    //     self.inner.retain_mut(f)
-    // }
-
+    /// Returns total number of [Candidate]s
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -88,29 +127,71 @@ impl Pool {
         &self.inner
     }
 
-    /// Determine orbital states
-    pub fn orbital_states<O: OrbitSource>(&mut self, cfg: &Config, orbits: &Rc<O>) {
-        self.inner.retain_mut(|cd| match cd.tx_epoch(cfg) {
-            Ok(_) => {
-                if let Some(orbit) = orbits.next_at(cd.t_tx, cd.sv, self.earth_cef) {
-                    let orbit = orbit_rotation(
-                        cd.t,
-                        cd.dt_tx,
-                        orbit,
-                        cfg.modeling.earth_rotation,
-                        self.earth_cef,
-                    );
+    pub fn contains(&self, sv: SV) -> bool {
+        self.inner.iter().filter(|cd| cd.sv == sv).count() > 0
+    }
 
-                    cd.orbit = Some(orbit);
-                    true
-                } else {
+    pub fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&Candidate) -> bool,
+    {
+        self.inner.retain(f)
+    }
+
+    pub fn retain_mut<F>(&mut self, f: F)
+    where
+        F: FnMut(&mut Candidate) -> bool,
+    {
+        self.inner.retain_mut(f)
+    }
+
+    /// Determine orbital states
+    pub fn orbital_states_fit(&mut self, name: &str) {
+        self.inner
+            .retain_mut(|cd| match cd.transmission_time(name, &self.cfg) {
+                Ok(_) => {
+                    // direct state determination
+                    let mut determined = false;
+
+                    if let Some(orbit) =
+                        &self.orb_source.state_at(cd.tx_epoch, cd.sv, self.earth_cef)
+                    {
+                        let orbit = orbit_rotation(
+                            cd.epoch,
+                            cd.signal_time_of_flight(),
+                            orbit,
+                            self.cfg.modeling.earth_rotation,
+                            self.earth_cef,
+                        );
+
+                        cd.orbit = Some(orbit);
+                        determined = true;
+                    }
+
+                    // indirect state determination
+                    if !determined {
+                        if let Some(eph) = &self.eph_buffer.get(&cd.sv) {
+                            if let Some(state) = eph.resolve_state(cd.tx_epoch, self.earth_cef) {
+                                let state = orbit_rotation(
+                                    cd.epoch,
+                                    cd.signal_time_of_flight(),
+                                    &state,
+                                    self.cfg.modeling.earth_rotation,
+                                    self.earth_cef,
+                                );
+
+                                cd.orbit = Some(state);
+                                determined = true;
+                            }
+                        }
+                    }
+
+                    determined
+                },
+                Err(e) => {
+                    error!("{}({}) {} - tx time error: {}", cd.epoch, cd.sv, name, e);
                     false
-                }
-            },
-            Err(e) => {
-                error!("{}({}) - tx time error: {}", cd.t, cd.sv, e);
-                false
-            },
-        });
+                },
+            });
     }
 }

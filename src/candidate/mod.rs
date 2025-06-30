@@ -1,11 +1,14 @@
 //! Position solving candidate
 use hifitime::Unit;
+use itertools::Itertools;
 use log::debug;
 
 use crate::{
     ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
+    bias::spaceborn::SatelliteClockCorrection,
     constants::SPEED_OF_LIGHT_M_S,
-    prelude::{Almanac, Config, Constellation, Duration, Epoch, Error, Orbit, Vector3, SV},
+    navigation::state::State,
+    prelude::{Almanac, Config, Duration, Epoch, Error, Orbit, Vector3, SV},
 };
 
 use anise::errors::AlmanacResult;
@@ -13,15 +16,15 @@ use anise::errors::AlmanacResult;
 mod bias;
 mod ppp;
 mod rtk;
+mod sd;
 mod signal;
 
-pub mod clock;
 pub(crate) mod combination;
 
-pub use crate::{
-    candidate::{clock::ClockCorrection, signal::Observation},
-    prelude::Carrier,
-};
+#[cfg(test)]
+mod tests;
+
+pub use crate::{candidate::signal::Observation, prelude::Carrier};
 
 /// Position solving candidate
 #[derive(Clone, Debug)]
@@ -30,28 +33,13 @@ pub struct Candidate {
     pub sv: SV,
 
     /// Sampling [Epoch]
-    pub t: Epoch,
+    pub epoch: Epoch,
 
-    /// TX [Epoch]
-    pub(crate) t_tx: Epoch,
-
-    /// dt TX [Duration]
-    pub(crate) dt_tx: Duration,
+    /// Transmission [Epoch]
+    pub(crate) tx_epoch: Epoch,
 
     /// [Orbit]al state
     pub(crate) orbit: Option<Orbit>,
-
-    /// SV group delay expressed as a [Duration]
-    pub(crate) tgd: Option<Duration>,
-
-    /// Windup term in signal cycles
-    pub(crate) wind_up: f64,
-
-    /// [ClockCorrection]
-    pub(crate) clock_corr: Option<ClockCorrection>,
-
-    /// Local [Observation]s
-    pub(crate) observations: Vec<Observation>,
 
     /// elevation at reception time
     pub(crate) elevation_deg: Option<f64>,
@@ -59,8 +47,35 @@ pub struct Candidate {
     /// azimuth at reception time
     pub(crate) azimuth_deg: Option<f64>,
 
+    /// Total group delay.
+    pub(crate) tgd: Duration,
+
+    /// Troposphere delay (meters)
+    pub(crate) tropod: f64,
+
+    /// Ionosphere delay (meters)
+    pub(crate) ionod: f64,
+
+    /// Phase wind up in cycles
+    pub(crate) windup: f64,
+
+    /// [SatelliteClockCorrection]
+    pub(crate) clock_corr: SatelliteClockCorrection,
+
+    /// Signal [Observation]s
+    pub(crate) observations: Vec<Observation>,
+
     /// Possible time system correction
     pub(crate) system_correction: Option<Duration>,
+
+    /// Estimated relativistic path range
+    pub(crate) relativistic_path_range: f64,
+
+    /// Resolved ambiguities
+    pub(crate) amb: Option<Ambiguities>,
+
+    /// Possible Observations differentiated by SD algorithm
+    pub(crate) sd: Option<Observation>,
 }
 
 impl Candidate {
@@ -71,61 +86,33 @@ impl Candidate {
     /// especially if you want to achieve accurate results.
     /// ## Input
     /// - sv: [SV] Identity
-    /// - t: sampling [Epoch]
+    /// - epoch: sampling [Epoch]
     /// - observations: provide signals observations.
     ///   You have to provide observations that match your navigation method.
-    pub fn new(sv: SV, t: Epoch, observations: Vec<Observation>) -> Self {
+    pub fn new(sv: SV, epoch: Epoch, observations: Vec<Observation>) -> Self {
         Self {
             sv,
-            t,
-            t_tx: t,
+            epoch,
+            ionod: 0.0,
+            tropod: 0.0,
             observations,
-            system_correction: None,
-            tgd: Default::default(),
-            dt_tx: Default::default(),
+            tx_epoch: epoch,
+            tgd: Duration::ZERO,
+            sd: Default::default(),
+            amb: Default::default(),
             orbit: Default::default(),
-            wind_up: Default::default(),
+            windup: Default::default(),
             azimuth_deg: Default::default(),
-            elevation_deg: Default::default(),
             clock_corr: Default::default(),
+            elevation_deg: Default::default(),
+            system_correction: Default::default(),
+            relativistic_path_range: Default::default(),
         }
     }
 
-    pub(crate) fn weight_perturbations(&self) -> f64 {
-        let fact = match self.sv.constellation {
-            Constellation::GPS => 1.0,
-            Constellation::Galileo => 1.0,
-            _ => 10.0,
-        };
-
-        let r_ratio = 100.0;
-
-        let tropod = 3.0;
-        let code_bias = 0.3;
-
-        fact * r_ratio + tropod + code_bias
-    }
-
-    /// Define Total Group Delay [TDG] if you know it.
-    /// This will increase your accuracy in PPP opmode for up to 10m.
-    /// If you know the [TGD] value, you should specifiy especially on first iteration,
-    /// because it also impacts the [Solver] initialization process and any bias here also impacts
-    /// negatively.
-    pub fn set_group_delay(&mut self, tgd: Duration) {
-        self.tgd = Some(tgd);
-    }
-
-    /// Define on board [ClockCorrection] if you know it.
-    /// This is mandatory for PPP and will increase your accuracy by hundreds of km.
-    pub fn set_clock_correction(&mut self, corr: ClockCorrection) {
-        self.clock_corr = Some(corr);
-    }
-
-    /// Copy and return updated [Candidate] with desired [ClockCorrection]
-    pub fn with_clock_correction(&self, corr: ClockCorrection) -> Self {
-        let mut s = self.clone();
-        s.clock_corr = Some(corr);
-        s
+    /// Designs a measured frequency iterator
+    fn frequencies_iter(&self) -> Box<dyn Iterator<Item = Carrier> + '_> {
+        Box::new(self.observations.iter().map(|obs| obs.carrier).unique())
     }
 
     /// Update pseudo range observation (in meters) for this frequency.
@@ -170,109 +157,93 @@ impl Candidate {
         }
     }
 
+    /// Form [AmbiguityInput] for [Self], ready to be used in external solver.
     pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
         let l1 = self.l1_phase_range()?;
         let (f1_hz, l1) = (l1.0.frequency_hz(), l1.1);
         let c1 = self.l1_pseudo_range()?.1;
+        let lamb1 = SPEED_OF_LIGHT_M_S / f1_hz;
 
         let l2 = self.subsidary_phase_range()?;
         let (f2_hz, l2) = (l2.0.frequency_hz(), l2.1);
         let c2 = self.subsidary_pseudo_range()?.1;
+        let lamb2 = SPEED_OF_LIGHT_M_S / f2_hz;
 
         Some(AmbiguityInput {
             f1_hz,
             c1,
-            l1,
+            l1: l1 / lamb1,
             f2_hz,
             c2,
-            l2,
-            // f5_hz: None,
-            // c5: None,
-            // l5: None,
+            l2: l2 / lamb2,
         })
     }
 
-    pub(crate) fn update_ambiguities(&mut self, output: Ambiguities) {
-        for obs in self.observations.iter_mut() {
-            if obs.carrier.is_l1() {
-                obs.ambiguity = Some(output.n1 as f64);
-            } else {
-                // TODO : improve
-                // this will not work for triple frequency scenarios
-                obs.ambiguity = Some(output.n2 as f64);
-            }
-        }
+    /// Computes phase windup correction term.
+    pub(crate) fn phase_windup_correction(
+        &mut self,
+        rx_state: &State,
+        r_sun: Vector3<f64>,
+        past_correction: Option<f64>,
+    ) {
+        let sv_state = self.orbit.unwrap_or_else(|| {
+            panic!("internal error: phase windup while state is not fully resolved");
+        });
+
+        let r_sv = sv_state.to_cartesian_pos_vel() * 1.0E3;
+
+        // todo self.yaw_attitude();
+
+        let r_rx = rx_state.to_position_ecef_m();
+        let r_sv = Vector3::new(r_sv[0], r_sv[1], r_sv[2]);
+        let r_rr_rs = r_rx - r_sv;
+        let e_r_rs = r_rr_rs.norm();
+
+        self.windup = 0.0; // TODO
     }
 
-    /// Computes phase windup term. Self should be fully resolved, otherwse
-    /// will panic.
-    pub(crate) fn windup_correction(&mut self, _: Vector3<f64>, _: Vector3<f64>) -> f64 {
-        0.0
-        // let state = self.state.unwrap();
-        // let r_sv = state.to_ecef();
-
-        // let norm = (
-        //     (sun[0] - r_sv[0]).powi(2)
-        //     + (sun[1] - r_sv[1]).powi(2)
-        //     + (sun[2] - r_sv[2]).powi(2)
-        // ).sqrt();
-
-        // let e = (r_sun - r_sv_mc ) / norm;
-        // let j = k.cross(e);
-        // let i = j.cross(k);
-
-        // let d_prime_norm = d_prime.norm();
-        // let d_norm = d.norm();
-        // let psi = pho * (d_prime.cross(d));
-        // let dphi = d_prime.dot(d) / d_prime.norm() / d.norm();
-
-        // let n = (self.delta_phi.unwrap_or(0.0) / 2.0 / PI).round();
-        // self.delta_phi = dphi + 2.0 * n;
-
-        // self.delta_phi
-        // self.wind_up =
-    }
-
-    /// Computes signal transmission instant, as [Epoch]
-    pub(crate) fn tx_epoch(&mut self, cfg: &Config) -> Result<(), Error> {
-        let mut t_tx = self.t;
+    /// Computes signal transmission instant, as [Epoch].
+    pub(crate) fn transmission_time(&mut self, name: &str, cfg: &Config) -> Result<(), Error> {
+        let mut t_tx = self.epoch;
 
         let (_, pr) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
 
         t_tx -= pr / SPEED_OF_LIGHT_M_S * Unit::Second;
 
         if cfg.modeling.sv_total_group_delay {
-            if let Some(tgd) = self.tgd {
-                debug!("{} ({}) - group delay {}", self.t, self.sv, tgd);
-                t_tx -= tgd;
-            }
+            t_tx -= self.tgd;
         }
 
         if cfg.modeling.sv_clock_bias {
-            let clock_corr = self.clock_corr.ok_or(Error::UnknownClockCorrection)?;
-
-            debug!(
-                "{} ({}) clock correction: {}",
-                self.t, self.sv, clock_corr.duration,
-            );
-
-            t_tx -= clock_corr.duration;
+            t_tx -= self.clock_corr.duration;
         }
 
         assert!(
-            t_tx < self.t,
-            "Physical non sense - rx={} prior tx={}",
-            self.t,
+            t_tx < self.epoch,
+            "Physical non sense - {} rx={} prior tx={}",
+            name,
+            self.epoch,
             t_tx
         );
 
-        self.t_tx = t_tx;
-        self.dt_tx = self.t - self.t_tx;
+        self.tx_epoch = t_tx;
+
+        debug!(
+            "{}({}) {} - time of flight: {}",
+            self.sv,
+            self.epoch,
+            name,
+            self.signal_time_of_flight()
+        );
 
         Ok(())
     }
 
-    /// Fix [Orbit]al attitude
+    pub(crate) fn signal_time_of_flight(&self) -> Duration {
+        self.epoch - self.tx_epoch
+    }
+
+    /// Fix [Orbit]al attitude.
     pub(crate) fn orbital_attitude_fixup(
         &mut self,
         almanac: &Almanac,
