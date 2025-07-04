@@ -5,13 +5,12 @@ use std::str::FromStr;
 use crate::{
     navigation::apriori::Apriori,
     prelude::{
-        Almanac, ClockProfile, Config, Epoch, Frame, Method, PVTSolutionType, Solver,
-        UserParameters, UserProfile,
+        Almanac, ClockProfile, Config, Epoch, Frame, Method, Solver, UserParameters, UserProfile,
     },
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
-        TestEnvironment, TestSpacebornBiases, MAX_CPP_GDOP, MAX_CPP_X_ERROR_M, MAX_CPP_Y_ERROR_M,
-        MAX_CPP_Z_ERROR_M, ROVER_REFERENCE_COORDS_ECEF_M,
+        TestEnvironment, TestSpacebornBiases, MAX_RTK_CPP_X_ERROR_M, MAX_RTK_CPP_Y_ERROR_M,
+        MAX_RTK_CPP_Z_ERROR_M, ROVER_REFERENCE_COORDS_ECEF_M,
     },
 };
 
@@ -34,7 +33,7 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
-fn static_cpp() {
+fn static_rtk_cpp() {
     init_logger();
 
     let cfg = Config::default().with_navigation_method(Method::CPP);
@@ -51,7 +50,9 @@ fn static_cpp() {
 
     let orbits_data = OrbitsData::new(earth_frame);
 
-    let mut solver = Solver::new_survey(
+    let rtk_base = CandidatesBuilder::build_rtk_base();
+
+    let mut solver = Solver::new(
         almanac,
         earth_frame,
         cfg,
@@ -60,14 +61,12 @@ fn static_cpp() {
         space_biases.into(),
         environment.into(),
         null_time,
+        Some(ROVER_REFERENCE_COORDS_ECEF_M),
     );
 
-    for (nth, epoch_str) in [
-        "2020-06-25T00:00:00 GPST",
-        "2020-06-25T00:15:00 GPST",
-        "2020-06-25T00:30:00 GPST",
-        "2020-06-25T00:45:00 GPST",
-        // "2020-06-25T01:00:00 GPST",
+    for (nth, (epoch_str, use_rtk)) in [
+        ("2020-06-25T00:00:00 GPST", true),
+        ("2020-06-25T00:15:00 GPST", false),
     ]
     .iter()
     .enumerate()
@@ -78,14 +77,18 @@ fn static_cpp() {
 
         assert!(
             candidates.len() > 0,
-            "no measurements to propose at \"{}\"",
+            "{} - no measurements to propose",
             epoch_str
         );
 
-        let status = solver.ppp(t_gpst, default_params, &candidates);
+        let status = if *use_rtk {
+            solver.rtk(t_gpst, default_params, &candidates, &rtk_base)
+        } else {
+            solver.ppp(t_gpst, default_params, &candidates)
+        };
 
         match status {
-            Err(e) => panic!("Static CPP process failed with invalid error: {}", e),
+            Err(e) => panic!("Static RTK-CPP process failed with invalid error: {}", e),
             Ok(pvt) => {
                 info!("Solution #{} {:#?}", nth + 1, pvt);
 
@@ -99,36 +102,34 @@ fn static_cpp() {
                 );
 
                 assert!(
-                    err_x_m < MAX_CPP_X_ERROR_M,
-                    "epoch={} - x error={:.3}m too large",
+                    err_x_m < MAX_RTK_CPP_X_ERROR_M,
+                    "epoch={} - x error={}m too large",
                     epoch_str,
                     err_x_m
                 );
 
                 assert!(
-                    err_y_m < MAX_CPP_Y_ERROR_M,
-                    "epoch={} - y error={:.3}m too large",
+                    err_y_m < MAX_RTK_CPP_Y_ERROR_M,
+                    "epoch={} - y error={}m too large",
                     epoch_str,
                     err_y_m
                 );
 
                 assert!(
-                    err_z_m < MAX_CPP_Z_ERROR_M,
-                    "epoch={} - z error={:.3}m too large",
+                    err_z_m < MAX_RTK_CPP_Z_ERROR_M,
+                    "epoch={} - z error={}m too large",
                     epoch_str,
                     err_z_m
                 );
 
-                assert_eq!(pvt.solution_type, PVTSolutionType::PPP);
-
-                assert!(
-                    pvt.gdop < MAX_CPP_GDOP,
-                    "{} (static) cpp GDOP too large!",
-                    epoch_str
-                );
+                // assert!(
+                //     pvt.gdop < MAX_RTK_CPP_GDOP,
+                //     "{} (static) rtk-cpp survey GDOP too large!",
+                //     epoch_str
+                // );
 
                 info!(
-                    "{} (static) cpp (survey) error: x={:.3}m y={:.3}m z={:.3}m, GDOP={} TDOP={}",
+                    "{} (static) rtk-cpp (with preset) error: x={}m y={}m z={} GDOP={} TDOP={}",
                     epoch_str, err_x_m, err_y_m, err_z_m, pvt.gdop, pvt.tdop,
                 );
             },

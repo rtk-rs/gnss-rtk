@@ -4,7 +4,10 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
+    prelude::{
+        Almanac, ClockProfile, Config, Epoch, Frame, Method, PVTSolutionType, Solver,
+        UserParameters, UserProfile,
+    },
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
         TestEnvironment, TestSpacebornBiases, MAX_SPP_GDOP, MAX_SPP_X_ERROR_M, MAX_SPP_Y_ERROR_M,
@@ -36,7 +39,7 @@ fn static_spp() {
 
     let cfg = Config::default().with_navigation_method(Method::SPP);
 
-    let default_params = UserParameters::default();
+    let default_params = UserParameters::new(UserProfile::Static, ClockProfile::Quartz);
 
     let almanac = build_almanac();
     let earth_frame = build_earth_frame();
@@ -80,7 +83,7 @@ fn static_spp() {
             epoch_str
         );
 
-        let status = solver.ppp_solving(t_gpst, default_params, &candidates);
+        let status = solver.ppp(t_gpst, default_params, &candidates);
 
         match status {
             Err(e) => panic!("Static SPP process failed with invalid error: {}", e),
@@ -117,6 +120,8 @@ fn static_spp() {
                     err_z_m
                 );
 
+                assert_eq!(pvt.solution_type, PVTSolutionType::PPP);
+
                 assert!(
                     pvt.gdop < MAX_SPP_GDOP,
                     "{} (static) spp survey GDOP too large!",
@@ -124,8 +129,8 @@ fn static_spp() {
                 );
 
                 info!(
-                    "{} (static) spp (with preset) error: x={:.3}m y={:.3}m z={:.3}m",
-                    epoch_str, err_x_m, err_y_m, err_z_m
+                    "{} (static) spp (with preset) error: x={:.3}m y={:.3}m z={:.3}m, GDOP={} TDOP={}",
+                    epoch_str, err_x_m, err_y_m, err_z_m, pvt.gdop, pvt.tdop,
                 );
             },
         }

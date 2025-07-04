@@ -4,11 +4,10 @@ use crate::prelude::Error;
 
 use log::debug;
 
-#[derive(Default)]
 pub struct LambdaAR {}
 
 impl LambdaAR {
-    const MAX_SEARCH: usize = 1_000;
+    const MAX_SEARCH: usize = 10_000;
 
     fn signum(value: f64) -> f64 {
         if value <= 0.0 {
@@ -197,7 +196,6 @@ impl LambdaAR {
                 }
             } else {
                 // case 3: exit or move up
-
                 if k == ndf - 1 {
                     break;
                 } else {
@@ -209,30 +207,28 @@ impl LambdaAR {
             }
         }
 
-        // sort by s
-        for i in 0..nfixed - 1 {
-            for j in i + 1..nfixed {
-                if s_vec[i] < s_vec[j] {
-                    continue;
-                }
+        // // sort by s
+        // for i in 0..nfixed - 1 {
+        //     for j in i + 1..nfixed {
+        //         if s_vec[i] < s_vec[j] {
+        //             continue;
+        //         }
 
-                s_vec.swap_rows(i, j);
+        //         s_vec.swap_rows(i, j);
 
-                for k in 0..ndf {
-                    zn_mat.swap((k, i), (k, j));
-                }
-            }
-        }
+        //         for k in 0..ndf {
+        //             zn_mat.swap((k, i), (k, j));
+        //         }
+        //     }
+        // }
     }
 
     /// Runs modified LAMBDA ILS
     pub fn run(
-        &mut self,
         ndf: usize,
         nfixed: usize,
         x_vec: &DMatrix<f64>,
         q_mat: &DMatrix<f64>,
-        // sv_indexes: &DVector<(SV, usize)>,
     ) -> Result<(DMatrix<f64>, DVector<f64>), Error> {
         let (x_rows, x_cols) = (x_vec.nrows(), x_vec.ncols());
         let (q_rows, _q_cols) = (q_mat.nrows(), q_mat.ncols());
@@ -251,7 +247,7 @@ impl LambdaAR {
         let mut l_mat = ldl.u.transpose();
 
         debug!(
-            "search - ndf={} - X={} Q={} L={} D={}",
+            "(ppp) lambda - ndf={} - X={} Q={} L={} D={}",
             ndf, x_vec, q_mat, l_mat, d_diag
         );
 
@@ -266,7 +262,7 @@ impl LambdaAR {
 
         Self::search(ndf, nfixed, l_mat, d_diag, zs_vec, &mut e_mat, &mut s_vec);
 
-        debug!("search - E={} S={}", e_mat, s_vec);
+        debug!("search - E={}", e_mat);
 
         let z_inv = z_mat.try_inverse().ok_or(Error::AmbiguityInverse)?;
 
@@ -274,7 +270,7 @@ impl LambdaAR {
 
         let f_mat = z_inv * e_mat;
 
-        debug!("search - F={}", f_mat);
+        debug!("search - F={} S={}", f_mat, s_vec);
 
         Ok((f_mat, s_vec))
     }
@@ -304,24 +300,6 @@ mod test {
     #[test]
     fn mlambda_ils_1() {
         init_logger();
-
-        let mut lambda = LambdaAR::default();
-
-        // let g01 = SV::new(Constellation::GPS, 1);
-        // let g02 = SV::new(Constellation::GPS, 2);
-        // let g03 = SV::new(Constellation::GPS, 3);
-        // let g04 = SV::new(Constellation::GPS, 4);
-        // let g05 = SV::new(Constellation::GPS, 5);
-        // let g06 = SV::new(Constellation::GPS, 6);
-
-        // let sv_indexes = DVector::<(SV, usize)>::from_row_slice(&[
-        //     (g01, 0),
-        //     (g02, 1),
-        //     (g03, 2),
-        //     (g04, 3),
-        //     (g05, 4),
-        //     (g06, 5),
-        // ]);
 
         let x = DMatrix::<f64>::from_row_slice(
             U6::USIZE,
@@ -370,9 +348,9 @@ mod test {
         // let s_1 = DVector::<f64>::from_row_slice(&[3.507984, 3.708456]);
 
         let ndf = U6::USIZE;
-        let nfixed = 2;
+        let nfixed = 8;
 
-        lambda.run(ndf, nfixed, &x, &q).unwrap_or_else(|e| {
+        LambdaAR::run(ndf, nfixed, &x, &q).unwrap_or_else(|e| {
             panic!("mlabmda search failed with {}", e);
         });
     }
@@ -380,8 +358,6 @@ mod test {
     #[test]
     fn mlambda_search_2() {
         init_logger();
-
-        let mut lambda = LambdaAR::default();
 
         let a = DMatrix::<f64>::from_row_slice(
             U10::USIZE,
@@ -436,9 +412,9 @@ mod test {
         // let s_2 = DVector::<f64>::from_row_slice(&[1506.435789, 1612.811795]);
 
         let ndf = U10::USIZE;
-        let nfixed = 2;
+        let nfixed = 8;
 
-        lambda.run(ndf, nfixed, &a, &q).unwrap_or_else(|e| {
+        LambdaAR::run(ndf, nfixed, &a, &q).unwrap_or_else(|e| {
             panic!("mlabmda search failed with {}", e);
         });
     }

@@ -45,6 +45,8 @@ pub struct Solver<
     /// Base pool
     base_pool: Pool<EPH, ORB, EB, SB>,
 
+    /// PPP prefit
+
     /// [Navigation] solver
     navigation: Navigation,
 
@@ -168,29 +170,28 @@ impl<
     /// ## Output
     /// - success: [PVTSolution]
     /// - failure: [Error]
-    pub fn ppp_solving(
+    pub fn ppp(
         &mut self,
         epoch: Epoch,
         params: UserParameters,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
         let null_rtk = NullRTK {};
-        let solution = self.solving(epoch, params, candidates, &null_rtk, false)?;
+        let solution = self.solve(epoch, params, candidates, &null_rtk, false)?;
         Ok(solution)
     }
 
     /// [PVTSolution] solving attempt using RTK technique and a single remote
-    /// [RTKBase] reference site. This library is currently limited to a single
-    /// reference, although there should be limitations to support any amount of
-    /// reference stations in the future. You may catch solving errors that are
-    /// related to the RTK network to try-again but using [Self::ppp_solving]
-    /// when the network is down. For this function to converge, the remote
+    /// reference site that implements [RTKBase].
+    /// You may catch RTK solving issues (for example, network loss)
+    /// and retry using [Self::ppp], because this object is compatible
+    /// with both. For this function to converge, the remote
     /// site and rover proposals must agree in their content (enough matches)
     /// and signals must fulfill the navigation [Method] being used.
     ///
     /// NB: unlike PPP solving, RTK solving will only resolve the spatial
     /// state, the clock state can only remain undetermined. If you are
-    /// interested by both, you will either have to restrict to [Self::ppp_solving],
+    /// interested by both, you will either have to restrict to [Self::ppp_run],
     /// or do a PPP (time only) run after the RTK run.
     ///
     /// ## Input
@@ -203,18 +204,18 @@ impl<
     ///
     /// ## Output
     /// - [PVTSolution].
-    pub fn rtk_solving<RTK: RTKBase>(
+    pub fn rtk<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
         params: UserParameters,
         candidates: &[Candidate],
         rtk_base: &RTK,
     ) -> Result<PVTSolution, Error> {
-        self.solving(epoch, params, candidates, rtk_base, true)
+        self.solve(epoch, params, candidates, rtk_base, true)
     }
 
     /// [PVTSolution] solving attempt.
-    fn solving<RTK: RTKBase>(
+    fn solve<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
         params: UserParameters,
@@ -328,9 +329,10 @@ impl<
             None
         };
 
+        // debug print
         if let Some(double_differences) = &double_differences {
-            for ((sat, carrier), ddiff) in double_differences.inner.iter() {
-                debug!("{}({}) - DD({})={}", epoch, sat, carrier, ddiff);
+            for (sat, ddiff) in double_differences.inner.iter() {
+                debug!("{}({}) - DD: {}", epoch, sat, ddiff);
             }
         }
 
@@ -341,7 +343,7 @@ impl<
         }
 
         // Solving attempt
-        match self.navigation.solving(
+        match self.navigation.solve(
             epoch,
             params,
             &state,
@@ -353,7 +355,7 @@ impl<
             &double_differences,
         ) {
             Ok(_) => {
-                info!("{} - iteration completed", epoch);
+                info!("{} - sucess", epoch);
             },
             Err(e) => {
                 error!("{} - iteration failure: {}", epoch, e);
@@ -364,11 +366,13 @@ impl<
         // Form P.V.T solution
         let solution = PVTSolution::new(
             epoch,
+            uses_rtk,
             &self.navigation.state,
             &self.navigation.dop,
             &self.navigation.sv,
         );
 
+        // Special "open loop" option
         if self.cfg.solver.open_loop {
             self.navigation.state = state;
         }
@@ -381,6 +385,7 @@ impl<
         self.navigation.reset();
     }
 
+    /// Returns minimal requirement for current preset
     fn min_sv_required(&self, uses_rtk: bool) -> usize {
         let mut min_sv = 4;
 

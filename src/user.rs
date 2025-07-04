@@ -29,7 +29,6 @@ const fn default_clock_drift_psd() -> f64 {
 pub enum UserProfile {
     /// [UserProfile::Static] applies to user applications where
     /// the receiver antenna is held static at all times.
-    /// This is not our prefered mode, because this apply to particular use cases.
     Static,
 
     /// [UserProfile::Pedestrian]: < 10 km/h very low velocity.
@@ -38,7 +37,7 @@ pub enum UserProfile {
     #[default]
     Pedestrian,
 
-    /// [UserProfile::Car]: < 100 km/h slow velocity
+    /// [UserProfile::Car]: < 100 km/h low velocity
     #[cfg_attr(feature = "serde", serde(alias = "car", alias = "Car"))]
     Car,
 
@@ -91,23 +90,24 @@ impl std::fmt::Display for UserProfile {
     }
 }
 
+#[allow(non_camel_case_types)]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ClockProfile {
     /// [ClockProfile::Quartz] low quality clock,
-    /// poorer than GNSS constellation clocks.
+    /// poorer than GNSS constellation.
     #[default]
     Quartz,
 
     /// [ClockProfile::Oscillator] medium quality clock,
-    /// poorer than GNSS constellation clocks.
+    /// poorer than GNSS constellation.
     Oscillator,
 
-    /// [ClockProfile::Atomic] high quality clock, that may be
-    /// at the level of the constellation .
+    /// [ClockProfile::Atomic] high quality clock, potentially
+    /// at the same level of a GNSS constellation.
     Atomic,
 
-    /// [ClockProfile::H_MASER] (Hydrogen Maser) ultra high quality clock
-    /// which is actually more performant than the constellation.
+    /// [ClockProfile::H_MASER] (Hydrogen Maser) ultra high quality clock,
+    /// better than a GNSS constellation.
     H_MASER,
 }
 
@@ -132,8 +132,8 @@ impl ClockProfile {
         match self {
             Self::Quartz => 0.5 * 2.0E-19,
             Self::Oscillator => 0.5 * 2.0E-20,
-            Self::Atomic => 0.5 * 2.0E-20,
-            Self::H_MASER => 0.5 * 2.0E-20,
+            Self::Atomic => 0.5 * 2.0E-21,
+            Self::H_MASER => 0.5 * 2.0E-22,
         }
     }
 
@@ -142,8 +142,8 @@ impl ClockProfile {
         match self {
             Self::Quartz => 2.0 * PI * PI * 2.0E-20,
             Self::Oscillator => 2.0 * PI * PI * 2.0E-23,
-            Self::Atomic => 2.0 * PI * PI * 2.0E-23,
-            Self::H_MASER => 2.0 * PI * PI * 2.0E-23,
+            Self::Atomic => 2.0 * PI * PI * 2.0E-24,
+            Self::H_MASER => 2.0 * PI * PI * 2.0E-25,
         }
     }
 }
@@ -199,13 +199,7 @@ impl UserParameters {
     }
 
     /// Parametrization of the coveriance [DMatrix]
-    pub(crate) fn q_matrix(
-        &self,
-        is_init: bool,
-        q_mat: &mut DMatrix<f64>,
-        dt: Duration,
-        ndf: usize,
-    ) {
+    pub(crate) fn q_matrix(&self, q_mat: &mut DMatrix<f64>, dt: Duration, ndf: usize) {
         assert!(ndf > 2, "Q cov: minimal dimension");
 
         let dt_s = dt.to_seconds();
@@ -213,19 +207,18 @@ impl UserParameters {
 
         for i in 0..=2 {
             // if is_init {
-            //} else {
-            // q_mat[(i, i)] = self.accel_psd * dt_s3 / 3.0;
             q_mat[(i, i)] = 1.0;
-            //}
+            // } else {
+            // q_mat[(i, i)] = self.accel_psd * dt_s3 / 3.0;
+            // }
         }
 
         if ndf > 3 {
             if dt == Duration::ZERO {
                 q_mat[(3, 3)] = (100.0e-3 * SPEED_OF_LIGHT_M_S).powi(2);
             } else {
-                // q_mat[(3, 3)] = SPEED_OF_LIGHT_M_S.powi(2)
-                //    * (self.clock_psd * dt_s + self.clock_drift_psd * dt_s3 / 3.0);
-                q_mat[(3, 3)] = (100.0e-3 * SPEED_OF_LIGHT_M_S).powi(2);
+                q_mat[(3, 3)] = SPEED_OF_LIGHT_M_S.powi(2)
+                    * (self.clock_psd * dt_s + self.clock_drift_psd * dt_s3 / 3.0);
             }
         }
     }

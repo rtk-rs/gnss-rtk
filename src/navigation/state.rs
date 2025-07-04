@@ -79,6 +79,10 @@ impl State {
         s
     }
 
+    pub fn resize_mut(&mut self, ndf: usize) {
+        self.x.resize_vertically_mut(ndf, 0.0);
+    }
+
     /// Create new [State] from [Orbit]al solution.
     pub fn from_orbit(orbit: &Orbit) -> PhysicsResult<Self> {
         let pos_vel_m = orbit.to_cartesian_pos_vel() * 1.0E3;
@@ -110,7 +114,11 @@ impl State {
 
     /// Returns estimated clock (offset, drift) in seconds and s.s⁻¹.
     pub fn clock_profile_s(&self) -> (f64, f64) {
-        (self.x[Navigation::clock_index()], self.clock_drift_s_s)
+        if self.x.nrows() > Navigation::clock_index() {
+            (self.x[Navigation::clock_index()], self.clock_drift_s_s)
+        } else {
+            (0.0_f64, 0.0_f64)
+        }
     }
 
     /// Converts [State] to [Orbit]

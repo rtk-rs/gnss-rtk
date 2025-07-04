@@ -30,7 +30,6 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
-#[ignore]
 fn static_rtk_ppp() {
     init_logger();
 
@@ -82,7 +81,7 @@ fn static_rtk_ppp() {
             epoch_str
         );
 
-        let status = solver.rtk_solving(t_gpst, default_params, &candidates, &rtk_base);
+        let status = solver.rtk(t_gpst, default_params, &candidates, &rtk_base);
 
         match status {
             Err(e) => panic!("Static RTK-PPP process failed with invalid error: {}", e),

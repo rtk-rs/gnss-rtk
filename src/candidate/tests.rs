@@ -69,30 +69,4 @@ impl Candidate {
 
         Self::new(SV::new(sv_constellation, sv_prn), t, observations)
     }
-
-    #[cfg(test)]
-    /// Returns true if all SD(code) measurements are zero
-    pub fn sd_codes_are_null(&self) -> bool {
-        for obs in self.sd.iter() {
-            if let Some(code) = obs.pseudo_range_m {
-                if code != 0.0 {
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
-    #[cfg(test)]
-    /// Returns true if all SD(phase) measurements are zero
-    pub fn sd_phases_are_null(&self) -> bool {
-        for obs in self.sd.iter() {
-            if let Some(lp) = obs.phase_range_m {
-                if lp != 0.0 {
-                    return false;
-                }
-            }
-        }
-        true
-    }
 }

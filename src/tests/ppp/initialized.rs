@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
+    prelude::{Almanac, Config, Epoch, Frame, Method, PVTSolutionType, Solver, UserParameters},
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
         TestEnvironment, TestSpacebornBiases, ROVER_REFERENCE_COORDS_ECEF_M,
@@ -80,7 +80,7 @@ fn static_ppp() {
             epoch_str
         );
 
-        let status = solver.ppp_solving(t_gpst, default_params, &candidates);
+        let status = solver.ppp(t_gpst, default_params, &candidates);
 
         match status {
             Err(e) => error!("Static PPP process failed with invalid error: {}", e),
@@ -117,9 +117,11 @@ fn static_ppp() {
                     err_z_m
                 );
 
+                assert_eq!(pvt.solution_type, PVTSolutionType::PPP);
+
                 info!(
-                    "{} (static) ppp (with preset) error: x={:.4}m y={:.4}m z={:.4}m",
-                    epoch_str, err_x_m, err_y_m, err_z_m
+                    "{} (static) ppp (with preset) error: x={:.4}m y={:.4}m z={:.4}m, GDOP={}, TDOP={}",
+                    epoch_str, err_x_m, err_y_m, err_z_m, pvt.gdop, pvt.tdop,
                 );
             },
         }

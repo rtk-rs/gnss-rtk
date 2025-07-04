@@ -1,13 +1,13 @@
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
-    constants::{EARTH_GRAVITATION, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
+    constants::{EARTH_GRAVITATION_MU_M3_S2, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
     navigation::state::State,
     pool::Pool,
     prelude::{
-        Almanac, Candidate, EnvironmentalBias, EphemerisSource, Error, Method, OrbitSource,
-        SpacebornBias, Vector3, EARTH_J2000, SUN_J2000,
+        Almanac, Candidate, EnvironmentalBias, EphemerisSource, Error, OrbitSource, SpacebornBias,
+        Vector3, EARTH_J2000, SUN_J2000,
     },
-    rtk::DoubleDifferences,
+    rtk::double_diff::DoubleDifferences,
 };
 
 use std::cmp::Ordering;
@@ -23,29 +23,16 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
 {
     /// Apply Post fit algorithms
     pub fn post_fit(&mut self, name: &str, state: &State) -> AlmanacResult<()> {
-        // fix attitudes & derivatives
         self.post_fit_attitudes(name, state);
         self.post_fit_velocities(name);
         self.post_fit_eclipse(name);
-
         self.post_fit_biases(name, state);
-
-        // PPP workflow specific postfit
-        if self.cfg.method.is_ppp() {
-            // TODO
-            // self.post_fit_phase_windup(almanac, state)?;
-            // self.post_fit_ambiguity_solving();
-        }
-
-        // if self.cfg.code_smoothing > 0 {
-        //     self.post_fit_code_smoothing();
-        // }
 
         Ok(())
     }
 
     /// Post fit phase windup correction
-    fn post_fit_phase_windup(&mut self, almanac: &Almanac, state: &State) -> AlmanacResult<()> {
+    fn post_fit_phase_windup(&mut self, almanac: &Almanac, _state: &State) -> AlmanacResult<()> {
         let epoch = self.inner[0].epoch;
 
         let earth_sun = almanac.transform(SUN_J2000, EARTH_J2000, epoch, None)?;
@@ -130,7 +117,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
 
     /// Velocities fit
     fn post_fit_velocities(&mut self, name: &str) {
-        let mu = EARTH_GRAVITATION;
+        let mu = EARTH_GRAVITATION_MU_M3_S2;
         let w_e = EARTH_SEMI_MAJOR_AXIS_WGS84;
 
         for cd in self.inner.iter_mut() {
@@ -339,7 +326,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
             let r_sat_0 = r_0 - r_sat;
 
             if self.cfg.modeling.relativistic_path_range {
-                let dr = 2.0 * EARTH_GRAVITATION / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+                let dr = 2.0 * EARTH_GRAVITATION_MU_M3_S2 / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                     * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
                 debug!("{}({}) {} - rel. path range={}m", cd.epoch, cd.sv, name, dr);
@@ -358,14 +345,23 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     pub fn post_fit_sd(&mut self, pivot: &Candidate) -> Result<(), Error> {
         let method = self.cfg.method;
 
-        self.retain_mut(|cd| {
+        for cd in self.inner.iter() {
             if cd.sv != pivot.sv {
-                cd.sd_mut(method, &pivot);
-                cd.sd.is_some()
-            } else {
-                false // drop pivot
+                let sd = cd.single_difference(method, &pivot);
+
+                if let Some((carrier, code)) = sd.code {
+                    self.single_diff.insert_code(cd.sv, carrier, code);
+                }
+
+                if let Some((carrier, lambda, phase)) = sd.phase {
+                    self.single_diff
+                        .insert_phase(cd.sv, (carrier, lambda, phase));
+                }
             }
-        });
+        }
+
+        // drop pivot
+        self.retain(|cd| cd.sv != pivot.sv);
 
         Ok(())
     }
@@ -389,66 +385,23 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     pub fn post_fit_dd(&self, base: &Self) -> DoubleDifferences {
         let mut dd = DoubleDifferences::default();
 
-        for cd in self.inner.iter() {
-            for base_cd in base.inner.iter() {
-                if base_cd.sv == cd.sv {
-                    if let Some(sd) = cd.sd {
-                        if let Some(base_sd) = base_cd.sd {
-                            if sd.carrier == base_sd.carrier {
-                                match self.cfg.method {
-                                    Method::SPP | Method::CPP => {
-                                        if let Some(p1) = &sd.pseudo_range_m {
-                                            if let Some(p2) = &base_sd.pseudo_range_m {
-                                                let value = *p1 - *p2;
+        for (lhs_sv, lhs_sd) in self.single_diff.inner.iter() {
+            for (rhs_sv, rhs_sd) in base.single_diff.inner.iter() {
+                if lhs_sv == rhs_sv {
+                    if let Some((lhs_carrier, lhs_code)) = &lhs_sd.code {
+                        if let Some((rhs_carrier, rhs_code)) = &rhs_sd.code {
+                            if lhs_carrier == rhs_carrier {
+                                dd.insert_code(*lhs_sv, (*lhs_carrier, lhs_code - rhs_code));
+                            }
+                        }
+                    }
 
-                                                debug!(
-                                                    "{}({}) - DD({})={}",
-                                                    cd.epoch, cd.sv, sd.carrier, value
-                                                );
-
-                                                dd.insert(cd.sv, sd.carrier, value);
-                                            } else {
-                                                error!(
-                                                    "{} - SD(base) missing {} pseudo range",
-                                                    cd.epoch, sd.carrier
-                                                );
-                                            }
-                                        } else {
-                                            error!(
-                                                "{} - SD(rover) missing {} pseudo range",
-                                                cd.epoch, sd.carrier
-                                            );
-                                        }
-                                    },
-                                    Method::PPP | Method::PPP_AR => {
-                                        if let Some(l1) = &sd.phase_range_m {
-                                            if let Some(l2) = &base_sd.phase_range_m {
-                                                let value = *l1 - *l2;
-
-                                                debug!(
-                                                    "{}({}) - DD({})={}",
-                                                    cd.epoch, cd.sv, sd.carrier, value
-                                                );
-
-                                                dd.insert(cd.sv, sd.carrier, value);
-                                            } else {
-                                                error!(
-                                                    "{} - SD(base) missing {} phase",
-                                                    cd.epoch, sd.carrier
-                                                );
-                                            }
-                                        } else {
-                                            error!(
-                                                "{} - SD(rover) missing {} phase",
-                                                cd.epoch, sd.carrier
-                                            );
-                                        }
-                                    },
-                                }
-                            } else {
-                                error!(
-                                    "{} - SD carrier mismatch rover={}/base={}",
-                                    cd.epoch, sd.carrier, base_sd.carrier
+                    if let Some((lhs_carrier, lhs_lambda, lhs_phase)) = &lhs_sd.phase {
+                        if let Some((rhs_carrier, _, rhs_phase)) = &rhs_sd.phase {
+                            if lhs_carrier == rhs_carrier {
+                                dd.insert_phase(
+                                    *lhs_sv,
+                                    (*lhs_carrier, *lhs_lambda, lhs_phase - rhs_phase),
                                 );
                             }
                         }
@@ -456,6 +409,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
                 }
             }
         }
+
         dd
     }
 

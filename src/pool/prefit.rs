@@ -86,7 +86,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
                     false
                 }
             },
-            Method::PPP | Method::PPP_AR => {
+            Method::PPP => {
                 if cd.ppp_compatible() {
                     true
                 } else {

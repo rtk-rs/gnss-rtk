@@ -4,6 +4,7 @@ use crate::prelude::Error;
 use serde::{Deserialize, Serialize};
 
 /// Solving method
+#[allow(non_camel_case_types)]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Method {
@@ -23,19 +24,13 @@ pub enum Method {
     #[default]
     CPP,
 
-    /// Precise Point Positioning is a dual frequency navigation technique
-    /// that requires both code and phase measurements. For both frequencies, you must
-    /// provide both types of observation, otherwise the process cannot complete.
-    /// It is about 10 times more accurate than [Method::CPP].
+    /// Precise Point Positioning, uses both dual frequency code and phase navigation,
+    /// including phase exploitation. The navigation process eventually
+    /// only relies on the phase observations, at the expense of
+    /// more preprocessing and computations and convergence of the PPP
+    /// prefit. This is the most accurate solution, with at least 2 orders of magnitude
+    /// improvements from [Method::CPP].
     PPP,
-
-    /// Precise Point Positioning with advanced Ambiguity Resolution (AR),
-    /// is the same algorithm as [Method::PPP], therefore has the same requirements,
-    /// but deploys an advanced AR method, using a secondary filter and is more
-    /// computationnally intense. [Method::PPP_AR] is not completed to this day,
-    /// do not use.
-    #[allow(non_snake_case)]
-    PPP_AR,
 }
 
 impl std::fmt::Display for Method {
@@ -44,7 +39,6 @@ impl std::fmt::Display for Method {
             Self::SPP => write!(fmt, "SPP"),
             Self::CPP => write!(fmt, "CPP"),
             Self::PPP => write!(fmt, "PPP"),
-            Self::PPP_AR => write!(fmt, "PPP-AR"),
         }
     }
 }
@@ -56,14 +50,7 @@ impl std::str::FromStr for Method {
             "spp" => Ok(Self::SPP),
             "cpp" => Ok(Self::CPP),
             "ppp" => Ok(Self::PPP),
-            "ppp-ar" => Ok(Self::PPP_AR),
             _ => Err(Error::UnknownNavigationMethod),
         }
-    }
-}
-
-impl Method {
-    pub(crate) fn is_ppp(&self) -> bool {
-        matches!(self, Self::PPP | Self::PPP_AR)
     }
 }

@@ -1,4 +1,4 @@
-GNSS-RTK
+
 ========
 
 [![Rust](https://github.com/rtk-rs/gnss-rtk/actions/workflows/rust.yml/badge.svg)](https://github.com/rtk-rs/gnss-rtk/actions/workflows/rust.yml)
@@ -47,29 +47,81 @@ validated for each release.
 Licensing
 =========
 
-This library is part of the [RTK-rs framework](https://github.com/rtk-rs) which
-is delivered under the [Mozilla V2 Public](https://www.mozilla.org/en-US/MPL/2.0) license.
+This library is released under the [Mozilla V2 Public](https://www.mozilla.org/en-US/MPL/2.0) license.
 
 GNSS-RTK / P.V.T solutions
 ==========================
 
 The main objective of this library is to propose efficient GNSS solvers, that
-perform the rather complex task of solving Position, Velocity and Timing (P.V.T) solutions.
+perform the rather complex task of solving Position, Velocity and Timing (P.V.T) solutions,
+possibly from scratch (without initial guess).
+
 Indeed, GNSS navigation allows to obtain the position of the receiver in 3D (in space) 
-and in time as well, and may include the instantaneous velocity of the target as well. 
+and possibly in time as well.
 
-The timing solutions (4th component) is the state of the receiver in the navigation timescale. 
-It is possible to express the solutions in any of the supported Timescales. 
+The timing solutions (4th component) is the state of the receiver in the navigation timescale,
+and is obtained by PPP navigation technique (not RTK). Our timing solutions
+may be expressed in all supported Timescales and we offer an interface for precise timing corrections.
 
-For the spatial coordinates, whether the receiver is moving or not is application dependent and the
-solver should be able to determine the target state in any case. 
+For the spatial coordinates, whether the receiver is moving or not is application dependent and one
+of the major point of the navigation filter is to track the target in all cases. To help the navigation filter,
+it is recommended to tune your `UserParameters` according to your application. This includes
 
-The proposed API is compatible with both real-time and post-processed navigation, read the dedicated chapter.
+- `UserProfile` for the type of application (basically, the expected average velocity).
+Selecting an incorrect profile will not prohibit the filter to converge to the truth, it just reduces
+the convergence time.
 
-GNSS-RTK is currently limited to ground navigation on planet Earth. It should be rather easy to modify the current
-API to propose ground-based navigation on any solid body supported by the `Nyx/ANISE` library. Mainly
-by modifying the `EnvironmentalBias` trait, and possibly the `SpacebornBias` trait as well. But this is unscheduled work
-as of today.
+- `ClockProfile`
+
+The proposed API is compatible with both real-time and post-processed navigation, so it should be usable
+in any navigation application. For real-time applications, we offer interesting features:
+
+- the user profile is updated at eatch `Epoch`, if you can monitor your clock profile and have
+erratic application, you can take advantage of that.
+
+- when the RTK network goes down, you can switch to PPP technique temporarily
+
+GNSS-RTK is currently limited to ground navigation on planet Earth. Although it should be feasible to
+make it more abstract and suitable for navigation on other planets, it is not scheduled as of today.
+If you want to this happen, feel free to open discussions.
+
+Summary
+=======
+
+Select a navigation method, depending on available signals and desired accuracy:
+
+| Method        | Physics                                  | Accuracy      |  Application                                            |
+|---------------|------------------------------------------|---------------|---------------------------------------------------------|
+| `SPP`         | Single Frequency Pseudo Range navigation |  2/5          | Low cost devices, Degraded setups                       |
+| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | Mid cost devices, Timing applications                   |
+| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Precise applications, Profesionnal surveying, RTK
+Station calibration | 
+
+For each set of synchronous measurements (oftentimes referred to as "Observations"), you can then either 
+
+1. apply the RTK Navigation technique (Differential navigation, relying on a single ground reference),
+by using `Solver::rtk_run`.
+
+2. or PPP Navigation technique (Absolute navigation without any reference),
+by using `Solver::ppp_run`.
+
+RTK should be prefered for geometric applications, it is not capable to resolve the clock state,
+and garantees much higher accuracy than absolute navigation. Note that our API is currently limited
+to a single ground reference. When RTK is in failure, for example when the RTK network is down and
+reference becomes unreachable, you can consume this Epoch with PPP technique, our solver will
+progress and maintains a coherent internal state. On your first PPP solution, the clock state will appear.
+
+Pure PPP runs always resolve the clock state at all times.
+
+The current validated and operational modes are:
+
+- PPP run with `Method::SPP`: absolute navigation, single frequency pseudo range
+- PPP run with `Method::CPP`: absolute navigation, dual frequency pseudo range
+- PPP run with `Method::PPP`: not available as of today (`panic`)
+- RTK run with `Method::SPP`: differential navigation, single frequency pseudo range
+- RTK run with `Method::CPP`: differential navigation, dual frequency pseudo range
+- RTK run with `Method::PPP`: Work in progress, unstable: will most likely panic or diverge. Differential navigation, dual frequency
+pseudo range and phase data.
 
 Solver, strategies and API
 ==========================
@@ -183,28 +235,6 @@ and give recommendations, and finally, help debug potential use cases.
 For correct debugging, you should set `$RUST_LOG=debug`. For ulimtate debugging, `$RUST_LOG=trace`
 will give all the information we output.
 
-Summary
-=======
-
-Select a navigation method, depending on your equiment and targeted accuracy:
-
-| Method        | Physics                                  | Accuracy      |  Application                                            |
-|---------------|------------------------------------------|---------------|---------------------------------------------------------|
-| `SPP`         | Single Frequency Pseudo Range navigation |  2/5          | Low cost devices                                        |
-| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | Mid cost devices, Timing applications                   |
-| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Very precise applications, Profesionnal surveying and calibrations |
-
-Select your solver, depending on your use case, type of application and targeted accuracy:
-
-| Solver        | Method        | Accuracy      |  Context                 |
-|---------------|---------------|---------------|--------------------------|
-| `PPP`         | `SPP`         | 3/5           | Low cost / hobbyist      |
-|               | `CPP`         | 4/5           | Mid cost / lab           |
-|               | `PPP`         | 4.5/5         | High cost / profesionnal |
-| `RTK`         | `SPP`         | 4/5           | Low cost / hobbyist      |
-|               | `CPP`         | 4.5/5         | Mid cost / lab           |
-|               | `PPP`         | 5/5           | High cost / profesionnal |
-
 Deployment
 ==========
 
@@ -221,8 +251,9 @@ regular updates from the Internet.
 Configuration simplicity
 ========================
 
-Although the taks is challenging, one objective is to keep things simple.   
-To do so, we rely on the `serde` ecosystem and are able to provide [a consice and comprehensible Parametrization interface](./documentation/Config.md)
+Despite solving complex stuff, we strive to offer simplistic interfaces and configuration setups,
+which is a challenge. Our `Config` structure is fully `serde` compatible,
+and is easy to deploy and customize, refer to the online documentation:
 
 Notes on Navigation Method
 ==========================

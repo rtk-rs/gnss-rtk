@@ -1,17 +1,16 @@
 use crate::{
+    constants::SPEED_OF_LIGHT_M_S,
     navigation::{apriori::Apriori, state::State},
     pool::Pool,
-    prelude::{Almanac, Config, Epoch, Frame, Method, TimeScale},
+    prelude::{Almanac, Carrier, Config, Epoch, Frame, Method, TimeScale},
     tests::{
         data::CandidatesBuilder, ephemeris::NullEph, init_logger, time::NullTime, OrbitsData,
-        TestEnvironment, TestSpacebornBiases,
+        TestEnvironment, TestSpacebornBiases, E01, E03, E05,
     },
 };
 
 use rstest::*;
 
-use log::debug;
-use nalgebra::U4;
 use std::rc::Rc;
 
 use hifitime::Duration;
@@ -263,8 +262,42 @@ fn rtk_spp_pool_fit() {
 
     assert!(
         dbl_diff.inner.len() == expected_sat,
-        "did not form correct DD observations"
+        "Did not form correct DDs",
     );
+
+    let mut e01_passed = false;
+    let mut e03_passed = false;
+
+    for (sat, dd) in dbl_diff.inner.iter() {
+        assert!(*sat != E05, "did not remove pivot sat!");
+
+        if *sat == E01 {
+            let (carrier, code) = dd.code.expect("E01 missing DD(code)");
+
+            assert_eq!(carrier, Carrier::L1);
+
+            assert_eq!(
+                code,
+                27616185.992 - 23730317.923 - (27506424.743 - 23595077.027)
+            );
+
+            e01_passed = true;
+        } else if *sat == E03 {
+            let (carrier, code) = dd.code.expect("E03 missing DD(code)");
+
+            assert_eq!(carrier, Carrier::L1);
+
+            assert_eq!(
+                code,
+                27055946.391 - 23730317.923 - (26952639.751 - 23595077.027)
+            );
+
+            e03_passed = true;
+        }
+    }
+
+    assert!(e01_passed, "E01 test failed");
+    assert!(e03_passed, "E03 test failed");
 }
 
 #[test]
@@ -350,6 +383,46 @@ fn rtk_cpp_pool_fit() {
         dbl_diff.inner.len() == expected_sat,
         "did not form correct DD observations"
     );
+
+    let mut e01_passed = false;
+    let mut e03_passed = false;
+
+    let (f1, f2) = (Carrier::L1.frequency_hz(), Carrier::E5b.frequency_hz());
+    let (f1pow, f2pow) = (f1.powi(2), f2.powi(2));
+
+    let pc_e01_rover = (f1pow * 27616185.992 - f2pow * 27616184.819) / (f1pow - f2pow);
+    let pc_e03_rover = (f1pow * 27055946.391 - f2pow * 27055945.532) / (f1pow - f2pow);
+    let pc_e05_rover = (f1pow * 23730317.923 - f2pow * 23730316.788) / (f1pow - f2pow);
+
+    let pc_e01_base = (f1pow * 27506424.743 - f2pow * 27506425.902) / (f1pow - f2pow);
+    let pc_e03_base = (f1pow * 26952639.751 - f2pow * 26952641.150) / (f1pow - f2pow);
+    let pc_e05_base = (f1pow * 23595077.027 - f2pow * 23595078.180) / (f1pow - f2pow);
+
+    for (sat, dd) in dbl_diff.inner.iter() {
+        assert!(*sat != E05, "did not remove pivot sat!");
+
+        if *sat == E01 {
+            let (carrier, code) = dd.code.expect("E01 missing DD(code)");
+
+            assert_eq!(carrier, Carrier::L1);
+
+            assert_eq!(
+                code,
+                pc_e01_rover - pc_e05_rover - (pc_e01_base - pc_e05_base)
+            );
+
+            e01_passed = true;
+        } else if *sat == E03 {
+            let (carrier, code) = dd.code.expect("E03 missing DD(code)");
+
+            assert_eq!(carrier, Carrier::L1);
+
+            e03_passed = true;
+        }
+    }
+
+    assert!(e01_passed, "E01 test failed");
+    assert!(e03_passed, "E03 test failed");
 }
 
 #[test]
@@ -435,4 +508,64 @@ fn rtk_ppp_pool_fit() {
         dbl_diff.inner.len() == expected_sat,
         "did not form correct DD observations"
     );
+
+    let mut e01_passed = false;
+    let mut e03_passed = false;
+
+    let (f1, f2) = (Carrier::L1.frequency_hz(), Carrier::E5b.frequency_hz());
+    let (f1pow, f2pow) = (f1.powi(2), f2.powi(2));
+
+    let pc_e01_rover = (f1pow * 27616185.992 - f2pow * 27616184.819) / (f1pow - f2pow);
+    let pc_e03_rover = (f1pow * 27055946.391 - f2pow * 27055945.532) / (f1pow - f2pow);
+    let pc_e05_rover = (f1pow * 23730317.923 - f2pow * 23730316.788) / (f1pow - f2pow);
+
+    let lc_e01_rover = (f1pow * 145124050.106 - f2pow * 108371872.760) / (f1pow - f2pow);
+    let lc_e03_rover = (f1pow * 142179967.778 - f2pow * 106173364.686) / (f1pow - f2pow);
+    let lc_e05_rover = (f1pow * 124703702.220 - f2pow * 93122915.921) / (f1pow - f2pow);
+
+    let pc_e01_base = (f1pow * 27506424.743 - f2pow * 27506425.902) / (f1pow - f2pow);
+    let pc_e03_base = (f1pow * 26952639.751 - f2pow * 26952641.150) / (f1pow - f2pow);
+    let pc_e05_base = (f1pow * 23595077.027 - f2pow * 23595078.180) / (f1pow - f2pow);
+
+    let lc_e01_base = (f1pow * 144547262.730 - f2pow * 107941157.967) / (f1pow - f2pow);
+    let lc_e03_base = (f1pow * 141637100.045 - f2pow * 105767978.933) / (f1pow - f2pow);
+    let lc_e05_base = (f1pow * 123992999.980 - f2pow * 92592203.174) / (f1pow - f2pow);
+
+    for (sat, dd) in dbl_diff.inner.iter() {
+        assert!(*sat != E05, "did not remove pivot sat!");
+
+        if *sat == E01 {
+            let (carrier, code) = dd.code.expect("E01 missing DD(code)");
+
+            assert_eq!(carrier, Carrier::L1);
+
+            assert_eq!(
+                code,
+                pc_e01_rover - pc_e05_rover - (pc_e01_base - pc_e05_base)
+            );
+
+            let (carrier, lambda, phase) = dd.phase.expect("E01 missing DD(phase)");
+
+            assert_eq!(carrier, Carrier::L1);
+
+            let freq = f1 * f2 / (f1pow + f2pow).sqrt();
+            assert_eq!(lambda, SPEED_OF_LIGHT_M_S / freq);
+
+            assert_eq!(
+                phase,
+                lc_e01_rover - lc_e05_rover - (lc_e01_base - lc_e05_base)
+            );
+
+            e01_passed = true;
+        } else if *sat == E03 {
+            let (carrier, code) = dd.code.expect("E03 missing DD(code)");
+
+            assert_eq!(carrier, Carrier::L1);
+
+            e03_passed = true;
+        }
+    }
+
+    assert!(e01_passed, "E01 test failed");
+    assert!(e03_passed, "E03 test failed");
 }
