@@ -208,13 +208,11 @@ impl Navigation {
             Duration::ZERO
         };
 
-        if self.cfg.method == Method::PPP {
-            if self.prefit.is_none() {
-                self.prefit = Some(Solver::new(self.cfg.clone(), self.frame));
-            }
-
-            assert!(uses_rtk, "PPP currently limited to RTK navigation3");
-        }
+        // if self.cfg.method == Method::PPP {
+        //     if self.prefit.is_none() {
+        //         self.prefit = Some(Solver::new(self.cfg.clone(), self.frame));
+        //     }
+        // }
 
         params.q_matrix(&mut self.q_k, dt, ndf);
 
@@ -246,12 +244,13 @@ impl Navigation {
         }
 
         let fixed_ambiguities = if self.cfg.method == Method::PPP {
-            let prefit = self
-                .prefit
-                .as_ref()
-                .expect("internal error: missing prefit solver");
+            // let prefit = self
+            //     .prefit
+            //     .as_ref()
+            //     .expect("internal error: missing prefit solver");
 
-            Some(prefit.fixed_amb.clone())
+            // Some(prefit.fixed_amb.clone())
+            None
         } else {
             None
         };
@@ -368,21 +367,20 @@ impl Navigation {
                     .as_ref()
                     .expect("internal error: invalid rtk measurement/post fit");
 
-                let fixed_amb = if self.cfg.method == Method::PPP {
-                    let fixed_ambiguities = fixed_ambiguities
-                        .as_ref()
-                        .expect("internal error: missing PPP prefit");
+                // let fixed_amb = if self.cfg.method == Method::PPP {
+                //     let fixed_ambiguities = fixed_ambiguities
+                //         .as_ref()
+                //         .expect("internal error: missing PPP prefit");
 
-                    fixed_ambiguities.get(&candidates[i].sv)
-                } else {
-                    None
-                };
+                //     fixed_ambiguities.get(&candidates[i].sv)
+                // } else {
+                //     None
+                // };
 
                 match candidates[i].rtk_vector_contribution(
                     t,
                     false,
                     &self.cfg,
-                    fixed_amb,
                     double_differences,
                     &mut contrib,
                 ) {
@@ -500,12 +498,18 @@ impl Navigation {
 
             debug!("(i={}) dx={}", ith, self.x_k);
 
+            let (dx, dy, dz) = (self.x_k[0], self.x_k[1], self.x_k[2]);
+
             pending
-                .correct_mut(self.frame, t, &self.x_k, ndf)
+                .spatial_correction_mut(self.frame, (dx, dy, dz))
                 .map_err(|e| {
                     error!("{} - state update failed with physical error: {}", t, e);
                     Error::StateUpdate
                 })?;
+
+            if !uses_rtk {
+                pending.temporal_correction_mut(self.x_k[3]);
+            }
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
@@ -530,21 +534,20 @@ impl Navigation {
                         .as_ref()
                         .expect("internal error: invalid rtk measurement/post fit");
 
-                    let fixed_amb = if self.cfg.method == Method::PPP {
-                        let fixed_ambiguities = fixed_ambiguities
-                            .as_ref()
-                            .expect("internal error: missing PPP prefit");
+                    // let fixed_amb = if self.cfg.method == Method::PPP {
+                    //     let fixed_ambiguities = fixed_ambiguities
+                    //         .as_ref()
+                    //         .expect("internal error: missing PPP prefit");
 
-                        fixed_ambiguities.get(&candidates[*i].sv)
-                    } else {
-                        None
-                    };
+                    //     fixed_ambiguities.get(&candidates[*i].sv)
+                    // } else {
+                    //     None
+                    // };
 
                     match candidates[*i].rtk_vector_contribution(
                         t,
                         false,
                         &self.cfg,
-                        fixed_amb,
                         double_differences,
                         &mut unused,
                     ) {
@@ -641,21 +644,21 @@ impl Navigation {
                     .as_ref()
                     .expect("internal error: invalid rtk measurement/post fit");
 
-                let fixed_amb = if self.cfg.method == Method::PPP {
-                    let fixed_ambiguities = fixed_ambiguities
-                        .as_ref()
-                        .expect("internal error: missing PPP prefit");
+                // let fixed_amb = if self.cfg.method == Method::PPP {
+                //     // let fixed_ambiguities = fixed_ambiguities
+                //     //     .as_ref()
+                //     //     .expect("internal error: missing PPP prefit");
 
-                    fixed_ambiguities.get(&candidates[i].sv)
-                } else {
-                    None
-                };
+                //     // fixed_ambiguities.get(&candidates[i].sv)
+                //     None
+                // } else {
+                //     None
+                // };
 
                 match candidates[i].rtk_vector_contribution(
                     t,
                     false,
                     &self.cfg,
-                    fixed_amb,
                     double_differences,
                     &mut contrib,
                 ) {
@@ -757,12 +760,18 @@ impl Navigation {
             self.x_k[2] -= baseline_dz;
         }
 
+        let (dx, dy, dz) = (self.x_k[0], self.x_k[1], self.x_k[2]);
+
         pending
-            .correct_mut(self.frame, t, &self.x_k, ndf)
+            .spatial_correction_mut(self.frame, (dx, dy, dz))
             .map_err(|e| {
                 error!("{} - state update failed with physical error: {}", t, e);
                 Error::StateUpdate
             })?;
+
+        if !uses_rtk {
+            pending.temporal_correction_mut(self.x_k[3]);
+        }
 
         let gt_g_inv = (self.g_k.transpose() * self.g_k.clone())
             .try_inverse()

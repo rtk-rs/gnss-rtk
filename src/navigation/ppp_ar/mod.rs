@@ -165,24 +165,11 @@ impl Solver {
         self.q_k.resize_mut(ndf, ndf, 0.0);
         self.x_k.resize_vertically_mut(ndf, 0.0);
 
-        for i in 0..ndf {
-            self.f_k[(i, i)] = 1.0;
-        }
-
         let dt = if let Some(past_epoch) = self.prev_epoch {
             epoch - past_epoch
         } else {
             Duration::ZERO
         };
-
-        params.q_matrix(&mut self.q_k, dt, ndf);
-
-        // TODO: phase bias weight model
-        let offset = 3; // TODO: only in RTK
-
-        for i in offset..ndf {
-            self.q_k[(i, i)] = 1.0;
-        }
 
         if !self.kalman.initialized {
             self.kf_initialization(
@@ -261,7 +248,6 @@ impl Solver {
                 epoch,
                 true,
                 &self.cfg,
-                None,
                 double_differences,
                 &mut contrib,
             ) {
@@ -306,7 +292,10 @@ impl Solver {
             // Build G
             let mut ndf = U4::USIZE;
             ndf -= 1; // TODO: only in RTK
-            ndf += self.indexes.len();
+
+            let lambda_ndf = self.indexes.len();
+            ndf += lambda_ndf;
+            self.state.resize_ambiguities_mut(lambda_ndf);
 
             self.g_k.resize_mut(y_len, ndf, 0.0);
 
@@ -357,12 +346,21 @@ impl Solver {
 
             debug!("(ppp i={}) dx={}", ith, self.x_k);
 
+            let (dx, dy, dz) = (self.x_k[0], self.x_k[1], self.x_k[2]);
+
             pending
-                .correct_mut(self.frame, epoch, &self.x_k, ndf)
+                .spatial_correction_mut(self.frame, (dx, dy, dz))
                 .map_err(|e| {
                     error!("{} - state update failed with physical error: {}", epoch, e);
                     Error::StateUpdate
                 })?;
+
+            pending.resize_ambiguities_mut(self.x_k.nrows() - 3); // TODO: only in RTK
+
+            // ambiguities update
+            for i in 3..self.x_k.nrows() {
+                pending.x_amb[i - 3] += self.x_k[i];
+            }
 
             let gt_g_inv = gt_g.try_inverse().ok_or(Error::MatrixInversion)?;
 
@@ -384,7 +382,6 @@ impl Solver {
                     epoch,
                     true,
                     &self.cfg,
-                    None,
                     double_differences,
                     &mut unused,
                 ) {
@@ -466,7 +463,10 @@ impl Solver {
                 // TODO manque l'info de SV
                 for (i, index) in self.indexes.iter().enumerate() {
                     let sv = candidates[*index].sv;
-                    self.fixed_amb.insert(sv, f_mat[(i, 0)].round() as i64);
+                    // TODO this is round() simplification (REMOVE)
+                    self.fixed_amb
+                        .insert(sv, self.x_k[offset + i].round() as i64);
+                    // self.fixed_amb.insert(sv, f_mat[(i, 0)].round() as i64);
                 }
             },
             Err(e) => {
@@ -514,7 +514,6 @@ impl Solver {
                 epoch,
                 true,
                 &self.cfg,
-                None,
                 double_differences,
                 &mut contrib,
             ) {
@@ -545,8 +544,10 @@ impl Solver {
 
         self.w_k.resize_mut(y_len, y_len, 0.0);
 
-        let mut ndf = U8::USIZE;
-        ndf -= 1;
+        let mut ndf = U4::USIZE;
+        ndf -= 1; // TODO: only in RTK
+
+        let lambda_ndf = self.indexes.len();
 
         // form W
         self.w_k.resize_mut(y_len, y_len, 0.0);
@@ -556,7 +557,7 @@ impl Solver {
         }
 
         // form G
-        self.g_k.resize_mut(y_len, ndf, 0.0);
+        self.g_k.resize_mut(y_len, ndf + lambda_ndf, 0.0);
 
         for (i, index) in self.indexes.iter().enumerate() {
             let position_m = pending.to_position_ecef_m();
@@ -587,6 +588,12 @@ impl Solver {
 
         params.q_matrix(&mut q_mat, Duration::ZERO, ndf);
 
+        for i in ndf..ndf + lambda_ndf {
+            // TODO: code bias weight model
+            // TODO: phase bias weight model
+            q_mat[(i, i)] = 1.0;
+        }
+
         debug!("ndf(ppp)={} F(ppp)={} Q(ppp)={}", ndf, self.f_k, q_mat);
 
         let estimate = self
@@ -603,8 +610,10 @@ impl Solver {
 
         debug!("dx(ppp)={}", self.x_k);
 
+        let (dx, dy, dz) = (self.x_k[0], self.x_k[1], self.x_k[2]);
+
         pending
-            .correct_mut(self.frame, epoch, &self.x_k, ndf)
+            .spatial_correction_mut(self.frame, (dx, dy, dz))
             .map_err(|e| {
                 error!("{} - state update failed with physical error: {}", epoch, e);
                 Error::StateUpdate

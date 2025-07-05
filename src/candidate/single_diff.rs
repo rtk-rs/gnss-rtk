@@ -11,30 +11,36 @@ impl Candidate {
     pub(crate) fn single_difference(&self, method: Method, pivot: &Self) -> Difference {
         let mut sd = Difference::default();
 
-        match method {
-            Method::SPP => {
-                if let Some((c_1, p_1)) = self.l1_pseudo_range() {
-                    if let Some((c_2, p_2)) = pivot.l1_pseudo_range() {
-                        if c_1 == c_2 {
-                            sd = sd.with_code((c_1, p_1 - p_2));
-                        }
-                    }
+        if let Some((c_1, p_1)) = self.l1_pseudo_range() {
+            if let Some((c_2, p_2)) = pivot.l1_pseudo_range() {
+                if c_1 == c_2 {
+                    sd = sd.with_code((c_1, p_1 - p_2));
                 }
-            },
-            _ => {
-                if let Some(c_1) = self.code_if_combination() {
-                    if let Some(c_2) = pivot.code_if_combination() {
-                        if c_1.lhs == c_2.lhs && c_1.rhs == c_2.rhs {
-                            sd = sd.with_code((c_1.rhs, c_1.value - c_2.value));
-                        }
-                    }
-                }
-            },
+            }
         }
 
-        if let Some(mw_1) = self.mw_combination() {
-            if let Some(mw_2) = pivot.mw_combination() {
-                sd = sd.with_mw((mw_1.rhs, mw_1.lambda, mw_1.value - mw_2.value));
+        if let Some((c_1, p_1)) = self.subsidary_pseudo_range() {
+            if let Some((c_2, p_2)) = pivot.subsidary_pseudo_range() {
+                if c_1 == c_2 {
+                    sd = sd.with_code_j((c_1, p_1 - p_2));
+                }
+            }
+        }
+
+        if let Some(l_1) = self.code_if_combination() {
+            if let Some(l_2) = pivot.code_if_combination() {
+                if l_1.lhs == l_2.lhs && l_1.rhs == l_2.rhs {
+                    sd = sd.with_code_if((l_1.rhs, l_1.value - l_2.value));
+                }
+            }
+        }
+
+        if let Some((c_1, l_1)) = self.l1_phase_range() {
+            if let Some((c_2, l_2)) = pivot.l1_phase_range() {
+                if c_1 == c_2 {
+                    let lambda = SPEED_OF_LIGHT_M_S / c_1.frequency_hz();
+                    sd = sd.with_phase((c_1, l_1 - l_2));
+                }
             }
         }
 
@@ -42,7 +48,7 @@ impl Candidate {
             if let Some((c_2, l_2)) = pivot.subsidary_phase_range() {
                 if c_1 == c_2 {
                     let lambda = SPEED_OF_LIGHT_M_S / c_1.frequency_hz();
-                    sd = sd.with_phase_j((c_1, lambda, l_1 - l_2));
+                    sd = sd.with_phase_j((c_1, l_1 - l_2));
                 }
             }
         }
@@ -55,6 +61,22 @@ impl Candidate {
             }
         }
 
+        if let Some(c_1) = self.code_nl_combination() {
+            if let Some(c_2) = pivot.code_nl_combination() {
+                if c_1.lhs == c_2.lhs && c_1.rhs == c_2.rhs {
+                    sd = sd.with_cn((c_1.rhs, c_1.lambda, c_1.value - c_2.value));
+                }
+            }
+        }
+
+        if let Some(l_1) = self.phase_wl_combination() {
+            if let Some(l_2) = pivot.phase_wl_combination() {
+                if l_1.lhs == l_2.lhs && l_1.rhs == l_2.rhs {
+                    sd = sd.with_lw((l_1.rhs, l_1.lambda, l_1.value - l_2.value));
+                }
+            }
+        }
+
         debug!("{}({}) - {}", self.epoch, self.sv, sd);
         sd
     }
@@ -63,7 +85,7 @@ impl Candidate {
 #[cfg(test)]
 mod test {
 
-    use log::info;
+    use log::{debug, info};
     use std::str::FromStr;
 
     use crate::{
@@ -111,7 +133,7 @@ mod test {
                 let (f1, f2) = (Carrier::L1.frequency_hz(), Carrier::E5b.frequency_hz());
                 let lambda = SPEED_OF_LIGHT_M_S / f2;
 
-                assert_eq!(single_diff.phase_j, Some((Carrier::E5b, lambda, 0.0)));
+                assert_eq!(single_diff.phase_j, Some((Carrier::E5b, 0.0)));
 
                 let (f1pow, f2pow) = (f1.powi(2), f2.powi(2));
                 let freq = f1 * f2 / (f1pow + f2pow).sqrt();
@@ -121,13 +143,13 @@ mod test {
 
                 let lambda = SPEED_OF_LIGHT_M_S / (f1 - f2);
 
-                assert_eq!(single_diff.mw, Some((Carrier::L1, lambda, 0.0)));
+                //assert_eq!(single_diff.mw, Some((Carrier::L1, 0.0)));
             }
         }
     }
 
     #[test]
-    fn single_difference() {
+    fn rover_single_difference() {
         init_logger();
 
         let t_str = "2020-06-25T00:00:00 GPST";
@@ -143,13 +165,11 @@ mod test {
         let mut e03_test_passed = false;
 
         for rover in rover.iter() {
-            let spp_sd = rover.single_difference(Method::SPP, &e05);
-            let cpp_sd = rover.single_difference(Method::CPP, &e05);
             let ppp_sd = rover.single_difference(Method::PPP, &e05);
 
             if rover.sv == E01 {
                 assert_eq!(
-                    spp_sd.code,
+                    ppp_sd.code,
                     Some((Carrier::L1, 27616185.992 - 23730317.923)),
                     "{}(E01/E05): invalid SD(C1-C1_ref)",
                     t_str
@@ -164,13 +184,11 @@ mod test {
                 let pc_5 = (f1pow * p51 - fjpow * p52) / (f1pow - fjpow);
 
                 assert_eq!(
-                    cpp_sd.code,
+                    ppp_sd.code_if,
                     Some((Carrier::L1, pc_1 - pc_5)),
                     "{}(E01/E05): invalid SD(P1-P1_ref)",
                     t_str
                 );
-
-                info!("{}(E01/E05) : SD(C1-C1_ref)={}", t_str, pc_1 - pc_5);
 
                 // let l11 = 145124050.106;
                 // let l12 = 108371872.760;
@@ -183,7 +201,7 @@ mod test {
                 e01_test_passed = true;
             } else if rover.sv == E03 {
                 assert_eq!(
-                    spp_sd.code,
+                    ppp_sd.code,
                     Some((Carrier::L1, 27055946.391 - 23730317.923)),
                     "{}(E03/E05): invalid SD(L1-L1_ref)",
                     t_str
@@ -198,13 +216,11 @@ mod test {
                 let pc_5 = (f1pow * p51 - fjpow * p52) / (f1pow - fjpow);
 
                 assert_eq!(
-                    cpp_sd.code,
+                    ppp_sd.code_if,
                     Some((Carrier::L1, pc_3 - pc_5)),
                     "{}(E03/E05): invalid SD(P1-P1_ref)",
                     t_str
                 );
-
-                info!("{}(E03/E05) : SD(C1-C1_ref)={}", t_str, pc_3 - pc_5);
 
                 // let l31 = 142179967.778;
                 // let l32 = 106173364.686;

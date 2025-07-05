@@ -21,11 +21,11 @@ pub const EARTH_EQUATORIAL_RADIUS_M: f64 = EARTH_EQUATORIAL_RADIUS_KM * 1.0E3;
 /// WGS84 Earth Frame Ellipsoid semi-major axis
 pub const EARTH_SEMI_MAJOR_AXIS_WGS84: f64 = 6378137.0_f64;
 
-/// Love degree^2 term
-pub const LOVE_DEGREE2: f64 = 0.6078;
-
-/// Shida degree^2 term
-pub const SHIDA_DEGREE2: f64 = 0.0847;
+// /// Love degree^2 term
+// pub const LOVE_DEGREE2: f64 = 0.6078;
+//
+// /// Shida degree^2 term
+// pub const SHIDA_DEGREE2: f64 = 0.0847;
 
 /// Speed of light in m.s⁻¹
 pub const SPEED_OF_LIGHT_M_S: f64 = SPEED_OF_LIGHT_KM_S * 1000.0;

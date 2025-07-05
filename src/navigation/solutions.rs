@@ -98,7 +98,7 @@ impl PVTSolution {
                 state.lat_long_alt_deg_deg_km.2 * 1.0E3,
             ),
             sv: contributions.to_vec(),
-            timescale: state.t.time_scale,
+            timescale: state.epoch.time_scale,
             pos_m: (pos_vel_ecef_m[0], pos_vel_ecef_m[1], pos_vel_ecef_m[2]),
             vel_m_s: (pos_vel_ecef_m[3], pos_vel_ecef_m[4], pos_vel_ecef_m[5]),
         }

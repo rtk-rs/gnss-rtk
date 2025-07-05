@@ -402,7 +402,7 @@ fn rtk_cpp_pool_fit() {
         assert!(*sat != E05, "did not remove pivot sat!");
 
         if *sat == E01 {
-            let (carrier, code) = dd.code.expect("E01 missing DD(code)");
+            let (carrier, code) = dd.code_if.expect("E01 missing DD(code_if)");
 
             assert_eq!(carrier, Carrier::L1);
 
@@ -413,7 +413,7 @@ fn rtk_cpp_pool_fit() {
 
             e01_passed = true;
         } else if *sat == E03 {
-            let (carrier, code) = dd.code.expect("E03 missing DD(code)");
+            let (carrier, code) = dd.code_if.expect("E03 missing DD(code_if)");
 
             assert_eq!(carrier, Carrier::L1);
 
@@ -535,16 +535,16 @@ fn rtk_ppp_pool_fit() {
         assert!(*sat != E05, "did not remove pivot sat!");
 
         if *sat == E01 {
-            let (carrier, code) = dd.code.expect("E01 missing DD(code)");
+            let (carrier, code_if) = dd.code_if.expect("E01 missing DD(code_if)");
 
             assert_eq!(carrier, Carrier::L1);
 
             assert_eq!(
-                code,
+                code_if,
                 pc_e01_rover - pc_e05_rover - (pc_e01_base - pc_e05_base)
             );
 
-            let (carrier, lambda, phase) = dd.phase_if.expect("E01 missing DD(phaseIF)");
+            let (carrier, lambda, phase_if) = dd.phase_if.expect("E01 missing DD(phaseIF)");
 
             assert_eq!(carrier, Carrier::L1);
 
@@ -552,13 +552,13 @@ fn rtk_ppp_pool_fit() {
             assert_eq!(lambda, SPEED_OF_LIGHT_M_S / freq);
 
             assert_eq!(
-                phase,
+                phase_if,
                 lc_e01_rover - lc_e05_rover - (lc_e01_base - lc_e05_base)
             );
 
             e01_passed = true;
         } else if *sat == E03 {
-            let (carrier, code) = dd.code.expect("E03 missing DD(code)");
+            let (carrier, code_if) = dd.code_if.expect("E03 missing DD(code_if)");
 
             assert_eq!(carrier, Carrier::L1);
 

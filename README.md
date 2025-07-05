@@ -121,7 +121,7 @@ Summary of supported modes:
 |------------|-------------------|--------|-------|
 | `RTK`      | `Solver::rtk_run` | CPP    |  OK   |
 |------------|-------------------|--------|-------|
-| `RTK`      | `Solver::rtk_run` | PPP    |  OK   |
+| `RTK`      | `Solver::rtk_run` | PPP    |  NOK  |
 |------------|-------------------|--------|-------|
 | `PPP`      | `Solver::ppp_run` | SPP    |  OK   |
 |------------|-------------------|--------|-------|
@@ -130,7 +130,7 @@ Summary of supported modes:
 | `PPP`      | `Solver::ppp_run` | PPP    |  NOK  |
 |------------|-------------------|--------|-------|
 
-Pure PPP using phase (L1+Lj) (`ppp_run + PPP`) is currently unavailable and will rapidly panic or diverge (at best).
+NOK: unreleased, unavailable or untested. Will at best diverge, and most likely panic if deployed.
 
 Solver, strategies and API
 ==========================
@@ -149,7 +149,7 @@ And you can use our solver to do RTK without phase observations as well.
 
 Because this API is real-time oriented, you provide measurements for each Epoch.
 Assuming people are mostly interested by highest accuracy, you would naturally select 
-RTK+PPP or PPP. But you can catch errors and adapt. Let's say L5 becomes unavaiable for some time,
+RTK+PPP or PPP. But you can catch errors and adapt. Let's say L5 becomes unavailable for some time,
 you can continue navigating but temporarily degrade the selected Method to SPP.
 
 `Method` summary:
@@ -160,7 +160,7 @@ you can continue navigating but temporarily degrade the selected Method to SPP.
 |--------|---------------------------|--------------------------------------------|
 | `CPP`  | Dual Pseudo Range         | Intermediate accuracy, timing applications |
 |--------|---------------------------|--------------------------------------------|
-| `PPP`  | Dual Pseudo Range + Phase | High end, profesionnal quality             |
+| `PPP`  | Dual Pseudo Range + Phase | High end, professional quality             |
 |--------|----------------------|-------------------------------------------------|
 
 Application Programming Interface (API)

@@ -81,7 +81,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
                     }
                 },
                 Err(e) => {
-                    error!("{}({}) {} orbital fixup: {}", state.t, cd.sv, name, e);
+                    error!("{}({}) {} orbital fixup: {}", state.epoch, cd.sv, name, e);
                     false
                 },
             },
@@ -372,58 +372,6 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
             .cloned()
     }
 
-    /// Run the double difference algorithm between [Self] and [Self] considered "base",
-    /// returning a set a [Differences].
-    pub fn post_fit_dd(&self, base: &Self) -> Differences {
-        let mut dd = Differences::default();
-
-        for (lhs_sv, lhs_sd) in self.single_differences.inner.iter() {
-            for (rhs_sv, rhs_sd) in base.single_differences.inner.iter() {
-                if lhs_sv == rhs_sv {
-                    if let Some((lhs_carrier, lhs_code)) = &lhs_sd.code {
-                        if let Some((rhs_carrier, rhs_code)) = &rhs_sd.code {
-                            if lhs_carrier == rhs_carrier {
-                                dd.insert_code(*lhs_sv, (*lhs_carrier, lhs_code - rhs_code));
-                            }
-                        }
-                    }
-
-                    if let Some((lhs_carrier, lhs_lambda, lhs_mw)) = &lhs_sd.mw {
-                        if let Some((rhs_carrier, _, rhs_mw)) = &rhs_sd.mw {
-                            if lhs_carrier == rhs_carrier {
-                                dd.insert_mw(*lhs_sv, (*lhs_carrier, *lhs_lambda, lhs_mw - rhs_mw));
-                            }
-                        }
-                    }
-
-                    if let Some((lhs_carrier, lhs_lambda, lhs_phase)) = &lhs_sd.phase_j {
-                        if let Some((rhs_carrier, _, rhs_phase)) = &rhs_sd.phase_j {
-                            if lhs_carrier == rhs_carrier {
-                                dd.insert_phase_j(
-                                    *lhs_sv,
-                                    (*lhs_carrier, *lhs_lambda, lhs_phase - rhs_phase),
-                                );
-                            }
-                        }
-                    }
-
-                    if let Some((lhs_carrier, lhs_lambda, lhs_phase)) = &lhs_sd.phase_if {
-                        if let Some((rhs_carrier, _, rhs_phase)) = &rhs_sd.phase_if {
-                            if lhs_carrier == rhs_carrier {
-                                dd.insert_phase_if(
-                                    *lhs_sv,
-                                    (*lhs_carrier, *lhs_lambda, lhs_phase - rhs_phase),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        dd
-    }
-
     /// Runs the special post-fit prior RTK solving, where self is considered rover
     /// returning DD'ed measurements.
     pub fn rtk_post_fit(&mut self, base: &mut Self) -> Result<Differences, Error> {
@@ -473,16 +421,18 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         self.pivot_position_ecef_m = Some((pos_vel[0], pos_vel[1], pos_vel[2]));
 
         // DD
-        let ddiffs = self.post_fit_dd(base);
+        let double_diff = self
+            .single_differences
+            .double_difference(&base.single_differences);
 
         // remove pivot from both sites
         self.retain_mut(|cd| cd.sv != mob_pivot.sv);
         base.retain_mut(|cd| cd.sv != mob_pivot.sv);
 
-        for (sat, dd) in ddiffs.inner.iter() {
+        for (sat, dd) in double_diff.inner.iter() {
             debug!("{}({}) - DD={}", mob_pivot.epoch, sat, dd);
         }
 
-        Ok(ddiffs)
+        Ok(double_diff)
     }
 }
