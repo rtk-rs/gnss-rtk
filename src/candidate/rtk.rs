@@ -1,9 +1,9 @@
 use log::{debug, error};
 
 use crate::{
+    candidate::differences::Differences,
     navigation::{sv::SVContribution, vector::VectorContribution},
     prelude::{Candidate, Config, Epoch, Error, Method, Vector3},
-    rtk::double_diff::DoubleDifferences,
 };
 
 impl Candidate {
@@ -14,11 +14,11 @@ impl Candidate {
         two_rows: bool,
         cfg: &Config,
         fixed_amb: Option<&i64>,
-        double_diffs: &DoubleDifferences,
+        double_diffs: &Differences,
         contribution: &mut SVContribution,
     ) -> Result<VectorContribution, Error> {
         let dd = double_diffs
-            .double_difference(self.sv)
+            .difference(self.sv)
             .ok_or(Error::RtkDDPostfitMissing)?;
 
         let code = if let Some((_, code)) = dd.code {
@@ -27,57 +27,61 @@ impl Candidate {
             None
         };
 
-        let phase = if let Some((_, lambda, phase)) = dd.phase {
-            if let Some(fixed_amb) = fixed_amb {
-                debug!(
-                    "{}({}) - fixed ambiguity: {}",
-                    self.epoch, self.sv, fixed_amb
-                );
-                Some(phase + lambda * *fixed_amb as f64)
-            } else {
-                Some(phase)
-            }
-        } else {
-            None
-        };
+        let mut vec = VectorContribution::default();
 
-        let row_1 = if cfg.method == Method::PPP {
-            if two_rows {
-                if let Some(code) = code {
-                    code
-                } else {
-                    error!("{}({}) - missing pseudo range data", epoch, self.sv);
-                    return Err(Error::MissingPseudoRange);
-                }
-            } else {
-                if let Some(phase) = phase {
-                    phase
+        // row #1
+        if let Some((_, code)) = dd.code {
+            vec.row_1 = code;
+        } else {
+            error!("{}({}) - missing pseudo range", epoch, self.sv);
+            return Err(Error::MissingPseudoRange);
+        }
+
+        // row #1
+        if !two_rows && cfg.method == Method::PPP {
+            if let Some((c_1, _, phase_if)) = dd.phase_if {
+                if let Some((c_j, lambda_j, _)) = dd.phase_j {
+                    if let Some(fixed_n2_amb) = fixed_amb {
+                        if let Some((_, _, mw)) = dd.mw {
+                            let (f1, f2) = (c_1.frequency_hz(), c_j.frequency_hz());
+                            let (f1pow, f2pow) = (f1.powi(2), f2.powi(2));
+                            let alpha = f1pow / (f1pow - f2pow);
+                            let lambda_1 = c_1.wavelength();
+
+                            let mut n_if = alpha * lambda_1 * mw;
+                            n_if += alpha * lambda_1 * *fixed_n2_amb as f64;
+                            n_if -= (1.0 - alpha) * lambda_j * *fixed_n2_amb as f64;
+
+                            vec.row_1 = phase_if - n_if;
+                            debug!("{}({}) - Nif={}", epoch, self.sv, n_if);
+                        } else {
+                            error!("{}({}) - NW not fixed", epoch, self.sv);
+                            return Err(Error::MissingPhaseRange);
+                        }
+                    } else {
+                        error!("{}({}) - N2 not fixed", epoch, self.sv);
+                        return Err(Error::MissingPhaseRange);
+                    }
                 } else {
                     error!("{}({}) - missing phase data", epoch, self.sv);
                     return Err(Error::MissingPhaseRange);
                 }
-            }
-        } else {
-            if let Some(code) = code {
-                code
-            } else {
-                error!("{}({}) - missing pseudo range data", epoch, self.sv);
-                return Err(Error::MissingPseudoRange);
-            }
-        };
-
-        let mut vec = VectorContribution {
-            row_1,
-            row_2: 0.0,
-            sigma: 0.0,
-        };
-
-        if two_rows && cfg.method == Method::PPP {
-            if let Some(phase) = phase {
-                vec.row_2 = phase;
             } else {
                 error!("{}({}) - missing phase data", epoch, self.sv);
                 return Err(Error::MissingPhaseRange);
+            }
+        }
+
+        // row #2 (special case)
+        if two_rows {
+            if cfg.method == Method::PPP {
+                // special case
+                if let Some((_, _, phase_j)) = dd.phase_j {
+                    vec.row_2 = phase_j;
+                } else {
+                    error!("{}({}) - missing phase data", epoch, self.sv);
+                    return Err(Error::MissingPhaseRange);
+                }
             }
         }
 

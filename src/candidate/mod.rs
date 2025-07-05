@@ -19,6 +19,7 @@ mod rtk;
 mod signal;
 
 pub(crate) mod combination;
+pub(crate) mod differences;
 pub(crate) mod single_diff;
 
 #[cfg(test)]

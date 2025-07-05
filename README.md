@@ -105,61 +105,63 @@ by using `Solver::rtk_run`.
 2. or PPP Navigation technique (Absolute navigation without any reference),
 by using `Solver::ppp_run`.
 
-RTK should be prefered for geometric applications, it is not capable to resolve the clock state,
-and garantees much higher accuracy than absolute navigation. Note that our API is currently limited
-to a single ground reference. When RTK is in failure, for example when the RTK network is down and
-reference becomes unreachable, you can consume this Epoch with PPP technique, our solver will
-progress and maintains a coherent internal state. On your first PPP solution, the clock state will appear.
+RTK should be prefered for geometric applications, because it garantees a x3 to x5 geometric
+accuracy improvement, under correct conditions. But it is currently unable to resolve
+the rover clock state. If you are interested in the timing solutions, you should prefer
+a PPP runs. When the RTK network goes down (and RTK trait correctly reflects that), `rtk_run()` will fail.
+You should catch RTK related issues and this API allows you to still consume this measurement using
+`PPP`, until the RTK network comes back. If you've been using RTK until this point, the clock state
+will appear on the first PPP solution. For each solution
 
-Pure PPP runs always resolve the clock state at all times.
+Summary of supported modes:
 
-The current validated and operational modes are:
+| Principle  | API               | Method | State |
+|------------|-------------------|--------|-------|
+| `RTK`      | `Solver::rtk_run` | SPP    |  OK   |
+|------------|-------------------|--------|-------|
+| `RTK`      | `Solver::rtk_run` | CPP    |  OK   |
+|------------|-------------------|--------|-------|
+| `RTK`      | `Solver::rtk_run` | PPP    |  OK   |
+|------------|-------------------|--------|-------|
+| `PPP`      | `Solver::ppp_run` | SPP    |  OK   |
+|------------|-------------------|--------|-------|
+| `PPP`      | `Solver::ppp_run` | CPP    |  OK   |
+|------------|-------------------|--------|-------|
+| `PPP`      | `Solver::ppp_run` | PPP    |  NOK  |
+|------------|-------------------|--------|-------|
 
-- PPP run with `Method::SPP`: absolute navigation, single frequency pseudo range
-- PPP run with `Method::CPP`: absolute navigation, dual frequency pseudo range
-- PPP run with `Method::PPP`: not available as of today (`panic`)
-- RTK run with `Method::SPP`: differential navigation, single frequency pseudo range
-- RTK run with `Method::CPP`: differential navigation, dual frequency pseudo range
-- RTK run with `Method::PPP`: Work in progress, unstable: will most likely panic or diverge. Differential navigation, dual frequency
-pseudo range and phase data.
+Pure PPP using phase (L1+Lj) (`ppp_run + PPP`) is currently unavailable and will rapidly panic or diverge (at best).
 
 Solver, strategies and API
 ==========================
 
-The current version proposes a unique object called `Solver` that is compatible to both absolute
+The current version proposes a unique object called `Solver` that is compatible with both absolute
 and differential (1 reference) navigation. Once your measurements have been collected,
-you select the navigation technique with want to deploy with either `ppp_solving` and `rtk_solving`.
-:warning: RTK navigation is currently under development and should not be used until further notice.
+you select the navigation technique you want to deploy with either `ppp_run` and `rtk_run`.
 
-This means, once RTK becomes available, if your network goes down you can always switch back to PPP (absolute navigation)
-temporarily. Eventually, RTK (differential) should always be prefered because it gives the highest accuracy.
+Whether the rover is moving or not does not matter, you should simply tune your `UserParameters`,
+accordingly. But because RTK improves the geometric accuracy, it will give best results for moving rovers.
 
-This of course applies to any use case, whether it is static or dynamic (roaming).
+Our Method structure is there to define the signals you want to use. This allows us to
+give total freedom to the end user while allow both absolute and differential navigation.
+Absolute navigation is not particularly tied to phase signal, those are two different things.
+And you can use our solver to do RTK without phase observations as well.
 
-Tied to the navigation technique, you need to select a mode via the `Method` object. This determines which
-signal strategy you will be using. We propose 4 modes, each one of them applies to either RTK or absolute navigation:
+Because this API is real-time oriented, you provide measurements for each Epoch.
+Assuming people are mostly interested by highest accuracy, you would naturally select 
+RTK+PPP or PPP. But you can catch errors and adapt. Let's say L5 becomes unavaiable for some time,
+you can continue navigating but temporarily degrade the selected Method to SPP.
 
-- `SPP` : single frequency pseudo-range based navigation. This is dedicated to low-cost degraded setups.
-- `CPP` : dual frequency pseudo-range based navigation. It is about 20x more accurate than the previous mode
-and gives 0.1m accuracy with high quality data. The secondary frequency is used to cancelled the ionosphere phsically.
-- `PPP` : dual frequency phase based navigation (raw signal). Although the navigation uses raw signal, you still have
-to pass on the pseudo-range on both frequencies, which makes this strategy the most demanding in terms of measurement.
-- `PPP+AR` : same as PPP but a secondary prefit kalman filter is deployed. :warning: this is under development
-and should not be used as of right now. 
+`Method` summary:
 
-For each mode, you can either deploy using absolute (`ppp_solving` attempt) or differential (`rtk_solving` attempt).
-`rtk_solving` is not fully available yet and still under development. When it becomes feasible, that means the
-mode defines your measurement strategy, but differential navigation is being used. Starting from `PPP` and `PPP+AR`,
-it means the navigation algorithm becomes `RTK-PPP` as defined in the "litterature".
-
-Recommendations: because this solver should not fail but report errors instead, you should always prefer
-the highest / most advanced technique, and adapt/degrade that choice according to the returned message.
-If such a strategy fails to apply, please fill an issue online and we will patch the library.
-For example: always prefer `PPP` mode, and the library will let you know when it failed to deploy the mode
-(for example, L5 phase is lost). In this case, you can always switch back to `CPP` mode temporarily.
-That is particularly true if PPP convergence has been achieved.
-Of course, this strategy only applies to people targetting highest accuracy. If you know your measurement
-setup and context is not compatible with one strategy, it does not make sense to attempt it.
+| Method | Observables               | Applications                               | 
+|--------|---------------------------|--------------------------------------------|
+| `SPP`  | Single Pseudo Range       | Low cost devices, degraded environment     |
+|--------|---------------------------|--------------------------------------------|
+| `CPP`  | Dual Pseudo Range         | Intermediate accuracy, timing applications |
+|--------|---------------------------|--------------------------------------------|
+| `PPP`  | Dual Pseudo Range + Phase | High end, profesionnal quality             |
+|--------|----------------------|-------------------------------------------------|
 
 Application Programming Interface (API)
 =======================================

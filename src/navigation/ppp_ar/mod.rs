@@ -6,6 +6,7 @@ use log::{debug, error};
 use nalgebra::{DMatrix, DVector, DimName, U4, U6, U8};
 
 use crate::{
+    candidate::differences::Differences,
     navigation::{
         dop::DilutionOfPrecision,
         kalman::{Kalman, KfEstimate},
@@ -14,7 +15,7 @@ use crate::{
         Navigation,
     },
     prelude::{Candidate, Config, Duration, Epoch, Error, Frame, Method, SV},
-    rtk::{double_diff::DoubleDifferences, RTKBase},
+    rtk::RTKBase,
     user::UserParameters,
 };
 
@@ -73,9 +74,6 @@ pub struct Solver {
     /// Fixed ambiguities
     pub fixed_amb: HashMap<SV, i64>,
 
-    /// True if this filter has been initialized
-    pub initialized: bool,
-
     /// [DilutionOfPrecision]
     pub dop: DilutionOfPrecision,
 
@@ -108,7 +106,6 @@ impl Solver {
             cfg,
             frame,
             prev_epoch: None,
-            initialized: false,
             state: Default::default(),
             sv: Vec::with_capacity(8),
             kalman: Kalman::new(U8::USIZE),
@@ -140,6 +137,9 @@ impl Solver {
     /// - params: [UserParameters]
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
+    /// - rtk_base: custom [RTK] implementation
+    /// - pivot_position_ecef_m: pivot position in meters (ECEF)
+    /// - double_differences: double [Differences]
     pub fn run<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
@@ -149,7 +149,7 @@ impl Solver {
         size: usize,
         rtk_base: &RTK,
         pivot_position_ecef_m: (f64, f64, f64),
-        double_differences: &DoubleDifferences,
+        double_differences: &Differences,
     ) -> Result<(), Error> {
         self.clear();
 
@@ -224,11 +224,13 @@ impl Solver {
     ///
     /// ## Input
     /// - epoch: sampling [Epoch]
-    /// - user: [User] profile
     /// - past_state: past [State]
     /// - candidates: proposed [Candidate]s
+    /// - params: [UserParameters]
     /// - size: number of proposed [Cadndidate]s
-    /// - double_differences: possible [DoubleDifferences]
+    /// - rtk_base: custom [RTK] implementation
+    /// - pivot_position_ecef_m: pivot position in meters (ECEF)
+    /// - double_differences: double [Differences]
     pub fn kf_initialization<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
@@ -238,7 +240,7 @@ impl Solver {
         size: usize,
         rtk_base: &RTK,
         pivot_position_ecef_m: (f64, f64, f64),
-        double_differences: &DoubleDifferences,
+        double_differences: &Differences,
     ) -> Result<(), Error> {
         const NB_ITER: usize = 10;
 
@@ -280,9 +282,9 @@ impl Solver {
             }
         }
 
-        let y_len = self.indexes.len();
+        let y_len = self.y_k_vec.len();
 
-        if y_len < U4::USIZE {
+        if y_len < U8::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
 
@@ -413,21 +415,18 @@ impl Solver {
         let initial_estimate = KfEstimate::new(&self.x_k, &self.p_k);
 
         let mut ndf = U4::USIZE;
+        ndf -= 1; // TODO: only in RTK
 
-        ndf -= 1;
-
-        let nrows = self.x_k.nrows();
-        let lambda_ndf = nrows - ndf;
+        let lambda_ndf = self.indexes.len();
 
         // TODO malloc
         let mut q_mat = DMatrix::identity(ndf + lambda_ndf, ndf + lambda_ndf);
 
         params.q_matrix(&mut q_mat, Duration::ZERO, ndf + lambda_ndf);
 
-        // TODO: phase bias weight model
-        let offset = 3; // TODO: only in RTK
-
-        for i in offset..ndf + lambda_ndf {
+        for i in ndf..ndf + lambda_ndf {
+            // TODO: code bias weight model
+            // TODO: phase bias weight model
             q_mat[(i, i)] = 1.0;
         }
 
@@ -480,6 +479,15 @@ impl Solver {
     }
 
     /// KF run
+    ///
+    /// ## Input
+    /// - epoch: sampling [Epoch]
+    /// - candidates: proposed [Candidate]s
+    /// - params: [UserParameters]
+    /// - size: number of proposed [Cadndidate]s
+    /// - rtk_base: custom [RTK] implementation
+    /// - pivot_position_ecef_m: pivot position in meters (ECEF)
+    /// - double_differences: double [Differences]
     pub fn kf_run<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
@@ -488,7 +496,7 @@ impl Solver {
         size: usize,
         rtk_base: &RTK,
         pivot_position_ecef_m: (f64, f64, f64),
-        double_differences: &DoubleDifferences,
+        double_differences: &Differences,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
 

@@ -1,7 +1,5 @@
 use crate::prelude::{Candidate, Epoch};
 
-pub mod double_diff; // DD
-
 /// Any [RTKBase] provides remote data by implementing the [RemoteSource] trait.
 pub trait RTKBase {
     /// Provide a meaningful name of each reference station.

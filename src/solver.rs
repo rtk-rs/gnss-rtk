@@ -271,7 +271,7 @@ impl<
         }
 
         // current state
-        let state = if self.navigation.initialized {
+        let state = if self.navigation.is_initialized() {
             self.navigation.state.with_epoch(epoch)
         } else {
             match self.initial_ecef_m {
@@ -329,13 +329,6 @@ impl<
             None
         };
 
-        // debug print
-        if let Some(double_differences) = &double_differences {
-            for (sat, ddiff) in double_differences.inner.iter() {
-                debug!("{}({}) - DD: {}", epoch, sat, ddiff);
-            }
-        }
-
         let pool_size = self.rover_pool.len();
 
         if pool_size < min_required {
@@ -389,7 +382,7 @@ impl<
     fn min_sv_required(&self, uses_rtk: bool) -> usize {
         let mut min_sv = 4;
 
-        if self.navigation.initialized && self.cfg.fixed_altitude.is_some() {
+        if self.navigation.is_initialized() && self.cfg.fixed_altitude.is_some() {
             min_sv -= 1;
         }
 

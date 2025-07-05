@@ -1,5 +1,6 @@
 use crate::{
     ambiguity::Solver as AmbiguitySolver,
+    candidate::differences::Differences,
     constants::{EARTH_GRAVITATION_MU_M3_S2, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
     navigation::state::State,
     pool::Pool,
@@ -7,7 +8,6 @@ use crate::{
         Almanac, Candidate, EnvironmentalBias, EphemerisSource, Error, OrbitSource, SpacebornBias,
         Vector3, EARTH_J2000, SUN_J2000,
     },
-    rtk::double_diff::DoubleDifferences,
 };
 
 use std::cmp::Ordering;
@@ -347,16 +347,8 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
 
         for cd in self.inner.iter() {
             if cd.sv != pivot.sv {
-                let sd = cd.single_difference(method, &pivot);
-
-                if let Some((carrier, code)) = sd.code {
-                    self.single_diff.insert_code(cd.sv, carrier, code);
-                }
-
-                if let Some((carrier, lambda, phase)) = sd.phase {
-                    self.single_diff
-                        .insert_phase(cd.sv, (carrier, lambda, phase));
-                }
+                self.single_differences
+                    .insert(cd.sv, cd.single_difference(method, &pivot));
             }
         }
 
@@ -381,12 +373,12 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     }
 
     /// Run the double difference algorithm between [Self] and [Self] considered "base",
-    /// returning [DoubleDifferences].
-    pub fn post_fit_dd(&self, base: &Self) -> DoubleDifferences {
-        let mut dd = DoubleDifferences::default();
+    /// returning a set a [Differences].
+    pub fn post_fit_dd(&self, base: &Self) -> Differences {
+        let mut dd = Differences::default();
 
-        for (lhs_sv, lhs_sd) in self.single_diff.inner.iter() {
-            for (rhs_sv, rhs_sd) in base.single_diff.inner.iter() {
+        for (lhs_sv, lhs_sd) in self.single_differences.inner.iter() {
+            for (rhs_sv, rhs_sd) in base.single_differences.inner.iter() {
                 if lhs_sv == rhs_sv {
                     if let Some((lhs_carrier, lhs_code)) = &lhs_sd.code {
                         if let Some((rhs_carrier, rhs_code)) = &rhs_sd.code {
@@ -396,10 +388,29 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
                         }
                     }
 
-                    if let Some((lhs_carrier, lhs_lambda, lhs_phase)) = &lhs_sd.phase {
-                        if let Some((rhs_carrier, _, rhs_phase)) = &rhs_sd.phase {
+                    if let Some((lhs_carrier, lhs_lambda, lhs_mw)) = &lhs_sd.mw {
+                        if let Some((rhs_carrier, _, rhs_mw)) = &rhs_sd.mw {
                             if lhs_carrier == rhs_carrier {
-                                dd.insert_phase(
+                                dd.insert_mw(*lhs_sv, (*lhs_carrier, *lhs_lambda, lhs_mw - rhs_mw));
+                            }
+                        }
+                    }
+
+                    if let Some((lhs_carrier, lhs_lambda, lhs_phase)) = &lhs_sd.phase_j {
+                        if let Some((rhs_carrier, _, rhs_phase)) = &rhs_sd.phase_j {
+                            if lhs_carrier == rhs_carrier {
+                                dd.insert_phase_j(
+                                    *lhs_sv,
+                                    (*lhs_carrier, *lhs_lambda, lhs_phase - rhs_phase),
+                                );
+                            }
+                        }
+                    }
+
+                    if let Some((lhs_carrier, lhs_lambda, lhs_phase)) = &lhs_sd.phase_if {
+                        if let Some((rhs_carrier, _, rhs_phase)) = &rhs_sd.phase_if {
+                            if lhs_carrier == rhs_carrier {
+                                dd.insert_phase_if(
                                     *lhs_sv,
                                     (*lhs_carrier, *lhs_lambda, lhs_phase - rhs_phase),
                                 );
@@ -415,7 +426,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
 
     /// Runs the special post-fit prior RTK solving, where self is considered rover
     /// returning DD'ed measurements.
-    pub fn rtk_post_fit(&mut self, base: &mut Self) -> Result<DoubleDifferences, Error> {
+    pub fn rtk_post_fit(&mut self, base: &mut Self) -> Result<Differences, Error> {
         // run SD algorithm on both sites
         let mob_pivot = self.post_fit_sd_pivot_election();
 
@@ -467,6 +478,10 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         // remove pivot from both sites
         self.retain_mut(|cd| cd.sv != mob_pivot.sv);
         base.retain_mut(|cd| cd.sv != mob_pivot.sv);
+
+        for (sat, dd) in ddiffs.inner.iter() {
+            debug!("{}({}) - DD={}", mob_pivot.epoch, sat, dd);
+        }
 
         Ok(ddiffs)
     }

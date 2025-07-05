@@ -1,14 +1,15 @@
 use log::debug;
 
 use crate::{
-    pool::single_diff::SingleDifference,
+    candidate::differences::Difference,
+    constants::SPEED_OF_LIGHT_M_S,
     prelude::{Candidate, Method},
 };
 
 impl Candidate {
     /// Runs the SD algorithm between [Self] and pivot [Self].
-    pub(crate) fn single_difference(&self, method: Method, pivot: &Self) -> SingleDifference {
-        let mut sd = SingleDifference::default();
+    pub(crate) fn single_difference(&self, method: Method, pivot: &Self) -> Difference {
+        let mut sd = Difference::default();
 
         match method {
             Method::SPP => {
@@ -31,10 +32,25 @@ impl Candidate {
             },
         }
 
+        if let Some(mw_1) = self.mw_combination() {
+            if let Some(mw_2) = pivot.mw_combination() {
+                sd = sd.with_mw((mw_1.rhs, mw_1.lambda, mw_1.value - mw_2.value));
+            }
+        }
+
+        if let Some((c_1, l_1)) = self.subsidary_phase_range() {
+            if let Some((c_2, l_2)) = pivot.subsidary_phase_range() {
+                if c_1 == c_2 {
+                    let lambda = SPEED_OF_LIGHT_M_S / c_1.frequency_hz();
+                    sd = sd.with_phase_j((c_1, lambda, l_1 - l_2));
+                }
+            }
+        }
+
         if let Some(l_1) = self.phase_if_combination() {
             if let Some(l_2) = pivot.phase_if_combination() {
                 if l_1.lhs == l_2.lhs && l_1.rhs == l_2.rhs {
-                    sd = sd.with_phase((l_1.rhs, l_1.lambda, l_1.value - l_2.value));
+                    sd = sd.with_phase_if((l_1.rhs, l_1.lambda, l_1.value - l_2.value));
                 }
             }
         }
@@ -93,11 +109,19 @@ mod test {
                 assert_eq!(single_diff.code, Some((Carrier::L1, 0.0)));
 
                 let (f1, f2) = (Carrier::L1.frequency_hz(), Carrier::E5b.frequency_hz());
+                let lambda = SPEED_OF_LIGHT_M_S / f2;
+
+                assert_eq!(single_diff.phase_j, Some((Carrier::E5b, lambda, 0.0)));
+
                 let (f1pow, f2pow) = (f1.powi(2), f2.powi(2));
                 let freq = f1 * f2 / (f1pow + f2pow).sqrt();
                 let lambda = SPEED_OF_LIGHT_M_S / freq;
 
-                assert_eq!(single_diff.phase, Some((Carrier::L1, lambda, 0.0)));
+                assert_eq!(single_diff.phase_if, Some((Carrier::L1, lambda, 0.0)));
+
+                let lambda = SPEED_OF_LIGHT_M_S / (f1 - f2);
+
+                assert_eq!(single_diff.mw, Some((Carrier::L1, lambda, 0.0)));
             }
         }
     }

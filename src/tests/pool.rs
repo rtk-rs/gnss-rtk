@@ -544,7 +544,7 @@ fn rtk_ppp_pool_fit() {
                 pc_e01_rover - pc_e05_rover - (pc_e01_base - pc_e05_base)
             );
 
-            let (carrier, lambda, phase) = dd.phase.expect("E01 missing DD(phase)");
+            let (carrier, lambda, phase) = dd.phase_if.expect("E01 missing DD(phaseIF)");
 
             assert_eq!(carrier, Carrier::L1);
 

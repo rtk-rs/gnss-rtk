@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use nalgebra::{DMatrix, DVector, DimName, U3, U4};
 
 use crate::{
+    candidate::differences::Differences,
     navigation::{
         apriori::Apriori,
         dop::DilutionOfPrecision,
@@ -29,7 +30,7 @@ use crate::{
         sv::SVContribution,
     },
     prelude::{Candidate, Config, Duration, Epoch, Error, Frame, Method, UserParameters, SV},
-    rtk::{double_diff::DoubleDifferences, RTKBase},
+    rtk::RTKBase,
 };
 
 /// [Navigation] Solver
@@ -79,9 +80,6 @@ pub(crate) struct Navigation {
     /// [SVContribution]s
     pub sv: Vec<SVContribution>,
 
-    /// True if this filter has been initialized
-    pub initialized: bool,
-
     /// Current [State]
     pub state: State,
 
@@ -116,7 +114,6 @@ impl Navigation {
             frame,
             postfit: None,
             prev_epoch: None,
-            initialized: false,
             cfg: cfg.clone(),
             prefit: None,
             state: Default::default(),
@@ -171,7 +168,7 @@ impl Navigation {
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
     /// - uses_rtk: true when RTK mode nav is being used
-    /// - double_differences: possible [DoubleDifferences]
+    /// - double_differences: possible double [Differences]
     pub fn solve<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
@@ -182,7 +179,7 @@ impl Navigation {
         uses_rtk: bool,
         rtk_base: &RTK,
         pivot_position_ecef_m: &Option<(f64, f64, f64)>,
-        double_differences: &Option<DoubleDifferences>,
+        double_differences: &Option<Differences>,
     ) -> Result<(), Error> {
         self.clear();
 
@@ -216,7 +213,7 @@ impl Navigation {
                 self.prefit = Some(Solver::new(self.cfg.clone(), self.frame));
             }
 
-            assert!(uses_rtk, "PPP currently limited to RTK navigation mode");
+            assert!(uses_rtk, "PPP currently limited to RTK navigation3");
         }
 
         params.q_matrix(&mut self.q_k, dt, ndf);
@@ -337,7 +334,7 @@ impl Navigation {
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
     /// - uses_rtk: true when RTK mode nav is being used
-    /// - double_differences: possible [DoubleDifferences]
+    /// - double_differences: possible double [Differences]
     /// - fixed_ambiguities: possible fixed ambiguities
     pub fn kf_initialization<RTK: RTKBase>(
         &mut self,
@@ -348,7 +345,7 @@ impl Navigation {
         uses_rtk: bool,
         rtk_base: &RTK,
         pivot_position_ecef_m: &Option<(f64, f64, f64)>,
-        double_differences: &Option<DoubleDifferences>,
+        double_differences: &Option<Differences>,
         fixed_ambiguities: &Option<HashMap<SV, i64>>,
     ) -> Result<(), Error> {
         const NB_ITER: usize = 10;
@@ -614,7 +611,7 @@ impl Navigation {
     /// - candidates: proposed [Candidate]s
     /// - size: number of proposed [Cadndidate]s
     /// - uses_rtk: true when RTK mode nav is being used
-    /// - double_differences: possible [DoubleDifferences]
+    /// - double_differences: possible double [Differences]
     /// - fixed_ambiguities: possible fixed ambiguities
     pub fn kf_run<RTK: RTKBase>(
         &mut self,
@@ -624,7 +621,7 @@ impl Navigation {
         uses_rtk: bool,
         rtk_base: &RTK,
         pivot_position_ecef_m: &Option<(f64, f64, f64)>,
-        double_differences: &Option<DoubleDifferences>,
+        double_differences: &Option<Differences>,
         fixed_ambiguities: &Option<HashMap<SV, i64>>,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
@@ -791,6 +788,11 @@ impl Navigation {
             return Err(Error::MaxGdopExceeded);
         }
         Ok(())
+    }
+
+    /// True if this filter is initialized
+    pub fn is_initialized(&self) -> bool {
+        self.kalman.initialized
     }
 }
 
