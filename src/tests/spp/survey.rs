@@ -5,7 +5,8 @@ use std::str::FromStr;
 use crate::{
     navigation::apriori::Apriori,
     prelude::{
-        Almanac, ClockProfile, Config, Epoch, Frame, Method, Solver, UserParameters, UserProfile,
+        Almanac, ClockProfile, Config, Epoch, Frame, Method, PVTSolutionType, Solver,
+        UserParameters, UserProfile,
     },
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
@@ -81,7 +82,7 @@ fn static_spp() {
             epoch_str
         );
 
-        let status = solver.ppp_solving(t_gpst, default_params, &candidates);
+        let status = solver.ppp(t_gpst, default_params, &candidates);
 
         match status {
             Err(e) => panic!("Static SPP process failed with invalid error: {}", e),
@@ -118,6 +119,8 @@ fn static_spp() {
                     err_z_m
                 );
 
+                assert_eq!(pvt.solution_type, PVTSolutionType::PPP);
+
                 assert!(
                     pvt.gdop < MAX_SPP_GDOP,
                     "{} (static) spp survey GDOP too large!",
@@ -125,8 +128,8 @@ fn static_spp() {
                 );
 
                 info!(
-                    "{} (static) spp (survey) error: x={:.3}m y={:.3}m z={:.3}m",
-                    epoch_str, err_x_m, err_y_m, err_z_m
+                    "{} (static) spp (survey) error: x={:.3}m y={:.3}m z={:.3}m, GDOP={} TDOP={}",
+                    epoch_str, err_x_m, err_y_m, err_z_m, pvt.gdop, pvt.tdop,
                 );
             },
         }

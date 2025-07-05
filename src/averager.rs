@@ -1,6 +1,6 @@
 use core::f64;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Averager {
     /// Estimated mean
     pub mean: f64,

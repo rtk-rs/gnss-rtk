@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::{
-    prelude::{Candidate, Carrier, Constellation, Epoch, Observation, RTKBase, SV},
+    prelude::{Candidate, Carrier, Epoch, Observation, RTKBase, SV},
     tests::{
         data::{E01, E03, E05, E09, E13, E15, E24, E31},
         BASE_REFERENCE_COORDS_ECEF_M,

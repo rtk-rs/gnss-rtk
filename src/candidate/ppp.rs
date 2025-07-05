@@ -27,9 +27,7 @@ impl Candidate {
         &self,
         cfg: &Config,
         two_rows: bool,
-        amb: Option<u64>,
         x0_y0_z0_m: Vector3<f64>,
-        rx_lat_long_alt_deg_deg_km: (f64, f64, f64),
         contribution: &mut SVContribution,
     ) -> Result<VectorContribution, Error> {
         let mut bias_m = 0.0;
@@ -76,7 +74,7 @@ impl Candidate {
             },
         };
 
-        let mut cp = match cfg.method {
+        let cp = match cfg.method {
             Method::PPP => {
                 let comb = self
                     .phase_if_combination()
@@ -87,13 +85,13 @@ impl Candidate {
             _ => None,
         };
 
-        if let Some(amb) = amb {
-            if let Some(cp) = &mut cp {
-                let amb = amb as f64;
-                debug!("{}({}) n_amb={}", self.epoch, self.sv, amb.round() as u64);
-                *cp -= amb * lambda;
-            }
-        }
+        // if let Some(amb) = amb {
+        //     if let Some(cp) = &mut cp {
+        //         let amb = amb as f64;
+        //         debug!("{}({}) n_amb={}", self.epoch, self.sv, amb.round() as u64);
+        //         *cp -= amb * lambda;
+        //     }
+        // }
 
         bias_m -= self.clock_corr.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
 
@@ -136,7 +134,7 @@ impl Candidate {
 
         if two_rows || cfg.method == Method::PPP {
             if cp.is_none() {
-                return Err(Error::MissingPhaseRangeMeasurements)?;
+                return Err(Error::MissingPhaseRange)?;
             }
         }
 
@@ -197,7 +195,7 @@ impl Candidate {
 #[cfg(test)]
 mod test {
     use crate::{
-        prelude::{Candidate, Config, Epoch, Frame, Method, Orbit},
+        prelude::{Config, Epoch, Frame, Method, Orbit},
         tests::{CandidatesBuilder, E05, ROVER_REFERENCE_COORDS_ECEF_M},
     };
 

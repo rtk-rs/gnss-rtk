@@ -16,10 +16,11 @@ use anise::errors::AlmanacResult;
 mod bias;
 mod ppp;
 mod rtk;
-mod sd;
 mod signal;
 
 pub(crate) mod combination;
+pub(crate) mod differences;
+pub(crate) mod single_diff;
 
 #[cfg(test)]
 mod tests;
@@ -73,9 +74,6 @@ pub struct Candidate {
 
     /// Resolved ambiguities
     pub(crate) amb: Option<Ambiguities>,
-
-    /// Possible Observations differentiated by SD algorithm
-    pub(crate) sd: Option<Observation>,
 }
 
 impl Candidate {
@@ -98,7 +96,6 @@ impl Candidate {
             observations,
             tx_epoch: epoch,
             tgd: Duration::ZERO,
-            sd: Default::default(),
             amb: Default::default(),
             orbit: Default::default(),
             windup: Default::default(),

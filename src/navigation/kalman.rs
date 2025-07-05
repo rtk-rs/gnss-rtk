@@ -1,8 +1,7 @@
 use crate::error::Error;
 
 use nalgebra::{
-    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, Dyn, Matrix, OMatrix,
-    OVector, VecStorage,
+    allocator::Allocator, DMatrix, DVector, DefaultAllocator, DimName, OMatrix, OVector,
 };
 
 #[derive(Clone)]
@@ -22,10 +21,9 @@ impl KfEstimate {
         Self { p, x }
     }
 
-    pub fn resize_mut(&mut self, r: usize, c: usize) {
-        self.p.resize_mut(r, c, 0.0);
-        let resized = self.x.clone().resize(r, 1, 0.0);
-        self.x = DVector::from_row_slice(resized.as_slice());
+    pub fn resize_mut(&mut self, ndf: usize) {
+        self.p.resize_mut(ndf, ndf, 100.0e-3);
+        self.x.resize_vertically_mut(ndf, 0.0);
     }
 
     /// Reset this [KfEstimate]
@@ -114,6 +112,10 @@ impl Kalman {
         }
     }
 
+    pub fn resize_mut(&mut self, ndf: usize) {
+        self.predicted.resize_mut(ndf);
+    }
+
     /// Initialize this [Kalman] filter
     pub fn initialize_from_static<D: DimName>(
         &mut self,
@@ -199,10 +201,6 @@ impl Kalman {
         assert_eq!(y_rows, g_rows, "invalid Y/G dimensions!");
         assert_eq!(y_rows, w_rows, "invalid Y/W dimensions!");
 
-        if g_cols != self.predicted.x.nrows() {
-            self.predicted.resize_mut(g_cols, g_cols);
-        }
-
         let gt = g_k.transpose();
 
         let p_inv = self
@@ -217,7 +215,6 @@ impl Kalman {
         let p_k = p_k + p_inv.clone();
         let p_k = p_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
-        // attention ici si les conditions ont changé par rapport à la prédiction précédente
         let p_inv_x = p_inv.clone() * self.predicted.x.clone();
 
         let x_k = gt * w_k;
@@ -226,13 +223,13 @@ impl Kalman {
         let x_k = p_k.clone() * x_k;
 
         // prediction
-        let x_k1: Matrix<f64, Dyn, nalgebra::Const<1>, VecStorage<f64, Dyn, nalgebra::Const<1>>> =
-            f_k.clone() * x_k.clone();
-        let p_k1: Matrix<f64, Dyn, Dyn, VecStorage<f64, Dyn, Dyn>> =
-            f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
+        let x_k1 = f_k.clone() * x_k.clone();
+
+        let p_k1 = f_k.clone() * p_k.clone() * f_k.transpose() + q_k;
 
         let x_k1 = DVector::<f64>::from_row_slice(x_k1.as_slice());
         let p_k1 = DMatrix::<f64>::from_column_slice(x_k1.nrows(), p_k1.ncols(), p_k1.as_slice());
+
         self.predicted = KfEstimate { x: x_k1, p: p_k1 };
 
         Ok(KfEstimate { x: x_k, p: p_k })
@@ -276,7 +273,6 @@ impl Kalman {
         let p_k = p_k + p_inv.clone();
         let p_k = p_k.try_inverse().ok_or(Error::MatrixInversion)?;
 
-        // attention ici si les conditions ont changé par rapport à la prédiction précédente
         let p_inv_x = p_inv.clone() * self.predicted.x.clone();
 
         let x_k = gt * w_k;

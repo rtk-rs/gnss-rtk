@@ -1,9 +1,9 @@
-use log::error;
+use log::{debug, error};
 
 use crate::{
+    candidate::differences::Differences,
     navigation::{sv::SVContribution, vector::VectorContribution},
     prelude::{Candidate, Config, Epoch, Error, Method, Vector3},
-    rtk::DoubleDifferences,
 };
 
 impl Candidate {
@@ -11,42 +11,67 @@ impl Candidate {
     pub(crate) fn rtk_vector_contribution(
         &self,
         epoch: Epoch,
+        two_rows: bool,
         cfg: &Config,
-        double_diffs: &DoubleDifferences,
+        double_diffs: &Differences,
         contribution: &mut SVContribution,
     ) -> Result<VectorContribution, Error> {
-        let carrier = match cfg.method {
-            Method::SPP | Method::CPP => match self.l1_pseudo_range() {
-                Some((c_1, _)) => Some(c_1),
-                _ => {
-                    error!("{}({}) - missing pseudo range data", epoch, self.sv);
-                    None
-                },
-            },
-            Method::PPP | Method::PPP_AR => match self.l1_phase_range() {
-                Some((c_1, _)) => Some(c_1),
-                _ => {
-                    error!("{}({}) - missing phase data", epoch, self.sv);
-                    None
-                },
-            },
-        };
-
-        if carrier.is_none() {
-            return Err(Error::UnknownCarrierFrequency);
-        }
-
-        let carrier = carrier.unwrap();
-
         let dd = double_diffs
-            .double_difference(self.sv, carrier)
+            .difference(self.sv)
             .ok_or(Error::RtkDDPostfitMissing)?;
 
-        Ok(VectorContribution {
-            row_1: *dd,
-            row_2: 0.0,
-            sigma: 0.0,
-        })
+        let code = if let Some((_, code)) = dd.code {
+            Some(code)
+        } else {
+            None
+        };
+
+        let mut vec = VectorContribution::default();
+
+        // row #1
+        match cfg.method {
+            Method::SPP => {
+                if let Some((_, code)) = dd.code {
+                    vec.row_1 = code;
+                } else {
+                    error!("{}({}) - missing pseudo range", epoch, self.sv);
+                    return Err(Error::MissingPseudoRange);
+                }
+            },
+            _ => {
+                if let Some((_, code)) = dd.code_if {
+                    vec.row_1 = code;
+                } else {
+                    error!("{}({}) - missing pseudo range", epoch, self.sv);
+                    return Err(Error::MissingPseudoRange);
+                }
+            },
+        }
+
+        // row #1
+        if !two_rows && cfg.method == Method::PPP {
+            if let Some(phase_if) = dd.phase_if(self.sv) {
+                vec.row_1 = phase_if;
+            } else {
+                error!("{}({}) - missing phase data", epoch, self.sv);
+                return Err(Error::MissingPhaseRange);
+            }
+        }
+
+        // row #2 (special case)
+        if two_rows {
+            if cfg.method == Method::PPP {
+                // special case
+                if let Some((_, _, phase_if)) = dd.phase_if {
+                    vec.row_2 = phase_if;
+                } else {
+                    error!("{}({}) - missing phase data", epoch, self.sv);
+                    return Err(Error::MissingPhaseRange);
+                }
+            }
+        }
+
+        Ok(vec)
     }
 
     /// Matrix contribution.

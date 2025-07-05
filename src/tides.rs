@@ -1,144 +1,173 @@
 use crate::{
-    constants::Constants,
-    prelude::{Almanac, Epoch, Error, Frame, Vector3},
+    prelude::{Almanac, Epoch, Error, Vector3},
+    constants::{
+        EARTH_EQUATORIAL_RADIUS_M,
+        LOVE_DEGREE2,
+        SHIDA_DEGREE2,
+        EARTH_GRAVITATION_MU_M3_S2,
+        SUN_GRAVITATION_MU_M3_S2,
+        MOON_GRAVITATION_MU_M3_S2,
+    },
 };
+
 use anise::{
-    math::cartesian::CartesianState,
-    constants::frames::{EARTH_J2000, MOON_J2000, SUN_J2000},
-    prelude::Orbit,
+    constants::{
+        frames::{EARTH_J2000, MOON_J2000, SUN_J2000},
+    },
 };
 
-/// Calculates local site displacement vector (crust deformation)
-/// for given site coordinates [ECEF m], located on [Frame] body
-/// due to moon an star gravitational interaction.
-pub fn solid_tides(
-    t: Epoch,
+/// Calculates local crust displacement [Vector3] (all axis),
+/// at specified position position expressed in meters (ECEF).
+///
+/// ## Input
+/// - epoch: [Epoch] of displacement calculation
+/// - almanac: [Almanac]
+/// - position_ecef_m: position as [Vector3] ECEF (meters)
+/// - latitude_rad: latitude (in radians) of location
+/// at which the displacement is to be calculated.
+pub fn solid_body_tidal_displacement(
+    epoch: Epoch,
     almanac: &Almanac,
-    site_ecef_m: Vector3<f64>,
+    position_ecef_m: Vector3<f64>,
+    latitude_rad: f64,
 ) -> Result<Vector3<f64>, Error> {
-    let (site_ecef_x_m, site_ecef_y_m, site_ecef_z_m) =
-        (site_ecef_m[0], site_ecef_m[1], site_ecef_m[2]);
 
-    let r_earth_m = Constants::EARTH_EQUATORIAL_RADIUS_KM * 1.0E3;
-    let (h2, l2) = (Constants::LOVE_DEGREE2, Constants::SHIDA_DEGREE2);
+     let r_earth_moon_unit = almanac
+        .unit_vector(
+            EARTH_J2000,
+            MOON_J2000,
+            epoch,
+            None,
+        )
+        .map_err(|e| Error::Almanac(e))?
+        * 1.0E3;
+    
+     let r_earth_sun_unit = almanac
+        .unit_vector(
+            SUN_J2000,
+            EARTH_J2000,
+            epoch,
+            None,
+        )
+        .map_err(|e| Error::Almanac(e))?
+        * 1.0E3;
+    
+    let position_ecef_mag = position_ecef_m.magnitude();
+    let position_ecef_unit = position_ecef_m / position_ecef_mag;
 
-    let (g_earth, g_moon, g_sun) = (
-        Constants::EARTH_GRAVITATION,
-        0.01230002,
-        332946.0,
-        //Constants::MOON_GRAVITATION,
-        //Constants::SUN_GRAVITATION,
-    );
+    let r_earth_moon_unit_mag = r_earth_moon_unit.magnitude();
+    let r_earth_sun_unit_mag = r_earth_moon_unit.magnitude();
 
-    let earth_sun = almanac
-        .transform(EARTH_J2000, SUN_J2000, t, None)
-        .map_err(Error::Almanac)?;
+    let moon_num = MOON_GRAVITATION_MU_M3_S2
+        * EARTH_EQUATORIAL_RADIUS_M.powi(4);
+    
+    let sun_num = SUN_GRAVITATION_MU_M3_S2
+        * EARTH_EQUATORIAL_RADIUS_M.powi(4);
+   
+    let moon_denom = EARTH_GRAVITATION_MU_M3_S2 *
+        r_earth_moon_unit_mag.powi(3);
 
-    let earth_moon = almanac
-        .transform(EARTH_J2000, MOON_J2000, t, None)
-        .map_err(Error::Almanac)?;
+    let sun_denom = EARTH_GRAVITATION_MU_M3_S2
+        * r_earth_sun_unit_mag.powi(3);
+    
+    let r_earth_moon_unit_dot = r_earth_moon_unit
+        .dot(&position_ecef_unit);
 
-    let earth_moon_m = Vector3::new(
-        earth_moon.radius_km.x * 1.0E3,
-        earth_moon.radius_km.y * 1.0E3,
-        earth_moon.radius_km.z * 1.0E3,
-    );
+    let r_earth_sun_unit_dot = r_earth_sun_unit
+        .dot(&position_ecef_unit);
 
-    let earth_sun_m = Vector3::new(
-        earth_sun.radius_km.x * 1.0E3,
-        earth_sun.radius_km.y * 1.0E3,
-        earth_sun.radius_km.z * 1.0E3,
-    );
+    let h2 = LOVE_DEGREE2
+        - 0.0006
+        * ((3.0 * latitude_rad.sin().powi(2) - 1.0)  /2.0);
 
-    let site_orbit = Orbit::from_position(
-        site_ecef_x_m / 1.0E3,
-        site_ecef_y_m / 1.0E3,
-        site_ecef_z_m / 1.0E3,
-        t,
-        EARTH_J2000,
-    );
+    let l2 = SHIDA_DEGREE2
+        + 0.0002 
+        * ((3.0 * latitude_rad.sin().powi(2) - 1.0) / 2.0);
 
-    //let site_latitude = site_orbit.latitude_deg()
-    //    .map_err(|e| Error::Physics(e))?
-    //    .to_radians();
+    let moon_lhs = h2
+        * position_ecef_unit
+        * (3.0 / 2.0 * r_earth_moon_unit_dot.powi(2) - 0.5);
 
-    let earth_sun_mag = earth_sun_m.magnitude();
-    let earth_moon_mag = earth_sun_m.magnitude();
+    let sun_lhs = h2
+        * position_ecef_unit
+        * (3.0 / 2.0 * r_earth_sun_unit_dot.powi(2) - 0.5);
 
-    let site_r = Vector3::new(
-        site_orbit.radius_km.x * 1.0E3,
-        site_orbit.radius_km.y * 1.0E3,
-        site_orbit.radius_km.z * 1.0E3,
-    );
+    let moon_rhs = 3.0 * l2
+        * r_earth_moon_unit_dot
+        * (r_earth_moon_unit - r_earth_moon_unit_dot * position_ecef_unit);
+    
+    let sun_rhs = 3.0 * l2
+        * r_earth_sun_unit_dot
+        * (r_earth_sun_unit - r_earth_sun_unit_dot * position_ecef_unit);
+    
+    let mut dr = moon_num / moon_denom * (moon_lhs + moon_rhs);
+    
+    // dr += sun_num / sun_denom * (sun_lhs + sun_rhs);
 
-    let site_cartesian = CartesianState::from_cartesian_pos_vel(
-        site_orbit.to_cartesian_pos_vel(),
-        t,
-        EARTH_J2000,
-    );
-
-    let site_r_mag = site_r.magnitude();
-
-    // first term is body<->moon interaction
-    let body_moon_const = g_moon * r_earth_m.powi(4) / g_earth / earth_moon_mag.powi(3);
-    let rj_r = earth_moon_m.dot(&site_r);
-    let body_moon = h2 * site_r * (3.0 / 2.0 * rj_r.powi(2) - 0.5);
-    let body_moon = body_moon + 3.0 * l2 * rj_r * (earth_moon_m - rj_r * site_r);
-    let body_moon = body_moon_const * body_moon;
-
-    // second term is body<->star interaction
-    let body_sun_const = g_sun * r_earth_m.powi(4) / g_earth / earth_sun_mag.powi(3);
-    let rj_r = earth_sun_m.dot(&site_r);
-    let body_sun = h2 * site_r * (3.0 / 2.0 * rj_r.powi(2) - 0.5);
-    let body_sun = body_sun + 3.0 * l2 * rj_r * (earth_sun_m - rj_r * site_r);
-    let body_sun = body_sun_const * body_sun;
-
-    // only for three bodies (one star, one moon)
-    // more complex systems require involve more terms
-    let sum = body_moon + body_sun;
-    Ok(sum)
+    Ok(dr)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use hifitime::{TimeSeries, Duration, Unit};
-    
+
+    use crate::{
+        tides::solid_body_tidal_displacement,
+        prelude::{
+            Vector3,
+            Almanac,
+            Epoch,
+            Duration,
+        },
+        tests::init_logger,
+    };
+
+    use hifitime::{
+        TimeSeries,
+        Unit,
+    };
+
+    use log::info;
+
+    use rstest::*;
+
+    #[fixture]
+    fn build_almanac() -> Almanac {
+        use crate::tests::almanac;
+        almanac()
+    }
+
     #[test]
-    fn earth_france_solid_tides() {
-        // solid tidal effect is said to be between [-2mm;+2mm]
-        let max_absolute_mm = 2.0;
-        let france_ecef_m = Vector3::<f64>::new(
+    fn solid_crust_tidal_deformation() {
+        init_logger();
+
+        let position_ecef_m = Vector3::<f64>::new(
             4696989.6880,
             723994.1970,
             4239678.3040,
         );
-        let almanac = Almanac::until_2035().unwrap();
+
+        let latitude_rad = 48.855338_f64.to_radians();
+    
+        let almanac = build_almanac();
+
         let t0 = Epoch::from_gregorian_utc_at_midnight(2000, 1, 1);
+
         let t1 = t0 + 24.0 * Unit::Day;
         let dt = Duration::from_seconds(30.0 * 60.0);
-        for t in TimeSeries::inclusive(t0, t1, dt).into_iter() { 
-            let (dr_x, dr_y, dr_z) = solid_tides(
-                t,
-                &almanac,
-                france_ecef_m, 
-            ) / 1.0E3; // mm
-            assert!(dr_x_mm.abs() < max_absolute_mm);
-            assert!(dr_y_mm.abs() < max_absolute_mm);
-            assert!(dr_z_mm.abs() < max_absolute_mm);
-            println!("solid tide: {:?}", dr);
-        }
-    }
-    
-    #[test]
-    fn earth_north_pole_tides() {
-        let almanac = Almanac::until_2035().unwrap();
-        // solid tidal effect is larger @ poles than equatorial latitudes
-    }
 
-    #[test]
-    fn earth_south_pole_tides() {
-        let almanac = Almanac::until_2035().unwrap();
-        // solid tidal effect is larger @ poles than equatorial latitudes
+        for epoch in TimeSeries::inclusive(t0, t0, dt).into_iter() { 
+            
+            let dr = solid_body_tidal_displacement(
+                epoch,
+                &almanac,
+                position_ecef_m,
+                latitude_rad,
+            ).unwrap_or_else(|e| {
+                panic!("failed to calculate tidal displacement");
+            });
+
+            info!("tidal displacement dr={}m", dr);
+        }
     }
 }

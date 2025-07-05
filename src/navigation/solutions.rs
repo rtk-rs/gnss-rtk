@@ -7,11 +7,32 @@ use crate::{
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-/// PVT Solution, always expressed as the correction to apply
-/// to an Apriori / static position.
+/// Describes the navigation technique used to obtain this [PVTSolution].
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum PVTSolutionType {
+    /// [PVTSolutionType::PPP] obtained using absolute navigation technique.
+    /// This is true as long as this is not an RTK (differential) solution.
+    /// In PPP solutions, the clock state, drift and TDOP are updated.
+    PPP = 0,
+
+    /// [PVTSolutionType::RTK] obtained using differential navigation technique.
+    /// That means at minimum of one ground station was used to obtain
+    /// this [PVTSolution]. The clock state, drift and TDoP are not resolved in
+    /// RTK solutions. It is normal to obtain 0 for all these fields, for every single solution,
+    /// for a session that only uses RTK.
+    RTK = 1,
+}
+
+/// [PVTSolution] is solved by the navigation solver from a set of measurements,
+/// using either PPP or RTK navigation technique. Depending on the technique being used,
+/// the [PVTSolution] will differ. Mainly, RTK is not able to update and resolve the clock state.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PVTSolution {
+    /// Type of solution
+    pub solution_type: PVTSolutionType,
+
     /// Measurement [Epoch] that led to this solution.
     pub epoch: Epoch,
 
@@ -51,6 +72,7 @@ pub struct PVTSolution {
 impl PVTSolution {
     pub(crate) fn new(
         epoch: Epoch,
+        uses_rtk: bool,
         state: &State,
         dop: &DilutionOfPrecision,
         contributions: &[SVContribution],
@@ -60,6 +82,11 @@ impl PVTSolution {
 
         Self {
             epoch,
+            solution_type: if uses_rtk {
+                PVTSolutionType::RTK
+            } else {
+                PVTSolutionType::PPP
+            },
             gdop: dop.gdop,
             tdop: dop.tdop,
             vdop: dop.vdop,
@@ -71,7 +98,7 @@ impl PVTSolution {
                 state.lat_long_alt_deg_deg_km.2 * 1.0E3,
             ),
             sv: contributions.to_vec(),
-            timescale: state.t.time_scale,
+            timescale: state.epoch.time_scale,
             pos_m: (pos_vel_ecef_m[0], pos_vel_ecef_m[1], pos_vel_ecef_m[2]),
             vel_m_s: (pos_vel_ecef_m[3], pos_vel_ecef_m[4], pos_vel_ecef_m[5]),
         }

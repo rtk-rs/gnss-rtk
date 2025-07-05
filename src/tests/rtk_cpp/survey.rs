@@ -4,7 +4,10 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
+    prelude::{
+        Almanac, ClockProfile, Config, Epoch, Frame, Method, PVTSolutionType, Solver,
+        UserParameters, UserProfile,
+    },
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
         TestEnvironment, TestSpacebornBiases, MAX_RTK_CPP_GDOP, MAX_RTK_CPP_X_ERROR_M,
@@ -36,7 +39,7 @@ fn static_rtk_cpp() {
 
     let cfg = Config::default().with_navigation_method(Method::CPP);
 
-    let default_params = UserParameters::default();
+    let default_params = UserParameters::new(UserProfile::Static, ClockProfile::Quartz);
 
     let almanac = build_almanac();
     let earth_frame = build_earth_frame();
@@ -81,7 +84,7 @@ fn static_rtk_cpp() {
             epoch_str
         );
 
-        let status = solver.rtk_solving(t_gpst, default_params, &candidates, &rtk_base);
+        let status = solver.rtk(t_gpst, default_params, &candidates, &rtk_base);
 
         match status {
             Err(e) => panic!("Static RTK-CPP process failed with invalid error: {}", e),
@@ -118,6 +121,8 @@ fn static_rtk_cpp() {
                     err_z_m
                 );
 
+                assert_eq!(pvt.solution_type, PVTSolutionType::RTK);
+
                 assert!(
                     pvt.gdop < MAX_RTK_CPP_GDOP,
                     "{} (static) rtk-cpp survey GDOP too large!",
@@ -125,8 +130,8 @@ fn static_rtk_cpp() {
                 );
 
                 info!(
-                    "{} (static) rtk-cpp survey error: x={}m y={}m z={}",
-                    epoch_str, err_x_m, err_y_m, err_z_m
+                    "{} (static) rtk-cpp survey error: x={}m y={}m z={}, GDOP={} TDOP={}",
+                    epoch_str, err_x_m, err_y_m, err_z_m, pvt.gdop, pvt.tdop,
                 );
             },
         }
