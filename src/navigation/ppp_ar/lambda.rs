@@ -241,15 +241,14 @@ impl LambdaAR {
 
         let mut e_mat = DMatrix::<f64>::zeros(ndf, nfixed);
 
+        debug!("(ppp) lambda - ndf={} - X={} Q={}", ndf, x_vec, q_mat);
+
         let ldl = q_mat.clone().udu().ok_or(Error::AmbiguityFactorization)?;
 
         let mut d_diag = ldl.d_matrix();
         let mut l_mat = ldl.u.transpose();
 
-        debug!(
-            "(ppp) lambda - ndf={} - X={} Q={} L={} D={}",
-            ndf, x_vec, q_mat, l_mat, d_diag
-        );
+        debug!("(ppp) lambda - L={} D={}", l_mat, d_diag);
 
         Self::reduction(ndf, &mut l_mat, &mut d_diag, &mut z_mat);
 

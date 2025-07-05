@@ -259,6 +259,8 @@ impl Navigation {
             None
         };
 
+        // TODO : see if we can use PPP prefit first state here
+
         if !self.kalman.initialized {
             self.kf_initialization(
                 epoch,
@@ -347,7 +349,7 @@ impl Navigation {
         rtk_base: &RTK,
         pivot_position_ecef_m: &Option<(f64, f64, f64)>,
         double_differences: &Option<DoubleDifferences>,
-        fixed_ambiguituies: &Option<HashMap<SV, u64>>,
+        fixed_ambiguities: &Option<HashMap<SV, i64>>,
     ) -> Result<(), Error> {
         const NB_ITER: usize = 10;
 
@@ -369,10 +371,21 @@ impl Navigation {
                     .as_ref()
                     .expect("internal error: invalid rtk measurement/post fit");
 
+                let fixed_amb = if self.cfg.method == Method::PPP {
+                    let fixed_ambiguities = fixed_ambiguities
+                        .as_ref()
+                        .expect("internal error: missing PPP prefit");
+
+                    fixed_ambiguities.get(&candidates[i].sv)
+                } else {
+                    None
+                };
+
                 match candidates[i].rtk_vector_contribution(
                     t,
                     false,
                     &self.cfg,
+                    fixed_amb,
                     double_differences,
                     &mut contrib,
                 ) {
@@ -520,10 +533,21 @@ impl Navigation {
                         .as_ref()
                         .expect("internal error: invalid rtk measurement/post fit");
 
+                    let fixed_amb = if self.cfg.method == Method::PPP {
+                        let fixed_ambiguities = fixed_ambiguities
+                            .as_ref()
+                            .expect("internal error: missing PPP prefit");
+
+                        fixed_ambiguities.get(&candidates[*i].sv)
+                    } else {
+                        None
+                    };
+
                     match candidates[*i].rtk_vector_contribution(
                         t,
                         false,
                         &self.cfg,
+                        fixed_amb,
                         double_differences,
                         &mut unused,
                     ) {
@@ -601,9 +625,10 @@ impl Navigation {
         rtk_base: &RTK,
         pivot_position_ecef_m: &Option<(f64, f64, f64)>,
         double_differences: &Option<DoubleDifferences>,
-        fixed_ambiguituies: &Option<HashMap<SV, u64>>,
+        fixed_ambiguities: &Option<HashMap<SV, i64>>,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
+
         let (base_x0, base_y0, base_z0) = rtk_base.reference_position_ecef_m(t);
 
         // measurement
@@ -619,10 +644,21 @@ impl Navigation {
                     .as_ref()
                     .expect("internal error: invalid rtk measurement/post fit");
 
+                let fixed_amb = if self.cfg.method == Method::PPP {
+                    let fixed_ambiguities = fixed_ambiguities
+                        .as_ref()
+                        .expect("internal error: missing PPP prefit");
+
+                    fixed_ambiguities.get(&candidates[i].sv)
+                } else {
+                    None
+                };
+
                 match candidates[i].rtk_vector_contribution(
                     t,
                     false,
                     &self.cfg,
+                    fixed_amb,
                     double_differences,
                     &mut contrib,
                 ) {

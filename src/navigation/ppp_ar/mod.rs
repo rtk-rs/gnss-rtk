@@ -71,7 +71,7 @@ pub struct Solver {
     lambda_q: DMatrix<f64>,
 
     /// Fixed ambiguities
-    pub fixed_amb: HashMap<SV, u64>,
+    pub fixed_amb: HashMap<SV, i64>,
 
     /// True if this filter has been initialized
     pub initialized: bool,
@@ -155,9 +155,8 @@ impl Solver {
 
         let mut initial_state = initial_state.clone();
 
-        let mut ndf = U8::USIZE + double_differences.ndf();
-
-        ndf -= 1;
+        let mut ndf = U4::USIZE + double_differences.ndf();
+        ndf -= 1; // TODO: only in RTK
 
         self.state.resize_mut(ndf);
         self.kalman.resize_mut(ndf);
@@ -177,6 +176,13 @@ impl Solver {
         };
 
         params.q_matrix(&mut self.q_k, dt, ndf);
+
+        // TODO: phase bias weight model
+        let offset = 3; // TODO: only in RTK
+
+        for i in offset..ndf {
+            self.q_k[(i, i)] = 1.0;
+        }
 
         if !self.kalman.initialized {
             self.kf_initialization(
@@ -253,13 +259,15 @@ impl Solver {
                 epoch,
                 true,
                 &self.cfg,
+                None,
                 double_differences,
                 &mut contrib,
             ) {
                 Ok(vec) => {
                     self.y_k_vec.push(vec.row_1);
                     self.y_k_vec.push(vec.row_2);
-                    self.w_k_vec.push(1.0); // TODO improve model
+                    self.w_k_vec.push(1.0); // TODO: improve model
+                    self.w_k_vec.push(1.0); // TODO: improve model
                     self.indexes.push(i);
                     self.sv.push(contrib);
                 },
@@ -274,14 +282,9 @@ impl Solver {
 
         let y_len = self.indexes.len();
 
-        if y_len < U8::USIZE {
+        if y_len < U4::USIZE {
             return Err(Error::MatrixMinimalDimension);
         }
-
-        let mut ndf = U8::USIZE;
-        ndf -= 1;
-
-        self.g_k.resize_mut(y_len, ndf, 0.0);
 
         // run
         for ith in 0..NB_ITER {
@@ -299,19 +302,27 @@ impl Solver {
             debug!("(ppp i={}) Y: {}", ith, y_k);
 
             // Build G
+            let mut ndf = U4::USIZE;
+            ndf -= 1; // TODO: only in RTK
+            ndf += self.indexes.len();
+
+            self.g_k.resize_mut(y_len, ndf, 0.0);
+
+            // Build G
             for (i, index) in self.indexes.iter().enumerate() {
                 let position_m = pending.to_position_ecef_m();
 
                 let (dx, dy, dz) =
                     candidates[*index].rtk_matrix_contribution(position_m, pivot_position_ecef_m);
 
-                self.g_k[(i, 0)] = dx;
-                self.g_k[(i, 1)] = dy;
-                self.g_k[(i, 1)] = dz;
+                self.g_k[(2 * i, 0)] = dx;
+                self.g_k[(2 * i, 1)] = dy;
+                self.g_k[(2 * i, 2)] = dz;
 
-                self.g_k[(i + 1, 0)] = dx;
-                self.g_k[(i + 1, 1)] = dy;
-                self.g_k[(i + 1, 2)] = dz;
+                self.g_k[(2 * i + 1, 0)] = dx;
+                self.g_k[(2 * i + 1, 1)] = dy;
+                self.g_k[(2 * i + 1, 2)] = dz;
+                self.g_k[(2 * i + 1, 3 + i)] = 1.0;
             }
 
             debug!("(ppp i={}) G: {}", ith, self.g_k);
@@ -367,17 +378,18 @@ impl Solver {
 
                 let position_m = pending.to_position_ecef_m();
 
-                let mut unused = SVContribution::default();
-
                 match candidates[*i].rtk_vector_contribution(
                     epoch,
                     true,
                     &self.cfg,
+                    None,
                     double_differences,
                     &mut unused,
                 ) {
                     Ok(vec) => {
                         self.y_k_vec.push(vec.row_1);
+                        self.y_k_vec.push(vec.row_2);
+                        self.w_k_vec.push(1.0); // TODO improve model
                         self.w_k_vec.push(1.0); // TODO improve model
                         true
                     },
@@ -409,7 +421,15 @@ impl Solver {
 
         // TODO malloc
         let mut q_mat = DMatrix::identity(ndf + lambda_ndf, ndf + lambda_ndf);
+
         params.q_matrix(&mut q_mat, Duration::ZERO, ndf + lambda_ndf);
+
+        // TODO: phase bias weight model
+        let offset = 3; // TODO: only in RTK
+
+        for i in offset..ndf + lambda_ndf {
+            q_mat[(i, i)] = 1.0;
+        }
 
         debug!("ndf(ppp)={} Q(ppp)={}", ndf, q_mat);
 
@@ -431,24 +451,27 @@ impl Solver {
         self.lambda_q.resize_mut(lambda_ndf, lambda_ndf, 0.0);
 
         let mut offset = U4::USIZE;
+        offset -= 1; // TODO: only in RTK
 
         for i in 0..lambda_ndf {
-            for j in 0..lambda_ndf {
-                self.lambda_q[(i, j)] = self.p_k[(i + ndf + 1, j + ndf + 1)];
+            self.lambda_x[i] = self.x_k[offset + i];
+
+            for j in 1..lambda_ndf {
+                self.lambda_q[(i, j)] = self.p_k[(offset + i, j + offset)];
             }
-            self.lambda_x[i] = self.x_k[i + Navigation::clock_index() + 1];
         }
 
         match LambdaAR::run(lambda_ndf, lambda_ndf, &self.lambda_x, &self.lambda_q) {
             Ok((f_mat, s)) => {
                 // TODO fix confirmation
                 // TODO manque l'info de SV
-                // for (i, _) in self.indexes.iter().enumerate() {
-                //     self.fixed_amb.insert(*sv, f_mat[(i, 0)].round() as u64);
-                // }
+                for (i, index) in self.indexes.iter().enumerate() {
+                    let sv = candidates[*index].sv;
+                    self.fixed_amb.insert(sv, f_mat[(i, 0)].round() as i64);
+                }
             },
             Err(e) => {
-                error!("lambda search failed with {}", e);
+                error!("{} - lambda search failed with {}", epoch, e);
                 return Err(e);
             },
         }
@@ -483,6 +506,7 @@ impl Solver {
                 epoch,
                 true,
                 &self.cfg,
+                None,
                 double_differences,
                 &mut contrib,
             ) {

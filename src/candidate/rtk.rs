@@ -1,4 +1,4 @@
-use log::error;
+use log::{debug, error};
 
 use crate::{
     navigation::{sv::SVContribution, vector::VectorContribution},
@@ -13,6 +13,7 @@ impl Candidate {
         epoch: Epoch,
         two_rows: bool,
         cfg: &Config,
+        fixed_amb: Option<&i64>,
         double_diffs: &DoubleDifferences,
         contribution: &mut SVContribution,
     ) -> Result<VectorContribution, Error> {
@@ -26,8 +27,16 @@ impl Candidate {
             None
         };
 
-        let phase = if let Some((_, _, phase)) = dd.phase {
-            Some(phase)
+        let phase = if let Some((_, lambda, phase)) = dd.phase {
+            if let Some(fixed_amb) = fixed_amb {
+                debug!(
+                    "{}({}) - fixed ambiguity: {}",
+                    self.epoch, self.sv, fixed_amb
+                );
+                Some(phase + lambda * *fixed_amb as f64)
+            } else {
+                Some(phase)
+            }
         } else {
             None
         };

@@ -138,7 +138,7 @@ impl State {
         let nrows = self.x.nrows();
 
         if ndf > nrows {
-            self.x.resize_vertically_mut(ndf - nrows, 0.0);
+            self.x.resize_vertically_mut(ndf, 0.0);
         }
 
         let dt = (pending_t - self.t).to_seconds();
