@@ -90,7 +90,6 @@ impl std::fmt::Display for UserProfile {
     }
 }
 
-#[allow(non_camel_case_types)]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum ClockProfile {
     /// [ClockProfile::Quartz] low quality clock,
@@ -106,9 +105,9 @@ pub enum ClockProfile {
     /// at the same level of a GNSS constellation.
     Atomic,
 
-    /// [ClockProfile::H_MASER] (Hydrogen Maser) ultra high quality clock,
+    /// [ClockProfile::HydrogenMaser] ultra high quality clock,
     /// better than a GNSS constellation.
-    H_MASER,
+    HydrogenMaser,
 }
 
 impl std::str::FromStr for ClockProfile {
@@ -118,10 +117,21 @@ impl std::str::FromStr for ClockProfile {
         let trimmed = s.trim();
         match trimmed {
             "quartz" => Ok(Self::Quartz),
-            "maser" | "h-maser" => Ok(Self::H_MASER),
+            "maser" | "h-maser" => Ok(Self::HydrogenMaser),
             "oscillator" | "ocxo" => Ok(Self::Oscillator),
             "atomic" | "rb" | "rubidium" => Ok(Self::Atomic),
             _ => Err(Error::InvalidClockProfile),
+        }
+    }
+}
+
+impl std::fmt::Display for ClockProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Quartz => write!(f, "quartz"),
+            Self::Oscillator => write!(f, "oscillator"),
+            Self::Atomic => write!(f, "atomic"),
+            Self::HydrogenMaser => write!(f, "hydrogen maser"),
         }
     }
 }
@@ -133,7 +143,7 @@ impl ClockProfile {
             Self::Quartz => 0.5 * 2.0E-19,
             Self::Oscillator => 0.5 * 2.0E-20,
             Self::Atomic => 0.5 * 2.0E-21,
-            Self::H_MASER => 0.5 * 2.0E-22,
+            Self::HydrogenMaser => 0.5 * 2.0E-22,
         }
     }
 
@@ -143,7 +153,7 @@ impl ClockProfile {
             Self::Quartz => 2.0 * PI * PI * 2.0E-20,
             Self::Oscillator => 2.0 * PI * PI * 2.0E-23,
             Self::Atomic => 2.0 * PI * PI * 2.0E-24,
-            Self::H_MASER => 2.0 * PI * PI * 2.0E-25,
+            Self::HydrogenMaser => 2.0 * PI * PI * 2.0E-25,
         }
     }
 }
