@@ -18,8 +18,9 @@ mod number;
 mod phase_range;
 mod pool;
 mod ppp;
-mod ppp_ar;
+// mod ppp_ar;
 mod pseudo_range;
+mod rtk2cpp;
 mod rtk_cpp;
 mod rtk_ppp;
 mod rtk_spp;
@@ -27,7 +28,6 @@ mod spp;
 mod time;
 
 pub use data::*;
-pub use number::TestNumber;
 
 use log::LevelFilter;
 use std::sync::Once;
@@ -68,14 +68,14 @@ pub fn init_logger() {
 }
 
 pub fn almanac() -> Almanac {
-    Almanac::until_2035().unwrap_or_else(|e| panic!("Failed to build test Almanac: {}", e))
+    Almanac::until_2035().unwrap_or_else(|e| panic!("Failed to build test Almanac: {e}"))
 }
 
 pub fn earth_frame() -> Frame {
     Almanac::until_2035()
-        .unwrap_or_else(|e| panic!("Failed to build test Almanac: {}", e))
+        .unwrap_or_else(|e| panic!("Failed to build test Almanac: {e}"))
         .frame_from_uid(EARTH_J2000)
-        .unwrap_or_else(|e| panic!("Failed to build test EARTH-J2000 frame: {}", e))
+        .unwrap_or_else(|e| panic!("Failed to build test EARTH-J2000 frame: {e}"))
 }
 
 pub fn test_orbits() -> OrbitsData {
@@ -90,23 +90,23 @@ pub const BASE_REFERENCE_COORDS_ECEF_M: (f64, f64, f64) = (3628427.9118, 562059.
 
 pub fn reference_epoch() -> Epoch {
     Epoch::from_str("2020-06-25T00:00:00 GPST")
-        .unwrap_or_else(|e| panic!("internal error: failed to build reference epoch: {}", e))
+        .unwrap_or_else(|e| panic!("internal error: failed to build reference epoch: {e}"))
 }
 
 /// Builds reference [Apriori] position
 pub fn rover_reference_apriori(t: Epoch) -> Apriori {
     let earth_frame = earth_frame();
     let ref_orbit = rover_reference_orbit(t, earth_frame);
-    let apriori = Apriori::from_orbit(&ref_orbit, earth_frame);
-    apriori
+
+    Apriori::from_orbit(&ref_orbit, earth_frame)
 }
 
 /// Builds reference [Apriori] position
 pub fn base_reference_apriori(t: Epoch) -> Apriori {
     let earth_frame = earth_frame();
     let ref_orbit = base_reference_orbit(t, earth_frame);
-    let apriori = Apriori::from_orbit(&ref_orbit, earth_frame);
-    apriori
+
+    Apriori::from_orbit(&ref_orbit, earth_frame)
 }
 
 /// Builds reference [Apriori] position at reference [Epoch]

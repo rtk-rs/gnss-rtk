@@ -45,6 +45,8 @@ pub struct Solver<
     /// Base pool
     base_pool: Pool<EPH, ORB, EB, SB>,
 
+    /// PPP prefit
+
     /// [Navigation] solver
     navigation: Navigation,
 
@@ -168,29 +170,28 @@ impl<
     /// ## Output
     /// - success: [PVTSolution]
     /// - failure: [Error]
-    pub fn ppp_solving(
+    pub fn ppp(
         &mut self,
         epoch: Epoch,
         params: UserParameters,
         candidates: &[Candidate],
     ) -> Result<PVTSolution, Error> {
         let null_rtk = NullRTK {};
-        let solution = self.solving(epoch, params, candidates, &null_rtk, false)?;
+        let solution = self.solve(epoch, params, candidates, &null_rtk, false)?;
         Ok(solution)
     }
 
     /// [PVTSolution] solving attempt using RTK technique and a single remote
-    /// [RTKBase] reference site. This library is currently limited to a single
-    /// reference, although there should be limitations to support any amount of
-    /// reference stations in the future. You may catch solving errors that are
-    /// related to the RTK network to try-again but using [Self::ppp_solving]
-    /// when the network is down. For this function to converge, the remote
+    /// reference site that implements [RTKBase].
+    /// You may catch RTK solving issues (for example, network loss)
+    /// and retry using [Self::ppp], because this object is compatible
+    /// with both. For this function to converge, the remote
     /// site and rover proposals must agree in their content (enough matches)
     /// and signals must fulfill the navigation [Method] being used.
     ///
     /// NB: unlike PPP solving, RTK solving will only resolve the spatial
     /// state, the clock state can only remain undetermined. If you are
-    /// interested by both, you will either have to restrict to [Self::ppp_solving],
+    /// interested by both, you will either have to restrict to [Self::ppp_run],
     /// or do a PPP (time only) run after the RTK run.
     ///
     /// ## Input
@@ -203,18 +204,18 @@ impl<
     ///
     /// ## Output
     /// - [PVTSolution].
-    pub fn rtk_solving<RTK: RTKBase>(
+    pub fn rtk<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
         params: UserParameters,
         candidates: &[Candidate],
         rtk_base: &RTK,
     ) -> Result<PVTSolution, Error> {
-        self.solving(epoch, params, candidates, rtk_base, true)
+        self.solve(epoch, params, candidates, rtk_base, true)
     }
 
     /// [PVTSolution] solving attempt.
-    fn solving<RTK: RTKBase>(
+    fn solve<RTK: RTKBase>(
         &mut self,
         epoch: Epoch,
         params: UserParameters,
@@ -234,7 +235,7 @@ impl<
 
         if uses_rtk {
             let observations = rtk_base.observe(epoch);
-            info!("{} - using remote {} reference", epoch, rtk_base_name);
+            info!("{epoch} - using remote {rtk_base_name} reference");
             self.base_pool.new_epoch(&observations);
         }
 
@@ -270,7 +271,7 @@ impl<
         }
 
         // current state
-        let state = if self.navigation.initialized {
+        let state = if self.navigation.is_initialized() {
             self.navigation.state.with_epoch(epoch)
         } else {
             match self.initial_ecef_m {
@@ -278,10 +279,10 @@ impl<
                     let apriori = Apriori::from_ecef_m(x0_y0_z0_m, epoch, self.earth_cef);
 
                     let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
-                        panic!("Solver initial preset is physically incorrect: {}", e);
+                        panic!("Solver initial preset is physically incorrect: {e}");
                     });
 
-                    debug!("{} - initial state: {}", epoch, state);
+                    debug!("{epoch} - initial state: {state}");
                     state
                 },
                 None => {
@@ -292,10 +293,10 @@ impl<
                     let apriori = Apriori::from_ecef_m(x0_y0_z0_m, epoch, self.earth_cef);
 
                     let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
-                        panic!("Solver failed to initialize itself. Physical error: {}", e);
+                        panic!("Solver failed to initialize itself. Physical error: {e}");
                     });
 
-                    debug!("{} - initial state: {}", epoch, state);
+                    debug!("{epoch} - initial state: {state}");
                     state
                 },
             }
@@ -303,7 +304,7 @@ impl<
 
         // rover post-fit
         self.rover_pool.post_fit("rover", &state).map_err(|e| {
-            error!("{} rover postfit error {}", epoch, e);
+            error!("{epoch} rover postfit error {e}");
             Error::PostfitPrenav
         })?;
 
@@ -312,7 +313,7 @@ impl<
             self.base_pool
                 .post_fit(&rtk_base_name, &state)
                 .map_err(|e| {
-                    error!("{} {} postfit error: {}", epoch, rtk_base_name, e);
+                    error!("{epoch} {rtk_base_name} postfit error: {e}");
                     Error::PostfitPrenav
                 })?;
 
@@ -320,19 +321,13 @@ impl<
             match self.rover_pool.rtk_post_fit(&mut self.base_pool) {
                 Ok(double_differences) => Some(double_differences),
                 Err(e) => {
-                    error!("{} - rtk post-fit error: {}", epoch, e);
+                    error!("{epoch} - rtk post-fit error: {e}");
                     return Err(e);
                 },
             }
         } else {
             None
         };
-
-        if let Some(double_differences) = &double_differences {
-            for ((sat, carrier), ddiff) in double_differences.inner.iter() {
-                debug!("{}({}) - DD({})={}", epoch, sat, carrier, ddiff);
-            }
-        }
 
         let pool_size = self.rover_pool.len();
 
@@ -341,11 +336,11 @@ impl<
         }
 
         // Solving attempt
-        match self.navigation.solving(
+        match self.navigation.solve(
             epoch,
             params,
             &state,
-            &self.rover_pool.candidates(),
+            self.rover_pool.candidates(),
             pool_size,
             uses_rtk,
             rtk_base,
@@ -353,10 +348,10 @@ impl<
             &double_differences,
         ) {
             Ok(_) => {
-                info!("{} - iteration completed", epoch);
+                info!("{epoch} - sucess");
             },
             Err(e) => {
-                error!("{} - iteration failure: {}", epoch, e);
+                error!("{epoch} - iteration failure: {e}");
                 return Err(e);
             },
         }
@@ -364,11 +359,13 @@ impl<
         // Form P.V.T solution
         let solution = PVTSolution::new(
             epoch,
+            uses_rtk,
             &self.navigation.state,
             &self.navigation.dop,
             &self.navigation.sv,
         );
 
+        // Special "open loop" option
         if self.cfg.solver.open_loop {
             self.navigation.state = state;
         }
@@ -381,10 +378,11 @@ impl<
         self.navigation.reset();
     }
 
+    /// Returns minimal requirement for current preset
     fn min_sv_required(&self, uses_rtk: bool) -> usize {
         let mut min_sv = 4;
 
-        if self.navigation.initialized && self.cfg.fixed_altitude.is_some() {
+        if self.navigation.is_initialized() && self.cfg.fixed_altitude.is_some() {
             min_sv -= 1;
         }
 

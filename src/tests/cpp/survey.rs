@@ -4,7 +4,10 @@ use std::str::FromStr;
 
 use crate::{
     navigation::apriori::Apriori,
-    prelude::{Almanac, Config, Epoch, Frame, Method, Solver, UserParameters},
+    prelude::{
+        Almanac, ClockProfile, Config, Epoch, Frame, Method, PVTSolutionType, Solver,
+        UserParameters, UserProfile,
+    },
     tests::{
         ephemeris::NullEph, init_logger, time::NullTime, CandidatesBuilder, OrbitsData,
         TestEnvironment, TestSpacebornBiases, MAX_CPP_GDOP, MAX_CPP_X_ERROR_M, MAX_CPP_Y_ERROR_M,
@@ -36,7 +39,7 @@ fn static_cpp() {
 
     let cfg = Config::default().with_navigation_method(Method::CPP);
 
-    let default_params = UserParameters::default();
+    let default_params = UserParameters::new(UserProfile::Static, ClockProfile::Quartz);
 
     let almanac = build_almanac();
     let earth_frame = build_earth_frame();
@@ -74,15 +77,14 @@ fn static_cpp() {
         let candidates = CandidatesBuilder::build_rover_at(t_gpst);
 
         assert!(
-            candidates.len() > 0,
-            "no measurements to propose at \"{}\"",
-            epoch_str
+            !candidates.is_empty(),
+            "no measurements to propose at \"{epoch_str}\""
         );
 
-        let status = solver.ppp_solving(t_gpst, default_params, &candidates);
+        let status = solver.ppp(t_gpst, default_params, &candidates);
 
         match status {
-            Err(e) => panic!("Static CPP process failed with invalid error: {}", e),
+            Err(e) => panic!("Static CPP process failed with invalid error: {e}"),
             Ok(pvt) => {
                 info!("Solution #{} {:#?}", nth + 1, pvt);
 
@@ -97,34 +99,29 @@ fn static_cpp() {
 
                 assert!(
                     err_x_m < MAX_CPP_X_ERROR_M,
-                    "epoch={} - x error={:.3}m too large",
-                    epoch_str,
-                    err_x_m
+                    "epoch={epoch_str} - x error={err_x_m:.3}m too large"
                 );
 
                 assert!(
                     err_y_m < MAX_CPP_Y_ERROR_M,
-                    "epoch={} - y error={:.3}m too large",
-                    epoch_str,
-                    err_y_m
+                    "epoch={epoch_str} - y error={err_y_m:.3}m too large"
                 );
 
                 assert!(
                     err_z_m < MAX_CPP_Z_ERROR_M,
-                    "epoch={} - z error={:.3}m too large",
-                    epoch_str,
-                    err_z_m
+                    "epoch={epoch_str} - z error={err_z_m:.3}m too large"
                 );
+
+                assert_eq!(pvt.solution_type, PVTSolutionType::PPP);
 
                 assert!(
                     pvt.gdop < MAX_CPP_GDOP,
-                    "{} (static) cpp GDOP too large!",
-                    epoch_str
+                    "{epoch_str} (static) cpp GDOP too large!"
                 );
 
                 info!(
-                    "{} (static) cpp (survey) error: x={:.3}m y={:.3}m z={:.3}m",
-                    epoch_str, err_x_m, err_y_m, err_z_m
+                    "{} (static) cpp (survey) error: x={:.3}m y={:.3}m z={:.3}m, GDOP={} TDOP={}",
+                    epoch_str, err_x_m, err_y_m, err_z_m, pvt.gdop, pvt.tdop,
                 );
             },
         }

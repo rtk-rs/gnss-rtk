@@ -1,13 +1,20 @@
 use crate::{
-    ambiguity::Solver as AmbiguitySolver,
-    constants::{EARTH_GRAVITATION, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
+    candidate::differences::Differences,
+    constants::{EARTH_GRAVITATION_MU_M3_S2, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
     navigation::state::State,
     pool::Pool,
     prelude::{
-        Almanac, Candidate, EnvironmentalBias, EphemerisSource, Error, Method, OrbitSource,
-        SpacebornBias, Vector3, EARTH_J2000, SUN_J2000,
+        // Almanac,
+        Candidate,
+        EnvironmentalBias,
+        EphemerisSource,
+        Error,
+        OrbitSource,
+        SpacebornBias,
+        Vector3,
+        // EARTH_J2000,
+        SUN_J2000,
     },
-    rtk::DoubleDifferences,
 };
 
 use std::cmp::Ordering;
@@ -23,57 +30,44 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
 {
     /// Apply Post fit algorithms
     pub fn post_fit(&mut self, name: &str, state: &State) -> AlmanacResult<()> {
-        // fix attitudes & derivatives
         self.post_fit_attitudes(name, state);
         self.post_fit_velocities(name);
         self.post_fit_eclipse(name);
-
         self.post_fit_biases(name, state);
 
-        // PPP workflow specific postfit
-        if self.cfg.method.is_ppp() {
-            // TODO
-            // self.post_fit_phase_windup(almanac, state)?;
-            // self.post_fit_ambiguity_solving();
-        }
-
-        // if self.cfg.code_smoothing > 0 {
-        //     self.post_fit_code_smoothing();
-        // }
-
         Ok(())
     }
 
-    /// Post fit phase windup correction
-    fn post_fit_phase_windup(&mut self, almanac: &Almanac, state: &State) -> AlmanacResult<()> {
-        let epoch = self.inner[0].epoch;
+    // /// Post fit phase windup correction
+    // fn post_fit_phase_windup(&mut self, almanac: &Almanac, _state: &State) -> AlmanacResult<()> {
+    //     let epoch = self.inner[0].epoch;
 
-        let earth_sun = almanac.transform(SUN_J2000, EARTH_J2000, epoch, None)?;
+    //     let earth_sun = almanac.transform(SUN_J2000, EARTH_J2000, epoch, None)?;
 
-        let r_sun = Vector3::new(
-            earth_sun.radius_km.x * 1.0E3,
-            earth_sun.radius_km.y * 1.0E3,
-            earth_sun.radius_km.z * 1.0E3,
-        );
+    //     let r_sun = Vector3::new(
+    //         earth_sun.radius_km.x * 1.0E3,
+    //         earth_sun.radius_km.y * 1.0E3,
+    //         earth_sun.radius_km.z * 1.0E3,
+    //     );
 
-        // for cd in self.inner.iter_mut() {
-        // let prev_correction = self
-        //     .past
-        //     .iter()
-        //     .filter_map(|past| {
-        //         if past.sv == cd.sv {
-        //             Some(past.windup)
-        //         } else {
-        //             None
-        //         }
-        //     })
-        //     .reduce(|k, _| k);
+    //     // for cd in self.inner.iter_mut() {
+    //     // let prev_correction = self
+    //     //     .past
+    //     //     .iter()
+    //     //     .filter_map(|past| {
+    //     //         if past.sv == cd.sv {
+    //     //             Some(past.windup)
+    //     //         } else {
+    //     //             None
+    //     //         }
+    //     //     })
+    //     //     .reduce(|k, _| k);
 
-        // cd.phase_windup_correction(state, r_sun, prev_correction);
-        // }
+    //     // cd.phase_windup_correction(state, r_sun, prev_correction);
+    //     // }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Apply Attitudes Post fit
     fn post_fit_attitudes(&mut self, name: &str, state: &State) {
@@ -94,7 +88,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
                     }
                 },
                 Err(e) => {
-                    error!("{}({}) {} orbital fixup: {}", state.t, cd.sv, name, e);
+                    error!("{}({}) {} orbital fixup: {}", state.epoch, cd.sv, name, e);
                     false
                 },
             },
@@ -130,7 +124,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
 
     /// Velocities fit
     fn post_fit_velocities(&mut self, name: &str) {
-        let mu = EARTH_GRAVITATION;
+        let mu = EARTH_GRAVITATION_MU_M3_S2;
         let w_e = EARTH_SEMI_MAJOR_AXIS_WGS84;
 
         for cd in self.inner.iter_mut() {
@@ -215,94 +209,54 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
                     retained
                 },
                 Err(e) => {
-                    error!("(anise) eclipse error: {}", e);
+                    error!("(anise) eclipse error: {e}");
                     false
                 },
             }
         });
     }
 
-    fn post_fit_ambiguity_solving(&mut self) {
-        self.inner.retain_mut(|cd| {
-            if let Some(input) = cd.ambiguity_input() {
-                let mut retain = false;
-
-                let output = if let Some(solver) = self.amb_solver.get_mut(&cd.sv) {
-                    let out = solver.solve(&input);
-                    out
-                } else {
-                    let mut solver = AmbiguitySolver::new();
-                    let out = solver.solve(&input);
-
-                    self.amb_solver.insert(cd.sv, solver);
-                    out
-                };
-
-                if let Some(output) = output {
-                    debug!(
-                        "{}({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w={})",
-                        cd.epoch, cd.sv, output.n1, 0.0, output.n2, 0.0,
-                    );
-
-                    // cd.update_ambiguities(output);
-                    retain = true;
-                } else {
-                    debug!("{}({}) - phase tracking", cd.epoch, cd.sv);
-                }
-
-                retain
-            } else {
-                error!(
-                    "{}({}) - phase bias tracking not feasible (missing measurements)",
-                    cd.epoch, cd.sv
-                );
-
-                false
-            }
-        });
-    }
-
-    fn post_fit_code_smoothing(&mut self) {
-        for cd in self.inner.iter_mut() {
-            for sv_observ in cd.observations.iter_mut() {
-                if sv_observ.carrier.is_l1() {
-                    let lambda_1 = sv_observ.carrier.wavelength();
-                    let n_1 = sv_observ.ambiguity.unwrap_or_default();
-                    if n_1 != 0.0 {
-                        if let Some(c_n) = &mut sv_observ.pseudo_range_m {
-                            if let Some(l_n) = sv_observ.phase_range_m {
-                                *c_n = self.smoother.smoothing(
-                                    sv_observ.carrier,
-                                    cd.sv,
-                                    *c_n,
-                                    n_1,
-                                    lambda_1,
-                                    l_n,
-                                );
-                            }
-                        }
-                    }
-                } else {
-                    let lambda_j = sv_observ.carrier.wavelength();
-                    let n_j = sv_observ.ambiguity.unwrap_or_default();
-                    if n_j != 0.0 {
-                        if let Some(c_n) = &mut sv_observ.pseudo_range_m {
-                            if let Some(l_n) = sv_observ.phase_range_m {
-                                *c_n = self.smoother.smoothing(
-                                    sv_observ.carrier,
-                                    cd.sv,
-                                    *c_n,
-                                    n_j,
-                                    lambda_j,
-                                    l_n,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // fn post_fit_code_smoothing(&mut self) {
+    //     for cd in self.inner.iter_mut() {
+    //         for sv_observ in cd.observations.iter_mut() {
+    //             if sv_observ.carrier.is_l1() {
+    //                 let lambda_1 = sv_observ.carrier.wavelength();
+    //                 let n_1 = sv_observ.ambiguity.unwrap_or_default();
+    //                 if n_1 != 0.0 {
+    //                     if let Some(c_n) = &mut sv_observ.pseudo_range_m {
+    //                         if let Some(l_n) = sv_observ.phase_range_m {
+    //                             *c_n = self.smoother.smoothing(
+    //                                 sv_observ.carrier,
+    //                                 cd.sv,
+    //                                 *c_n,
+    //                                 n_1,
+    //                                 lambda_1,
+    //                                 l_n,
+    //                             );
+    //                         }
+    //                     }
+    //                 }
+    //             } else {
+    //                 let lambda_j = sv_observ.carrier.wavelength();
+    //                 let n_j = sv_observ.ambiguity.unwrap_or_default();
+    //                 if n_j != 0.0 {
+    //                     if let Some(c_n) = &mut sv_observ.pseudo_range_m {
+    //                         if let Some(l_n) = sv_observ.phase_range_m {
+    //                             *c_n = self.smoother.smoothing(
+    //                                 sv_observ.carrier,
+    //                                 cd.sv,
+    //                                 *c_n,
+    //                                 n_j,
+    //                                 lambda_j,
+    //                                 l_n,
+    //                             );
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     fn post_fit_biases(&mut self, name: &str, state: &State) {
         let rcvr_position_ecef_m = state.to_position_ecef_m();
@@ -339,7 +293,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
             let r_sat_0 = r_0 - r_sat;
 
             if self.cfg.modeling.relativistic_path_range {
-                let dr = 2.0 * EARTH_GRAVITATION / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
+                let dr = 2.0 * EARTH_GRAVITATION_MU_M3_S2 / SPEED_OF_LIGHT_M_S / SPEED_OF_LIGHT_M_S
                     * ((r_sat + r_0 + r_sat_0) / (r_sat + r_0 - r_sat_0)).ln();
 
                 debug!("{}({}) {} - rel. path range={}m", cd.epoch, cd.sv, name, dr);
@@ -356,16 +310,15 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     /// Runs a postfit SD algorithm, between seld and rhs.
     /// NB: only shared measurements are preserved
     pub fn post_fit_sd(&mut self, pivot: &Candidate) -> Result<(), Error> {
-        let method = self.cfg.method;
-
-        self.retain_mut(|cd| {
+        for cd in self.inner.iter() {
             if cd.sv != pivot.sv {
-                cd.sd_mut(method, &pivot);
-                cd.sd.is_some()
-            } else {
-                false // drop pivot
+                self.single_differences
+                    .insert(cd.sv, cd.single_difference(pivot));
             }
-        });
+        }
+
+        // drop pivot
+        self.retain(|cd| cd.sv != pivot.sv);
 
         Ok(())
     }
@@ -384,84 +337,9 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
             .cloned()
     }
 
-    /// Run the double difference algorithm between [Self] and [Self] considered "base",
-    /// returning [DoubleDifferences].
-    pub fn post_fit_dd(&self, base: &Self) -> DoubleDifferences {
-        let mut dd = DoubleDifferences::default();
-
-        for cd in self.inner.iter() {
-            for base_cd in base.inner.iter() {
-                if base_cd.sv == cd.sv {
-                    if let Some(sd) = cd.sd {
-                        if let Some(base_sd) = base_cd.sd {
-                            if sd.carrier == base_sd.carrier {
-                                match self.cfg.method {
-                                    Method::SPP | Method::CPP => {
-                                        if let Some(p1) = &sd.pseudo_range_m {
-                                            if let Some(p2) = &base_sd.pseudo_range_m {
-                                                let value = *p1 - *p2;
-
-                                                debug!(
-                                                    "{}({}) - DD({})={}",
-                                                    cd.epoch, cd.sv, sd.carrier, value
-                                                );
-
-                                                dd.insert(cd.sv, sd.carrier, value);
-                                            } else {
-                                                error!(
-                                                    "{} - SD(base) missing {} pseudo range",
-                                                    cd.epoch, sd.carrier
-                                                );
-                                            }
-                                        } else {
-                                            error!(
-                                                "{} - SD(rover) missing {} pseudo range",
-                                                cd.epoch, sd.carrier
-                                            );
-                                        }
-                                    },
-                                    Method::PPP | Method::PPP_AR => {
-                                        if let Some(l1) = &sd.phase_range_m {
-                                            if let Some(l2) = &base_sd.phase_range_m {
-                                                let value = *l1 - *l2;
-
-                                                debug!(
-                                                    "{}({}) - DD({})={}",
-                                                    cd.epoch, cd.sv, sd.carrier, value
-                                                );
-
-                                                dd.insert(cd.sv, sd.carrier, value);
-                                            } else {
-                                                error!(
-                                                    "{} - SD(base) missing {} phase",
-                                                    cd.epoch, sd.carrier
-                                                );
-                                            }
-                                        } else {
-                                            error!(
-                                                "{} - SD(rover) missing {} phase",
-                                                cd.epoch, sd.carrier
-                                            );
-                                        }
-                                    },
-                                }
-                            } else {
-                                error!(
-                                    "{} - SD carrier mismatch rover={}/base={}",
-                                    cd.epoch, sd.carrier, base_sd.carrier
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        dd
-    }
-
     /// Runs the special post-fit prior RTK solving, where self is considered rover
     /// returning DD'ed measurements.
-    pub fn rtk_post_fit(&mut self, base: &mut Self) -> Result<DoubleDifferences, Error> {
+    pub fn rtk_post_fit(&mut self, base: &mut Self) -> Result<Differences, Error> {
         // run SD algorithm on both sites
         let mob_pivot = self.post_fit_sd_pivot_election();
 
@@ -508,12 +386,18 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         self.pivot_position_ecef_m = Some((pos_vel[0], pos_vel[1], pos_vel[2]));
 
         // DD
-        let ddiffs = self.post_fit_dd(base);
+        let double_diff = self
+            .single_differences
+            .double_difference(&base.single_differences);
 
         // remove pivot from both sites
         self.retain_mut(|cd| cd.sv != mob_pivot.sv);
         base.retain_mut(|cd| cd.sv != mob_pivot.sv);
 
-        Ok(ddiffs)
+        for (sat, dd) in double_diff.inner.iter() {
+            debug!("{}({}) - DD={}", mob_pivot.epoch, sat, dd);
+        }
+
+        Ok(double_diff)
     }
 }

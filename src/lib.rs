@@ -8,9 +8,8 @@ extern crate gnss_rs as gnss;
 
 pub mod error;
 
-// private modules
-mod ambiguity;
-mod averager;
+// mod ambiguity;
+// mod averager;
 mod bancroft;
 mod bias;
 mod candidate;
@@ -21,12 +20,10 @@ mod navigation;
 mod orbit;
 mod pool;
 mod rtk;
-mod smoothing;
+// mod smoothing;
 mod time;
 mod user;
-
-// mod kinematic;
-// mod implementations;
+// mod tides;
 
 pub(crate) mod constants;
 pub(crate) mod solver;
@@ -36,7 +33,6 @@ mod tests;
 
 // prelude
 pub mod prelude {
-    // pub use crate::ambiguity::Ambiguities;
     pub use crate::{
         bias::{
             environment::{
@@ -51,7 +47,7 @@ pub mod prelude {
         constants::SPEED_OF_LIGHT_M_S,
         ephemeris::{Ephemeris, EphemerisSource},
         error::Error,
-        navigation::solutions::PVTSolution,
+        navigation::solutions::{PVTSolution, PVTSolutionType},
         orbit::OrbitSource,
         rtk::RTKBase,
         solver::Solver,

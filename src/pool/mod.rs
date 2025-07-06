@@ -3,13 +3,13 @@ use log::error;
 use std::collections::HashMap;
 
 use crate::{
-    ambiguity::Solver as AmbiguitySolver,
+    candidate::differences::Differences,
     constants::EARTH_ANGULAR_VEL_RAD,
     prelude::{
         Almanac, Candidate, Config, Duration, EnvironmentalBias, Ephemeris, EphemerisSource, Epoch,
         Frame, Orbit, OrbitSource, Rc, SpacebornBias, SV,
     },
-    smoothing::Smoother,
+    // smoothing::Smoother,
 };
 
 use nalgebra::{Matrix3, Vector3};
@@ -30,15 +30,11 @@ pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, S
     /// Current [Candidate]s pool
     inner: Vec<Candidate>,
 
-    /// Ambiguity solver
-    amb_solver: HashMap<SV, AmbiguitySolver>,
-
     /// Previous [Candidate]s pool
     past: Vec<Candidate>,
 
-    /// Measurements [Smoother]
-    smoother: Smoother,
-
+    // /// Measurements [Smoother]
+    // smoother: Smoother,
     /// [OrbitSource]
     orb_source: Rc<ORB>,
 
@@ -56,6 +52,9 @@ pub struct Pool<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, S
 
     /// Runtime selected pivot position (ECEF, meters)
     pub pivot_position_ecef_m: Option<(f64, f64, f64)>,
+
+    /// Single [Differences]
+    single_differences: Differences,
 }
 
 fn orbit_rotation(t: Epoch, dt: Duration, orbit: &Orbit, modeling: bool, frame: Frame) -> Orbit {
@@ -93,7 +92,7 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         env_bias: Rc<EB>,
         space_bias: Rc<SB>,
     ) -> Self {
-        let smoother = Smoother::new(cfg.code_smoothing);
+        // let smoother = Smoother::new(cfg.code_smoothing);
 
         Self {
             cfg,
@@ -102,13 +101,13 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
             orb_source,
             env_bias,
             space_bias,
-            smoother,
+            // smoother,
             almanac,
+            pivot_position_ecef_m: None,
             past: Vec::with_capacity(8),
             inner: Vec::with_capacity(8),
-            pivot_position_ecef_m: None,
-            amb_solver: HashMap::with_capacity(4),
             eph_buffer: HashMap::with_capacity(8),
+            single_differences: Default::default(),
         }
     }
 
@@ -127,9 +126,9 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         &self.inner
     }
 
-    pub fn contains(&self, sv: SV) -> bool {
-        self.inner.iter().filter(|cd| cd.sv == sv).count() > 0
-    }
+    // pub fn contains(&self, sv: SV) -> bool {
+    //     self.inner.iter().filter(|cd| cd.sv == sv).count() > 0
+    // }
 
     pub fn retain<F>(&mut self, f: F)
     where

@@ -143,16 +143,16 @@ impl Solver {
 
         let nw = self.nw_avg.mean.round();
 
-        warn!("nw={}", nw);
+        warn!("nw={nw}");
 
         let n1 = (input.l1 - input.l2 - lambda_2 * nw) / (lambda_1 - lambda_2);
-        warn!("n1={}", n1);
+        warn!("n1={n1}");
 
         self.n1_avg.add(n1);
 
         let n1 = self.n1_avg.mean.round() as i32;
         let n2 = n1 - nw as i32;
-        warn!("n2={}", n2);
+        warn!("n2={n2}");
 
         if self.n1_avg.count == 3 {
             Some(Output {

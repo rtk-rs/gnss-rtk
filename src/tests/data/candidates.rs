@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::{
-    prelude::{Candidate, Carrier, Constellation, Epoch, Observation, RTKBase, SV},
+    prelude::{Candidate, Carrier, Epoch, Observation, RTKBase, SV},
     tests::{
         data::{E01, E03, E05, E09, E13, E15, E24, E31},
         BASE_REFERENCE_COORDS_ECEF_M,
@@ -48,7 +48,7 @@ impl CandidatesBuilder {
             .filter(|cd| cd.epoch == epoch && cd.sv == sv)
             .reduce(|k, _| k)
             .unwrap_or_else(|| {
-                panic!("Failed to build {}({}) data", epoch, sv);
+                panic!("Failed to build {epoch}({sv}) data");
             })
     }
 
@@ -885,8 +885,7 @@ mod test {
 
         assert_eq!(
             num_epochs, NB_EXPECTED_EPOCHS,
-            "incorrect number of epochs: {}, expecting {}",
-            num_epochs, NB_EXPECTED_EPOCHS
+            "incorrect number of epochs: {num_epochs}, expecting {NB_EXPECTED_EPOCHS}"
         );
 
         let sv_uniques = data.iter().map(|cd| cd.sv).unique().collect::<Vec<_>>();
@@ -909,8 +908,7 @@ mod test {
 
             assert_eq!(
                 epochs, unique_epochs,
-                "{} temporal data is not unique: {:#?}",
-                sv, epochs
+                "{sv} temporal data is not unique: {epochs:#?}"
             );
         }
     }

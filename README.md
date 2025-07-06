@@ -11,14 +11,14 @@ GNSS-RTK
 
 The `GNSS-RTK` library provides Position Velocity Time (PVT) solution solvers,
 with abstract and flexible interfaces that may apply to most navigation scenarios
-and applications. Whether the application is real-time or post-processing oriented does not matter.
+and applications. Whether they are real-time or post-processed does not matter.
 
-This library is thoroughly validated, including performance of the accuracy of the solutions
-validated for each release.
+This library is thoroughly validated, including the accuracy of the solutions
+are validated for each release.
 
 <div align="center">
     <p>
-        <br>PPP solver</br> in static application, surveying a professional geodetic marker
+        <br>Static CPP (Galileo, E1+E5b)</br>, surveying a professional geodetic marker
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png alt="Plot">
@@ -27,7 +27,8 @@ validated for each release.
 
 <div align="center">
     <p>
-        Errors from the geodetic marker (CPP, Galileo E1+E5)
+        Static CPP (Galileo, E1+E5b) residual errors between GNSS-RTK
+and profesionnaly calibrated position.
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png alt="Plot">
@@ -36,8 +37,8 @@ validated for each release.
 
 <div align="center">
     <p>
-        Roaming session (pedestrian profile), post-processed with <br>PPP solver</br> (no ground reference), 
-        CPP, GPS L1/L5 + Galileo L1/L5
+        <br>CPP (Galileo E1+E5b)</br>,
+pedestrian profile (no reference on the ground)
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png alt="Plot">
@@ -47,67 +48,111 @@ validated for each release.
 Licensing
 =========
 
-This library is part of the [RTK-rs framework](https://github.com/rtk-rs) which
-is delivered under the [Mozilla V2 Public](https://www.mozilla.org/en-US/MPL/2.0) license.
+This library is released under the [Mozilla V2 Public](https://www.mozilla.org/en-US/MPL/2.0) license.
 
 GNSS-RTK / P.V.T solutions
 ==========================
 
 The main objective of this library is to propose efficient GNSS solvers, that
-perform the rather complex task of solving Position, Velocity and Timing (P.V.T) solutions.
+perform the rather complex task of solving Position, Velocity and Timing (P.V.T) solutions,
+possibly from scratch (without initial guess).
+
 Indeed, GNSS navigation allows to obtain the position of the receiver in 3D (in space) 
-and in time as well, and may include the instantaneous velocity of the target as well. 
+and possibly in time as well.
 
-The timing solutions (4th component) is the state of the receiver in the navigation timescale. 
-It is possible to express the solutions in any of the supported Timescales. 
+The timing solutions (4th component) is the state of the receiver in the navigation timescale,
+and is obtained by PPP navigation technique (not RTK). Our timing solutions
+may be expressed in all supported Timescales and we offer an interface for precise timing corrections.
 
-For the spatial coordinates, whether the receiver is moving or not is application dependent and the
-solver should be able to determine the target state in any case. 
+For the spatial coordinates, whether the receiver is moving or not is application dependent and one
+of the major point of the navigation filter is to track the target in all cases. To help the navigation filter,
+it is recommended to tune your `UserParameters` according to your application. This includes
 
-The proposed API is compatible with both real-time and post-processed navigation, read the dedicated chapter.
+- `UserProfile` for the type of application (basically, the expected average velocity).
+Selecting an incorrect profile will not prohibit the filter to converge to the truth, it just reduces
+the convergence time.
 
-GNSS-RTK is currently limited to ground navigation on planet Earth. It should be rather easy to modify the current
-API to propose ground-based navigation on any solid body supported by the `Nyx/ANISE` library. Mainly
-by modifying the `EnvironmentalBias` trait, and possibly the `SpacebornBias` trait as well. But this is unscheduled work
-as of today.
+- `ClockProfile`
+
+The proposed API is compatible with both real-time and post-processed navigation, so it should be usable
+in any navigation application. For real-time applications, we offer interesting features:
+
+- the user profile is updated at eatch `Epoch`, if you can monitor your clock profile and have
+erratic application, you can take advantage of that.
+
+- when the RTK network goes down, you can switch to PPP technique temporarily
+
+GNSS-RTK is currently limited to ground navigation on planet Earth. Although it should be feasible to
+make it more abstract and suitable for navigation on other planets, it is not scheduled as of today.
+If you want to this happen, feel free to open discussions.
+
+Summary
+=======
+
+Select a navigation method, depending on available signals and desired accuracy:
+
+| Method        | Physics                                  | Accuracy      |  Application                                            |
+|---------------|------------------------------------------|---------------|---------------------------------------------------------|
+| `SPP`         | Single Frequency Pseudo Range navigation |  2/5          | Low cost devices, Degraded setups                       |
+| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | Mid cost dual frequency systems, Timing applications    |
+| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Timing applications, Profesionnal surveying, RTK Stations calibration.. | 
+
+For each set of synchronous measurements (oftentimes referred to as "Observations"), you can then either 
+
+1. apply the RTK Navigation technique (Differential navigation, relying on a single ground reference),
+by using `Solver::rtk()`.
+
+2. or PPP Navigation technique (Absolute navigation without reference on the ground),
+by using `Solver::ppp()`.
+
+RTK should be prefered for geometric applications, especially roaming applications.
+So far, we experience between x2-x5 improvements of the geometric accuracy when comparing absolute
+to differential runs. In RTK, the most important thing is to maintain a short baseline (distance between
+the rover and the reference).
+
+Our RTK API will not resolve the clock state in any case. If you are interested in the timing
+solutions, you should prefer PPP runs. When the RTK network goes down and the reference
+goes unreachable, you can safely switch to `Solver::ppp` temporarily, the navigation filter continues
+and iterates from the past state at all times.
+
+Summary of supported modes:
+
+| Principle  | API               | Method | Latest version | Accuracy |
+|------------|-------------------|--------|----------------|----------|
+| `RTK`      | `Solver::rtk_run` | SPP    |  OK            |  2/5     |
+|------------|-------------------|--------|----------------|----------|
+| `RTK`      | `Solver::rtk_run` | CPP    |  OK            |  3/5     |
+|------------|-------------------|--------|----------------|----------|
+| `RTK`      | `Solver::rtk_run` | PPP    |  OK            |  5/5     |
+|------------|-------------------|--------|----------------|----------|
+| `PPP`      | `Solver::ppp_run` | SPP    |  OK            |  1/5     |
+|------------|-------------------|--------|----------------|----------|
+| `PPP`      | `Solver::ppp_run` | CPP    |  OK            |  2/5     |
+|------------|-------------------|--------|----------------|----------|
+| `PPP`      | `Solver::ppp_run` | PPP    |  NOK           |  4/5     |
+|------------|-------------------|--------|----------------|----------|
+
+NOK: unreleased, unavailable or untested. Will at best diverge, and most likely panic if you deploy this mode.
 
 Solver, strategies and API
 ==========================
 
-The current version proposes a unique object called `Solver` that is compatible to both absolute
+The current version proposes a unique object called `Solver` that is compatible with both absolute
 and differential (1 reference) navigation. Once your measurements have been collected,
-you select the navigation technique with want to deploy with either `ppp_solving` and `rtk_solving`.
-:warning: RTK navigation is currently under development and should not be used until further notice.
+you select the navigation technique you want to deploy with either `ppp_run` and `rtk_run`.
 
-This means, once RTK becomes available, if your network goes down you can always switch back to PPP (absolute navigation)
-temporarily. Eventually, RTK (differential) should always be prefered because it gives the highest accuracy.
+Whether the rover is moving or not does not matter, you should simply tune your `UserParameters`,
+accordingly. But because RTK improves the geometric accuracy, it will give best results for moving rovers.
 
-This of course applies to any use case, whether it is static or dynamic (roaming).
+Our Method structure is there to define the signals you want to use. This allows us to
+give total freedom to the end user while allow both absolute and differential navigation.
+Absolute navigation is not particularly tied to phase signal, those are two different things.
+And you can use our solver to do RTK without phase observations as well.
 
-Tied to the navigation technique, you need to select a mode via the `Method` object. This determines which
-signal strategy you will be using. We propose 4 modes, each one of them applies to either RTK or absolute navigation:
-
-- `SPP` : single frequency pseudo-range based navigation. This is dedicated to low-cost degraded setups.
-- `CPP` : dual frequency pseudo-range based navigation. It is about 20x more accurate than the previous mode
-and gives 0.1m accuracy with high quality data. The secondary frequency is used to cancelled the ionosphere phsically.
-- `PPP` : dual frequency phase based navigation (raw signal). Although the navigation uses raw signal, you still have
-to pass on the pseudo-range on both frequencies, which makes this strategy the most demanding in terms of measurement.
-- `PPP+AR` : same as PPP but a secondary prefit kalman filter is deployed. :warning: this is under development
-and should not be used as of right now. 
-
-For each mode, you can either deploy using absolute (`ppp_solving` attempt) or differential (`rtk_solving` attempt).
-`rtk_solving` is not fully available yet and still under development. When it becomes feasible, that means the
-mode defines your measurement strategy, but differential navigation is being used. Starting from `PPP` and `PPP+AR`,
-it means the navigation algorithm becomes `RTK-PPP` as defined in the "litterature".
-
-Recommendations: because this solver should not fail but report errors instead, you should always prefer
-the highest / most advanced technique, and adapt/degrade that choice according to the returned message.
-If such a strategy fails to apply, please fill an issue online and we will patch the library.
-For example: always prefer `PPP` mode, and the library will let you know when it failed to deploy the mode
-(for example, L5 phase is lost). In this case, you can always switch back to `CPP` mode temporarily.
-That is particularly true if PPP convergence has been achieved.
-Of course, this strategy only applies to people targetting highest accuracy. If you know your measurement
-setup and context is not compatible with one strategy, it does not make sense to attempt it.
+Because this API is real-time oriented, you provide measurements for each Epoch.
+Assuming people are mostly interested by highest accuracy, you would naturally select 
+RTK+PPP or PPP. But you can catch errors and adapt. Let's say L5 becomes unavailable for some time,
+you can continue navigating but temporarily degrade the selected Method to SPP.
 
 Application Programming Interface (API)
 =======================================
@@ -132,6 +177,26 @@ or implement your own. It is mandatory to do so to obtain a high quality solutio
 Each traits are wrapped inside an `Rc<>` (Reference Counter) which makes this API compatible with real-time navigation.
 This allows your structure(s) to live elsewhere, with so called "internal multability" (read on this pseudo concept)
 that the data collection process demands.
+
+RTK-Trait
+=========
+
+Each Ground station must implement the `RTKBase` trait, to describe its current test.  
+For each set of rover measurements, we request synchronous remote observations. 
+In practice, especially in real-time applications, it is impossible for the observations
+to truly be synchronous. The important aspect is to reduce the time difference (also referred to as
+the RTK "aging") to a minimum. Considering the ground reference is expected to remain static,
+this will work just fine. For moving base, this becomes vital. In summary, the latest state
+you described for the ground reference should be as close to the truth as you can, and any error
+will reflect on the accuracy of the rover solution. 
+
+We request for a "name" for each base station, this makes the logs more meaningful
+and is introduced in advanced even though we do not allow more than 1 reference per Epoch.
+
+GNSS-RTK is currently limited to a single ground reference.
+
+This library has not been tested with a moving base yet, but if you can describe your
+base correctly at all times, you should be able to obtain correct results.
 
 Orbit Provider
 ==============
@@ -183,28 +248,6 @@ and give recommendations, and finally, help debug potential use cases.
 For correct debugging, you should set `$RUST_LOG=debug`. For ulimtate debugging, `$RUST_LOG=trace`
 will give all the information we output.
 
-Summary
-=======
-
-Select a navigation method, depending on your equiment and targeted accuracy:
-
-| Method        | Physics                                  | Accuracy      |  Application                                            |
-|---------------|------------------------------------------|---------------|---------------------------------------------------------|
-| `SPP`         | Single Frequency Pseudo Range navigation |  2/5          | Low cost devices                                        |
-| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | Mid cost devices, Timing applications                   |
-| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Very precise applications, Profesionnal surveying and calibrations |
-
-Select your solver, depending on your use case, type of application and targeted accuracy:
-
-| Solver        | Method        | Accuracy      |  Context                 |
-|---------------|---------------|---------------|--------------------------|
-| `PPP`         | `SPP`         | 3/5           | Low cost / hobbyist      |
-|               | `CPP`         | 4/5           | Mid cost / lab           |
-|               | `PPP`         | 4.5/5         | High cost / profesionnal |
-| `RTK`         | `SPP`         | 4/5           | Low cost / hobbyist      |
-|               | `CPP`         | 4.5/5         | Mid cost / lab           |
-|               | `PPP`         | 5/5           | High cost / profesionnal |
-
 Deployment
 ==========
 
@@ -221,8 +264,9 @@ regular updates from the Internet.
 Configuration simplicity
 ========================
 
-Although the taks is challenging, one objective is to keep things simple.   
-To do so, we rely on the `serde` ecosystem and are able to provide [a consice and comprehensible Parametrization interface](./documentation/Config.md)
+Despite solving complex stuff, we strive to offer simplistic interfaces and configuration setups,
+which is a challenge. Our `Config` structure is fully `serde` compatible,
+and is easy to deploy and customize, refer to the online documentation:
 
 Notes on Navigation Method
 ==========================

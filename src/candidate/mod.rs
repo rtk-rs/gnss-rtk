@@ -1,10 +1,10 @@
 //! Position solving candidate
 use hifitime::Unit;
-use itertools::Itertools;
 use log::debug;
 
+// use itertools::Itertools;
+
 use crate::{
-    ambiguity::{Input as AmbiguityInput, Output as Ambiguities},
     bias::spaceborn::SatelliteClockCorrection,
     constants::SPEED_OF_LIGHT_M_S,
     navigation::state::State,
@@ -16,10 +16,11 @@ use anise::errors::AlmanacResult;
 mod bias;
 mod ppp;
 mod rtk;
-mod sd;
 mod signal;
 
 pub(crate) mod combination;
+pub(crate) mod differences;
+pub(crate) mod single_diff;
 
 #[cfg(test)]
 mod tests;
@@ -56,9 +57,8 @@ pub struct Candidate {
     /// Ionosphere delay (meters)
     pub(crate) ionod: f64,
 
-    /// Phase wind up in cycles
-    pub(crate) windup: f64,
-
+    // /// Phase wind up in cycles
+    // pub(crate) windup: f64,
     /// [SatelliteClockCorrection]
     pub(crate) clock_corr: SatelliteClockCorrection,
 
@@ -70,12 +70,6 @@ pub struct Candidate {
 
     /// Estimated relativistic path range
     pub(crate) relativistic_path_range: f64,
-
-    /// Resolved ambiguities
-    pub(crate) amb: Option<Ambiguities>,
-
-    /// Possible Observations differentiated by SD algorithm
-    pub(crate) sd: Option<Observation>,
 }
 
 impl Candidate {
@@ -98,10 +92,8 @@ impl Candidate {
             observations,
             tx_epoch: epoch,
             tgd: Duration::ZERO,
-            sd: Default::default(),
-            amb: Default::default(),
             orbit: Default::default(),
-            windup: Default::default(),
+            // windup: Default::default(),
             azimuth_deg: Default::default(),
             clock_corr: Default::default(),
             elevation_deg: Default::default(),
@@ -110,10 +102,10 @@ impl Candidate {
         }
     }
 
-    /// Designs a measured frequency iterator
-    fn frequencies_iter(&self) -> Box<dyn Iterator<Item = Carrier> + '_> {
-        Box::new(self.observations.iter().map(|obs| obs.carrier).unique())
-    }
+    // /// Designs a measured frequency iterator
+    // fn frequencies_iter(&self) -> Box<dyn Iterator<Item = Carrier> + '_> {
+    //     Box::new(self.observations.iter().map(|obs| obs.carrier).unique())
+    // }
 
     /// Update pseudo range observation (in meters) for this frequency.
     pub fn set_pseudo_range_m(&mut self, carrier: Carrier, pr_m: f64) {
@@ -157,28 +149,6 @@ impl Candidate {
         }
     }
 
-    /// Form [AmbiguityInput] for [Self], ready to be used in external solver.
-    pub(crate) fn ambiguity_input(&self) -> Option<AmbiguityInput> {
-        let l1 = self.l1_phase_range()?;
-        let (f1_hz, l1) = (l1.0.frequency_hz(), l1.1);
-        let c1 = self.l1_pseudo_range()?.1;
-        let lamb1 = SPEED_OF_LIGHT_M_S / f1_hz;
-
-        let l2 = self.subsidary_phase_range()?;
-        let (f2_hz, l2) = (l2.0.frequency_hz(), l2.1);
-        let c2 = self.subsidary_pseudo_range()?.1;
-        let lamb2 = SPEED_OF_LIGHT_M_S / f2_hz;
-
-        Some(AmbiguityInput {
-            f1_hz,
-            c1,
-            l1: l1 / lamb1,
-            f2_hz,
-            c2,
-            l2: l2 / lamb2,
-        })
-    }
-
     /// Computes phase windup correction term.
     pub(crate) fn phase_windup_correction(
         &mut self,
@@ -199,7 +169,7 @@ impl Candidate {
         let r_rr_rs = r_rx - r_sv;
         let e_r_rs = r_rr_rs.norm();
 
-        self.windup = 0.0; // TODO
+        // self.windup = 0.0; // TODO
     }
 
     /// Computes signal transmission instant, as [Epoch].
@@ -293,27 +263,28 @@ mod test {
 
     #[test]
     fn cpp_compatibility() {
-        for (observations, cpp_compatible) in [(
-            vec![
-                Observation {
-                    snr_dbhz: Some(1.0),
-                    pseudo_range_m: Some(1.0),
-                    phase_range_m: Some(2.0),
-                    ambiguity: None,
-                    doppler: None,
-                    carrier: Carrier::L1,
-                },
-                Observation {
-                    snr_dbhz: Some(1.0),
-                    pseudo_range_m: Some(2.0),
-                    phase_range_m: Some(2.0),
-                    ambiguity: None,
-                    doppler: None,
-                    carrier: Carrier::L5,
-                },
-            ],
-            true,
-        )] {
+        {
+            let (observations, cpp_compatible) = (
+                vec![
+                    Observation {
+                        snr_dbhz: Some(1.0),
+                        pseudo_range_m: Some(1.0),
+                        phase_range_m: Some(2.0),
+                        ambiguity: None,
+                        doppler: None,
+                        carrier: Carrier::L1,
+                    },
+                    Observation {
+                        snr_dbhz: Some(1.0),
+                        pseudo_range_m: Some(2.0),
+                        phase_range_m: Some(2.0),
+                        ambiguity: None,
+                        doppler: None,
+                        carrier: Carrier::L5,
+                    },
+                ],
+                true,
+            );
             let cd = Candidate::new(SV::default(), Epoch::default(), observations);
             assert_eq!(cd.cpp_compatible(), cpp_compatible);
         }

@@ -35,7 +35,7 @@ fn bancroft_gpst() {
         "2020-06-25T01:00:00 GPST",
     ] {
         let epoch = Epoch::from_str(t_str).unwrap_or_else(|e| {
-            panic!("invalid test epoch {}: {}", t_str, e);
+            panic!("invalid test epoch {t_str}: {e}");
         });
 
         let mut pool = CandidatesBuilder::build_rover_at(epoch);
@@ -56,11 +56,11 @@ fn bancroft_gpst() {
         }
 
         let solver = Bancroft::new(&pool)
-            .unwrap_or_else(|e| panic!("failed to create Bancroft solver: {}", e));
+            .unwrap_or_else(|e| panic!("failed to create Bancroft solver: {e}"));
 
         let output = solver
             .resolve()
-            .unwrap_or_else(|e| panic!("Bancroft solver failure: {}", e));
+            .unwrap_or_else(|e| panic!("Bancroft solver failure: {e}"));
 
         let x_err = (output[0] - ROVER_REFERENCE_COORDS_ECEF_M.0).abs();
         let y_err = (output[1] - ROVER_REFERENCE_COORDS_ECEF_M.1).abs();
@@ -68,26 +68,17 @@ fn bancroft_gpst() {
 
         assert!(
             x_err < MAX_SURVEY_BANCROFT_X_ERROR_M,
-            "{} bancroft x-error too large: {}",
-            t_str,
-            x_err
+            "{t_str} bancroft x-error too large: {x_err}"
         );
         assert!(
             y_err < MAX_SURVEY_BANCROFT_Y_ERROR_M,
-            "{} bancroft y-error too large: {}",
-            t_str,
-            y_err
+            "{t_str} bancroft y-error too large: {y_err}"
         );
         assert!(
             z_err < MAX_SURVEY_BANCROFT_Z_ERROR_M,
-            "{} bancroft z-error too large: {}",
-            t_str,
-            z_err
+            "{t_str} bancroft z-error too large: {z_err}"
         );
 
-        info!(
-            "{} bancroft errors x={} y={} z={}",
-            t_str, x_err, y_err, z_err
-        );
+        info!("{t_str} bancroft errors x={x_err} y={y_err} z={z_err}");
     }
 }

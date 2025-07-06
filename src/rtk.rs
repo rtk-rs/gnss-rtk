@@ -1,5 +1,4 @@
-use crate::prelude::{Candidate, Carrier, Epoch, SV};
-use std::collections::HashMap;
+use crate::prelude::{Candidate, Epoch};
 
 /// Any [RTKBase] provides remote data by implementing the [RemoteSource] trait.
 pub trait RTKBase {
@@ -42,57 +41,5 @@ impl RTKBase for NullRTK {
 
     fn reference_position_ecef_m(&self, _: Epoch) -> (f64, f64, f64) {
         Default::default()
-    }
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct DoubleDifference {
-    /// Double difference in meters
-    pub code: Option<f64>,
-
-    /// Double difference in meters
-    pub phase: Option<f64>,
-}
-
-impl std::fmt::Display for DoubleDifference {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "code={:?} phase={:?}", self.code, self.phase)?;
-        Ok(())
-    }
-}
-
-impl DoubleDifference {
-    pub fn from_code(value: f64) -> Self {
-        Self {
-            code: Some(value),
-            phase: None,
-        }
-    }
-
-    pub fn from_phase(value: f64) -> Self {
-        Self {
-            code: None,
-            phase: Some(value),
-        }
-    }
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct DoubleDifferences {
-    /// [DoubleDifference]s per [SV] and [Carrier].
-    pub inner: HashMap<(SV, Carrier), f64>,
-}
-
-impl DoubleDifferences {
-    pub fn insert(&mut self, sv: SV, carrier: Carrier, value: f64) {
-        if let Some(inner) = self.inner.get_mut(&(sv, carrier)) {
-            *inner = value;
-        } else {
-            self.inner.insert((sv, carrier), value);
-        }
-    }
-
-    pub fn double_difference(&self, sv: SV, carrier: Carrier) -> Option<&f64> {
-        self.inner.get(&(sv, carrier))
     }
 }

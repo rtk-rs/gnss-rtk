@@ -170,8 +170,8 @@ impl IonosphereBias {
     //     Self::Measured(meas_m)
     // }
 
-    /// Builds a modeled bias in [m]
-    pub(crate) fn modeled(model_m: f64) -> Self {
-        Self::Modeled(model_m)
-    }
+    // /// Builds a modeled bias in [m]
+    // pub(crate) fn modeled(model_m: f64) -> Self {
+    //     Self::Modeled(model_m)
+    // }
 }

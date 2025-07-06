@@ -113,6 +113,10 @@ pub enum Error {
     #[error("ambiguity inverse error")]
     AmbiguityInverse,
 
+    /// Floating Ambiguities solving issue
+    #[error("floating ambiguities solving error")]
+    FloatAmbiguitiesSolving,
+
     /// PPP navigation technique requires phase ambiguity to be solved prior any attempt.
     /// It is Okay to wind up here for a few iterations, until the ambiguities are fixed
     /// and we may proceed to precise navigation. We will reject solving attempt until then.
@@ -121,9 +125,6 @@ pub enum Error {
     /// equipment is properly operated.
     #[error("unresolved signal ambiguity")]
     UnresolvedAmbiguity,
-
-    #[error("error when trying to fix signal ambiguities")]
-    FloatingAmbiguities,
 
     /// [Solver] requires [Almanac] determination at build up and may wind-up here this step is in failure.
     #[error("issue with Almanac: {0}")]
@@ -196,7 +197,7 @@ pub enum Error {
     /// strategy and CP measurements were not associated to PR measurements
     /// (which is mandatory).
     #[error("missing phase range measurements")]
-    MissingPhaseRangeMeasurements,
+    MissingPhaseRange,
 
     /// Unable to elect pivot satellite for SD algorithm,
     /// empty dataset ? (should not happen, and potentially even be reached)
