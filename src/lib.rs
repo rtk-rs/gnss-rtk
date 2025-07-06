@@ -8,8 +8,8 @@ extern crate gnss_rs as gnss;
 
 pub mod error;
 
-mod ambiguity;
-mod averager;
+// mod ambiguity;
+// mod averager;
 mod bancroft;
 mod bias;
 mod candidate;
@@ -20,7 +20,7 @@ mod navigation;
 mod orbit;
 mod pool;
 mod rtk;
-mod smoothing;
+// mod smoothing;
 mod time;
 mod user;
 // mod tides;

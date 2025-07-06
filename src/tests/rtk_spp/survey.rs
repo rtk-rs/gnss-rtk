@@ -76,15 +76,14 @@ fn static_rtk_spp() {
         let candidates = CandidatesBuilder::build_rover_at(t_gpst);
 
         assert!(
-            candidates.len() > 0,
-            "no measurements to propose at \"{}\"",
-            epoch_str
+            !candidates.is_empty(),
+            "no measurements to propose at \"{epoch_str}\""
         );
 
         let status = solver.rtk(t_gpst, default_params, &candidates, &rtk_base);
 
         match status {
-            Err(e) => panic!("Static RTK-SPP process failed with invalid error: {}", e),
+            Err(e) => panic!("Static RTK-SPP process failed with invalid error: {e}"),
             Ok(pvt) => {
                 info!("Solution #{} {:#?}", nth + 1, pvt);
 
@@ -99,34 +98,26 @@ fn static_rtk_spp() {
 
                 assert!(
                     err_x_m < MAX_RTK_SPP_X_ERROR_M,
-                    "epoch={} - x error={}m too large",
-                    epoch_str,
-                    err_x_m
+                    "epoch={epoch_str} - x error={err_x_m}m too large"
                 );
 
                 assert!(
                     err_y_m < MAX_RTK_SPP_Y_ERROR_M,
-                    "epoch={} - y error={}m too large",
-                    epoch_str,
-                    err_y_m
+                    "epoch={epoch_str} - y error={err_y_m}m too large"
                 );
 
                 assert!(
                     err_z_m < MAX_RTK_SPP_Z_ERROR_M,
-                    "epoch={} - z error={}m too large",
-                    epoch_str,
-                    err_z_m
+                    "epoch={epoch_str} - z error={err_z_m}m too large"
                 );
 
                 assert!(
                     pvt.gdop < MAX_RTK_SPP_GDOP,
-                    "{} (static) rtk-spp GDOP too large!",
-                    epoch_str
+                    "{epoch_str} (static) rtk-spp GDOP too large!"
                 );
 
                 info!(
-                    "{} (static) rtk-spp survey error: x={}m y={}m z={}",
-                    epoch_str, err_x_m, err_y_m, err_z_m
+                    "{epoch_str} (static) rtk-spp survey error: x={err_x_m}m y={err_y_m}m z={err_z_m}"
                 );
             },
         }

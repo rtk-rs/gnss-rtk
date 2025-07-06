@@ -1,4 +1,4 @@
-use nalgebra::{DimName, Matrix6, OMatrix, Vector6, U6};
+use nalgebra::{DimName, Matrix6, OMatrix, Vector6, U3, U6};
 
 use crate::{
     error::Error,
@@ -57,12 +57,12 @@ impl PostfitKf {
 
         kalman.initialize_from_static(f_mat, q_mat, initial_estimate);
 
-        // let mut w_mat = DMatrix::<f64>::zeros(U6::USIZE, U6::USIZE);
+        let mut w_mat = Matrix6::identity();
 
-        // for i in 0..U3::USIZE {
-        //     w_mat[(i, i)] = meas_pos_std_dev_m.powi(2);
-        //     w_mat[(U3::USIZE + i, U3::USIZE + i)] = meas_vel_std_dev_m_s.powi(2);
-        // }
+        for i in 0..U3::USIZE {
+            w_mat[(i, i)] = meas_pos_std_dev_m;
+            w_mat[(i + U3::USIZE, i + U3::USIZE)] = meas_vel_std_dev_m_s;
+        }
 
         Self {
             q_mat,
@@ -70,7 +70,6 @@ impl PostfitKf {
             f_mat: Matrix6::identity(),
             g_mat: Matrix6::identity(),
             w_mat: Matrix6::identity(),
-            // g_mat: DMatrix::from_column_slice(U6::USIZE, U6::USIZE, g_mat.as_slice()),
         }
     }
 
@@ -92,7 +91,7 @@ impl PostfitKf {
         let y_vec = &state.to_position_velocity_ecef_m();
 
         self.kalman
-            .run_static::<U6>(&self.f_mat, &self.g_mat, &self.w_mat, &self.q_mat, &y_vec)
+            .run_static::<U6>(&self.f_mat, &self.g_mat, &self.w_mat, &self.q_mat, y_vec)
     }
 
     /// Reset this [PostfitKf]

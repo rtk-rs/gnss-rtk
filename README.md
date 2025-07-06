@@ -1,4 +1,4 @@
-
+GNSS-RTK
 ========
 
 [![Rust](https://github.com/rtk-rs/gnss-rtk/actions/workflows/rust.yml/badge.svg)](https://github.com/rtk-rs/gnss-rtk/actions/workflows/rust.yml)
@@ -11,14 +11,14 @@
 
 The `GNSS-RTK` library provides Position Velocity Time (PVT) solution solvers,
 with abstract and flexible interfaces that may apply to most navigation scenarios
-and applications. Whether the application is real-time or post-processing oriented does not matter.
+and applications. Whether they are real-time or post-processed does not matter.
 
-This library is thoroughly validated, including performance of the accuracy of the solutions
-validated for each release.
+This library is thoroughly validated, including the accuracy of the solutions
+are validated for each release.
 
 <div align="center">
     <p>
-        <br>PPP solver</br> in static application, surveying a professional geodetic marker
+        <br>Static CPP (Galileo, E1+E5b)</br>, surveying a professional geodetic marker
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png alt="Plot">
@@ -27,7 +27,8 @@ validated for each release.
 
 <div align="center">
     <p>
-        Errors from the geodetic marker (CPP, Galileo E1+E5)
+        Static CPP (Galileo, E1+E5b) residual errors between GNSS-RTK
+and profesionnaly calibrated position.
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png alt="Plot">
@@ -36,8 +37,8 @@ validated for each release.
 
 <div align="center">
     <p>
-        Roaming session (pedestrian profile), post-processed with <br>PPP solver</br> (no ground reference), 
-        CPP, GPS L1/L5 + Galileo L1/L5
+        <br>CPP (Galileo E1+E5b)</br>,
+pedestrian profile (no reference on the ground)
     </p>
     <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png>
         <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png alt="Plot">
@@ -93,44 +94,45 @@ Select a navigation method, depending on available signals and desired accuracy:
 | Method        | Physics                                  | Accuracy      |  Application                                            |
 |---------------|------------------------------------------|---------------|---------------------------------------------------------|
 | `SPP`         | Single Frequency Pseudo Range navigation |  2/5          | Low cost devices, Degraded setups                       |
-| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | Mid cost devices, Timing applications                   |
-| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Precise applications, Profesionnal surveying, RTK
-Station calibration | 
+| `CPP`         | Dual Frequency Pseudo Range navigation   |  4/5          | Mid cost dual frequency systems, Timing applications    |
+| `PPP`         | Dual Frequency Pseudo Range + Phase      |  5/5          | High cost devices, Timing applications, Profesionnal surveying, RTK Stations calibration.. | 
 
 For each set of synchronous measurements (oftentimes referred to as "Observations"), you can then either 
 
 1. apply the RTK Navigation technique (Differential navigation, relying on a single ground reference),
-by using `Solver::rtk_run`.
+by using `Solver::rtk()`.
 
-2. or PPP Navigation technique (Absolute navigation without any reference),
-by using `Solver::ppp_run`.
+2. or PPP Navigation technique (Absolute navigation without reference on the ground),
+by using `Solver::ppp()`.
 
-RTK should be prefered for geometric applications, because it garantees a x3 to x5 geometric
-accuracy improvement, under correct conditions. But it is currently unable to resolve
-the rover clock state. If you are interested in the timing solutions, you should prefer
-a PPP runs. When the RTK network goes down (and RTK trait correctly reflects that), `rtk_run()` will fail.
-You should catch RTK related issues and this API allows you to still consume this measurement using
-`PPP`, until the RTK network comes back. If you've been using RTK until this point, the clock state
-will appear on the first PPP solution. For each solution
+RTK should be prefered for geometric applications, especially roaming applications.
+So far, we experience between x2-x5 improvements of the geometric accuracy when comparing absolute
+to differential runs. In RTK, the most important thing is to maintain a short baseline (distance between
+the rover and the reference).
+
+Our RTK API will not resolve the clock state in any case. If you are interested in the timing
+solutions, you should prefer PPP runs. When the RTK network goes down and the reference
+goes unreachable, you can safely switch to `Solver::ppp` temporarily, the navigation filter continues
+and iterates from the past state at all times.
 
 Summary of supported modes:
 
-| Principle  | API               | Method | State |
-|------------|-------------------|--------|-------|
-| `RTK`      | `Solver::rtk_run` | SPP    |  OK   |
-|------------|-------------------|--------|-------|
-| `RTK`      | `Solver::rtk_run` | CPP    |  OK   |
-|------------|-------------------|--------|-------|
-| `RTK`      | `Solver::rtk_run` | PPP    |  NOK  |
-|------------|-------------------|--------|-------|
-| `PPP`      | `Solver::ppp_run` | SPP    |  OK   |
-|------------|-------------------|--------|-------|
-| `PPP`      | `Solver::ppp_run` | CPP    |  OK   |
-|------------|-------------------|--------|-------|
-| `PPP`      | `Solver::ppp_run` | PPP    |  NOK  |
-|------------|-------------------|--------|-------|
+| Principle  | API               | Method | Latest version | Accuracy |
+|------------|-------------------|--------|----------------|----------|
+| `RTK`      | `Solver::rtk_run` | SPP    |  OK            |  2/5     |
+|------------|-------------------|--------|----------------|----------|
+| `RTK`      | `Solver::rtk_run` | CPP    |  OK            |  3/5     |
+|------------|-------------------|--------|----------------|----------|
+| `RTK`      | `Solver::rtk_run` | PPP    |  OK            |  5/5     |
+|------------|-------------------|--------|----------------|----------|
+| `PPP`      | `Solver::ppp_run` | SPP    |  OK            |  1/5     |
+|------------|-------------------|--------|----------------|----------|
+| `PPP`      | `Solver::ppp_run` | CPP    |  OK            |  2/5     |
+|------------|-------------------|--------|----------------|----------|
+| `PPP`      | `Solver::ppp_run` | PPP    |  NOK           |  4/5     |
+|------------|-------------------|--------|----------------|----------|
 
-NOK: unreleased, unavailable or untested. Will at best diverge, and most likely panic if deployed.
+NOK: unreleased, unavailable or untested. Will at best diverge, and most likely panic if you deploy this mode.
 
 Solver, strategies and API
 ==========================
@@ -151,17 +153,6 @@ Because this API is real-time oriented, you provide measurements for each Epoch.
 Assuming people are mostly interested by highest accuracy, you would naturally select 
 RTK+PPP or PPP. But you can catch errors and adapt. Let's say L5 becomes unavailable for some time,
 you can continue navigating but temporarily degrade the selected Method to SPP.
-
-`Method` summary:
-
-| Method | Observables               | Applications                               | 
-|--------|---------------------------|--------------------------------------------|
-| `SPP`  | Single Pseudo Range       | Low cost devices, degraded environment     |
-|--------|---------------------------|--------------------------------------------|
-| `CPP`  | Dual Pseudo Range         | Intermediate accuracy, timing applications |
-|--------|---------------------------|--------------------------------------------|
-| `PPP`  | Dual Pseudo Range + Phase | High end, professional quality             |
-|--------|----------------------|-------------------------------------------------|
 
 Application Programming Interface (API)
 =======================================
@@ -186,6 +177,26 @@ or implement your own. It is mandatory to do so to obtain a high quality solutio
 Each traits are wrapped inside an `Rc<>` (Reference Counter) which makes this API compatible with real-time navigation.
 This allows your structure(s) to live elsewhere, with so called "internal multability" (read on this pseudo concept)
 that the data collection process demands.
+
+RTK-Trait
+=========
+
+Each Ground station must implement the `RTKBase` trait, to describe its current test.  
+For each set of rover measurements, we request synchronous remote observations. 
+In practice, especially in real-time applications, it is impossible for the observations
+to truly be synchronous. The important aspect is to reduce the time difference (also referred to as
+the RTK "aging") to a minimum. Considering the ground reference is expected to remain static,
+this will work just fine. For moving base, this becomes vital. In summary, the latest state
+you described for the ground reference should be as close to the truth as you can, and any error
+will reflect on the accuracy of the rover solution. 
+
+We request for a "name" for each base station, this makes the logs more meaningful
+and is introduced in advanced even though we do not allow more than 1 reference per Epoch.
+
+GNSS-RTK is currently limited to a single ground reference.
+
+This library has not been tested with a moving base yet, but if you can describe your
+base correctly at all times, you should be able to obtain correct results.
 
 Orbit Provider
 ==============

@@ -415,7 +415,7 @@ impl TestSpacebornBiases {
         Self {
             sv_biases: HashMap::from_iter(dataset.into_iter().map(|((sv, t_str), bias)| {
                 let t = Epoch::from_str(t_str).unwrap_or_else(|e| {
-                    panic!("invalid epoch specs: {} - {}", t_str, e);
+                    panic!("invalid epoch specs: {t_str} - {e}");
                 });
                 ((sv, t), bias)
             })),

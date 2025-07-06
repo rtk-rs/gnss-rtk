@@ -82,8 +82,7 @@ impl Smoother {
     ) -> f64 {
         let k = Key { sv, carrier };
         if let Some(mov) = self.inner.get_mut(&k) {
-            let c_k = mov.add(c_n, l_n - n_1 * lambda_1);
-            c_k
+            mov.add(c_n, l_n - n_1 * lambda_1)
         } else {
             let mut mov = MovingAverage::new(self.win_len);
             let c_k = mov.add(c_n, l_n - n_1 * lambda_1);

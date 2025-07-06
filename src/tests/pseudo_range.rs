@@ -2,16 +2,26 @@ use crate::prelude::{Candidate, Carrier, Epoch, Observation, SV};
 
 #[test]
 fn best_snr_pseudorange() {
-    for (observations, prefered) in [(
-        vec![
-            Observation {
-                snr_dbhz: Some(20.0),
-                phase_range_m: None,
-                pseudo_range_m: Some(1.0),
-                ambiguity: None,
-                doppler: None,
-                carrier: Carrier::L1,
-            },
+    {
+        let (observations, prefered) = (
+            vec![
+                Observation {
+                    snr_dbhz: Some(20.0),
+                    phase_range_m: None,
+                    pseudo_range_m: Some(1.0),
+                    ambiguity: None,
+                    doppler: None,
+                    carrier: Carrier::L1,
+                },
+                Observation {
+                    snr_dbhz: Some(30.0),
+                    phase_range_m: None,
+                    pseudo_range_m: Some(2.0),
+                    ambiguity: None,
+                    doppler: None,
+                    carrier: Carrier::L2,
+                },
+            ],
             Observation {
                 snr_dbhz: Some(30.0),
                 phase_range_m: None,
@@ -20,16 +30,7 @@ fn best_snr_pseudorange() {
                 doppler: None,
                 carrier: Carrier::L2,
             },
-        ],
-        Observation {
-            snr_dbhz: Some(30.0),
-            phase_range_m: None,
-            pseudo_range_m: Some(2.0),
-            ambiguity: None,
-            doppler: None,
-            carrier: Carrier::L2,
-        },
-    )] {
+        );
         let cd = Candidate::new(SV::default(), Epoch::default(), observations);
         assert_eq!(cd.best_snr_observation(), Some(prefered));
     }

@@ -153,7 +153,7 @@ impl Solver {
     ) -> Result<(), Error> {
         self.clear();
 
-        let mut initial_state = initial_state.clone();
+        let initial_state = initial_state.clone();
 
         let mut ndf = U4::USIZE + double_differences.ndf();
         ndf -= 1; // TODO: only in RTK
@@ -164,12 +164,6 @@ impl Solver {
         self.f_k.resize_mut(ndf, ndf, 0.0);
         self.q_k.resize_mut(ndf, ndf, 0.0);
         self.x_k.resize_vertically_mut(ndf, 0.0);
-
-        let dt = if let Some(past_epoch) = self.prev_epoch {
-            epoch - past_epoch
-        } else {
-            Duration::ZERO
-        };
 
         if !self.kalman.initialized {
             self.kf_initialization(
@@ -242,8 +236,6 @@ impl Solver {
 
             contrib.sv = candidates[i].sv;
 
-            let position_m = pending.to_position_ecef_m();
-
             match candidates[i].rtk_vector_contribution(
                 epoch,
                 true,
@@ -287,7 +279,7 @@ impl Solver {
 
             let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
 
-            debug!("(ppp i={}) Y: {}", ith, y_k);
+            debug!("(ppp i={ith}) Y: {y_k}");
 
             // Build G
             let mut ndf = U4::USIZE;
@@ -330,8 +322,6 @@ impl Solver {
             self.x_k = gt_w_g_inv_gt_w * y_k.clone();
             self.p_k = gt_w_g_inv.clone();
 
-            let ndf = self.x_k.nrows();
-
             let position_ecef_m = pending.to_position_ecef_m();
 
             let (baseline_dx, baseline_dy, baseline_dz) = (
@@ -351,7 +341,7 @@ impl Solver {
             pending
                 .spatial_correction_mut(self.frame, (dx, dy, dz))
                 .map_err(|e| {
-                    error!("{} - state update failed with physical error: {}", epoch, e);
+                    error!("{epoch} - state update failed with physical error: {e}");
                     Error::StateUpdate
                 })?;
 
@@ -367,7 +357,7 @@ impl Solver {
             // update latest DoP
             dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
-            debug!("(ppp i={}) {} - pending state {}", ith, epoch, pending);
+            debug!("(ppp i={ith}) {epoch} - pending state {pending}");
 
             // models update
             self.y_k_vec.clear();
@@ -375,8 +365,6 @@ impl Solver {
 
             self.indexes.retain(|i| {
                 let mut unused = SVContribution::default();
-
-                let position_m = pending.to_position_ecef_m();
 
                 match candidates[*i].rtk_vector_contribution(
                     epoch,
@@ -427,7 +415,7 @@ impl Solver {
             q_mat[(i, i)] = 1.0;
         }
 
-        debug!("ndf(ppp)={} Q(ppp)={}", ndf, q_mat);
+        debug!("ndf(ppp)={ndf} Q(ppp)={q_mat}");
 
         // build F
         self.f_k.resize_mut(ndf + lambda_ndf, ndf + lambda_ndf, 0.0);
@@ -470,7 +458,7 @@ impl Solver {
                 }
             },
             Err(e) => {
-                error!("{} - lambda search failed with {}", epoch, e);
+                error!("{epoch} - lambda search failed with {e}");
                 return Err(e);
             },
         }
@@ -508,8 +496,6 @@ impl Solver {
 
             contrib.sv = candidates[i].sv;
 
-            let position_m = pending.to_position_ecef_m();
-
             match candidates[i].rtk_vector_contribution(
                 epoch,
                 true,
@@ -540,7 +526,7 @@ impl Solver {
         }
 
         let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
-        debug!("Y(ppp): {}", y_k);
+        debug!("Y(ppp): {y_k}");
 
         self.w_k.resize_mut(y_len, y_len, 0.0);
 
@@ -562,7 +548,8 @@ impl Solver {
         for (i, index) in self.indexes.iter().enumerate() {
             let position_m = pending.to_position_ecef_m();
 
-            let (dx, dy, dz) = candidates[*index].ppp_matrix_contribution(&self.cfg, position_m);
+            let (dx, dy, dz) =
+                candidates[*index].rtk_matrix_contribution(position_m, pivot_position_ecef_m);
 
             self.g_k[(2 * i, 0)] = dx;
             self.g_k[(2 * i, 1)] = dy;
@@ -578,7 +565,7 @@ impl Solver {
         // form Y
         let y = DVector::<f64>::from_row_slice(self.y_k_vec.as_slice());
 
-        debug!("Y(ppp): {}", y);
+        debug!("Y(ppp): {y}");
 
         // Build F
         self.f_k = DMatrix::identity(ndf, ndf);
@@ -610,12 +597,26 @@ impl Solver {
 
         debug!("dx(ppp)={}", self.x_k);
 
+        // if uses_rtk {
+        let position_ecef_m = pending.to_position_ecef_m();
+
+        let (baseline_dx, baseline_dy, baseline_dz) = (
+            position_ecef_m[0] - base_x0,
+            position_ecef_m[1] - base_y0,
+            position_ecef_m[2] - base_z0,
+        );
+
+        self.x_k[0] -= baseline_dx;
+        self.x_k[1] -= baseline_dy;
+        self.x_k[2] -= baseline_dz;
+        // }
+
         let (dx, dy, dz) = (self.x_k[0], self.x_k[1], self.x_k[2]);
 
         pending
             .spatial_correction_mut(self.frame, (dx, dy, dz))
             .map_err(|e| {
-                error!("{} - state update failed with physical error: {}", epoch, e);
+                error!("{epoch} - state update failed with physical error: {e}");
                 Error::StateUpdate
             })?;
 
@@ -655,7 +656,7 @@ impl Solver {
                     // TODO confirmation
                 },
                 Err(e) => {
-                    error!("lambda search failed with {}", e);
+                    error!("lambda search failed with {e}");
                     return Err(e);
                 },
             }

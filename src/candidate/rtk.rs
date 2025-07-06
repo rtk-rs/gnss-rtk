@@ -1,4 +1,4 @@
-use log::{debug, error};
+use log::error;
 
 use crate::{
     candidate::differences::Differences,
@@ -19,12 +19,6 @@ impl Candidate {
         let dd = double_diffs
             .difference(self.sv)
             .ok_or(Error::RtkDDPostfitMissing)?;
-
-        let code = if let Some((_, code)) = dd.code {
-            Some(code)
-        } else {
-            None
-        };
 
         let mut vec = VectorContribution::default();
 
@@ -59,15 +53,13 @@ impl Candidate {
         }
 
         // row #2 (special case)
-        if two_rows {
-            if cfg.method == Method::PPP {
-                // special case
-                if let Some((_, _, phase_if)) = dd.phase_if {
-                    vec.row_2 = phase_if;
-                } else {
-                    error!("{}({}) - missing phase data", epoch, self.sv);
-                    return Err(Error::MissingPhaseRange);
-                }
+        if two_rows && cfg.method == Method::PPP {
+            // special case
+            if let Some((_, _, phase_if)) = dd.phase_if {
+                vec.row_2 = phase_if;
+            } else {
+                error!("{}({}) - missing phase data", epoch, self.sv);
+                return Err(Error::MissingPhaseRange);
             }
         }
 
@@ -124,7 +116,7 @@ impl Candidate {
 #[cfg(test)]
 mod test {
     use crate::{
-        prelude::{Config, Epoch, Frame, Method, Orbit},
+        prelude::{Epoch, Frame, Orbit},
         tests::{CandidatesBuilder, E05, ROVER_REFERENCE_COORDS_ECEF_M},
     };
 
@@ -140,7 +132,7 @@ mod test {
     }
 
     #[test]
-    fn rtk_spp_matrix_contribution() {
+    fn rtk_matrix_contribution() {
         let earth_frame = build_earth_frame();
         let t0 = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
 
@@ -169,8 +161,6 @@ mod test {
             t0,
             earth_frame,
         ));
-
-        let cfg = Config::default().with_navigation_method(Method::SPP);
 
         let x0_y0_z0_m = Vector3::new(
             ROVER_REFERENCE_COORDS_ECEF_M.0,
@@ -203,149 +193,7 @@ mod test {
         );
 
         assert!((dx - (e_j.0 - e_i.0)).abs() < 1E-6,);
-
         assert!((dy - (e_j.1 - e_i.1)).abs() < 1E-6,);
-
-        assert!((dz - (e_j.2 - e_i.2)).abs() < 1E-6,);
-    }
-
-    #[test]
-    fn rtk_cpp_matrix_contribution() {
-        let earth_frame = build_earth_frame();
-        let t0 = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
-
-        let pivot_position_ecef_km = (16577.017768, -4619.539763, 24092.494804);
-
-        let pivot_position_ecef_m = (
-            pivot_position_ecef_km.0 * 1000.0,
-            pivot_position_ecef_km.1 * 1000.0,
-            pivot_position_ecef_km.2 * 1000.0,
-        );
-
-        let e01_position_ecef_km = (-11562.163582, 14053.114306, 23345.128269);
-
-        let e01_position_ecef_m = (
-            e01_position_ecef_km.0 * 1000.0,
-            e01_position_ecef_km.1 * 1000.0,
-            e01_position_ecef_km.2 * 1000.0,
-        );
-
-        let mut rover = CandidatesBuilder::build_rover_sv_at(E05, t0);
-
-        rover.orbit = Some(Orbit::from_position(
-            e01_position_ecef_km.0,
-            e01_position_ecef_km.1,
-            e01_position_ecef_km.2,
-            t0,
-            earth_frame,
-        ));
-
-        let cfg = Config::default().with_navigation_method(Method::CPP);
-
-        let x0_y0_z0_m = Vector3::new(
-            ROVER_REFERENCE_COORDS_ECEF_M.0,
-            ROVER_REFERENCE_COORDS_ECEF_M.1,
-            ROVER_REFERENCE_COORDS_ECEF_M.2,
-        );
-
-        let (dx, dy, dz) = rover.rtk_matrix_contribution(x0_y0_z0_m, pivot_position_ecef_m);
-
-        let rho_i = ((e01_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0).powi(2)
-            + (e01_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1).powi(2)
-            + (e01_position_ecef_m.2 - ROVER_REFERENCE_COORDS_ECEF_M.2).powi(2))
-        .sqrt();
-
-        let rho_j = ((pivot_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0).powi(2)
-            + (pivot_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1).powi(2)
-            + (pivot_position_ecef_m.2 - ROVER_REFERENCE_COORDS_ECEF_M.2).powi(2))
-        .sqrt();
-
-        let e_i = (
-            (e01_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0) / rho_i,
-            (e01_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1) / rho_i,
-            (e01_position_ecef_m.2 - ROVER_REFERENCE_COORDS_ECEF_M.2) / rho_i,
-        );
-
-        let e_j = (
-            (pivot_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0) / rho_j,
-            (pivot_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1) / rho_j,
-            (pivot_position_ecef_m.2 - ROVER_REFERENCE_COORDS_ECEF_M.2) / rho_j,
-        );
-
-        assert!((dx - (e_j.0 - e_i.0)).abs() < 1E-6,);
-
-        assert!((dy - (e_j.1 - e_i.1)).abs() < 1E-6,);
-
-        assert!((dz - (e_j.2 - e_i.2)).abs() < 1E-6,);
-    }
-
-    #[test]
-    fn rtk_ppp_matrix_contribution() {
-        let earth_frame = build_earth_frame();
-        let t0 = Epoch::from_str("2020-06-25T00:00:00 GPST").unwrap();
-
-        let pivot_position_ecef_km = (16577.017768, -4619.539763, 24092.494804);
-
-        let pivot_position_ecef_m = (
-            pivot_position_ecef_km.0 * 1000.0,
-            pivot_position_ecef_km.1 * 1000.0,
-            pivot_position_ecef_km.2 * 1000.0,
-        );
-
-        let e01_position_ecef_km = (-11562.163582, 14053.114306, 23345.128269);
-
-        let e01_position_ecef_m = (
-            e01_position_ecef_km.0 * 1000.0,
-            e01_position_ecef_km.1 * 1000.0,
-            e01_position_ecef_km.2 * 1000.0,
-        );
-
-        let mut rover = CandidatesBuilder::build_rover_sv_at(E05, t0);
-
-        rover.orbit = Some(Orbit::from_position(
-            e01_position_ecef_km.0,
-            e01_position_ecef_km.1,
-            e01_position_ecef_km.2,
-            t0,
-            earth_frame,
-        ));
-
-        let cfg = Config::default().with_navigation_method(Method::PPP);
-
-        let x0_y0_z0_m = Vector3::new(
-            ROVER_REFERENCE_COORDS_ECEF_M.0,
-            ROVER_REFERENCE_COORDS_ECEF_M.1,
-            ROVER_REFERENCE_COORDS_ECEF_M.2,
-        );
-
-        let (dx, dy, dz) = rover.rtk_matrix_contribution(x0_y0_z0_m, pivot_position_ecef_m);
-
-        let rho_i = ((e01_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0).powi(2)
-            + (e01_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1).powi(2)
-            + (e01_position_ecef_m.2 - ROVER_REFERENCE_COORDS_ECEF_M.2).powi(2))
-        .sqrt();
-
-        let rho_j = ((pivot_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0).powi(2)
-            + (pivot_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1).powi(2)
-            + (pivot_position_ecef_m.2 - ROVER_REFERENCE_COORDS_ECEF_M.2).powi(2))
-        .sqrt();
-
-        let e_i = (
-            (e01_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0) / rho_i,
-            (e01_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1) / rho_i,
-            (e01_position_ecef_m.2 - ROVER_REFERENCE_COORDS_ECEF_M.2) / rho_i,
-        );
-
-        let e_j = (
-            (pivot_position_ecef_m.0 - ROVER_REFERENCE_COORDS_ECEF_M.0) / rho_j,
-            (pivot_position_ecef_m.1 - ROVER_REFERENCE_COORDS_ECEF_M.1) / rho_j,
-            (pivot_position_ecef_m.2 - ROVER_REFERENCE_COORDS_ECEF_M.2) / rho_j,
-        );
-
-        assert!((dx - (e_j.0 - e_i.0)).abs() < 1E-6,);
-
-        assert!((dy - (e_j.1 - e_i.1)).abs() < 1E-6,);
-
         assert!((dz - (e_j.2 - e_i.2)).abs() < 1E-6,);
     }
 }

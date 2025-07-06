@@ -45,12 +45,14 @@ impl Ephemeris {
         let n = n0 + self.dn_rad;
         let m = self.m0_rad + n * t_k;
 
+        let mut e_k;
         let mut i = 0;
-        let mut e_k = 0.0_f64;
-        let mut e_k_lst = 0.0_f64;
+
+        let e_k_lst = 0.0_f64;
 
         loop {
             e_k = m + e * e_k_lst.sin();
+
             if (e_k - e_k_lst).abs() < 1E-10 {
                 break;
             }
@@ -64,7 +66,7 @@ impl Ephemeris {
 
         let (sin_e_k, cos_e_k) = e_k.sin_cos();
         let v_k = ((1.0 - e_2).sqrt() * sin_e_k).atan2(cos_e_k - e);
-        let (sin_v_k, cos_v_k) = v_k.sin_cos();
+        // let (sin_v_k, cos_v_k) = v_k.sin_cos();
 
         let phi = v_k + omega;
         let (sin_2phi, cos_2phi) = (2.0 * phi).sin_cos();

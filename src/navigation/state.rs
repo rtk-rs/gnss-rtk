@@ -45,18 +45,16 @@ impl Default for State {
 
 impl std::fmt::Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let nrows = self.x.nrows();
         let position_ecef_m = self.to_position_ecef_m();
         let (offset, drift) = self.clock_profile_s();
 
         writeln!(
             f,
-            "{} dt={:.11E}s drift={:.11E}s/s",
-            position_ecef_m, offset, drift,
+            "{position_ecef_m} dt={offset:.11E}s drift={drift:.11E}s/s"
         )?;
 
         if self.x_amb.nrows() > 0 {
-            writeln!(f, "ambiguities={}", self.x_amb,)?;
+            writeln!(f, "ambiguities={}", self.x_amb)?;
         }
 
         Ok(())
@@ -181,13 +179,14 @@ impl State {
 mod test {
 
     use crate::{
-        navigation::{Apriori, Navigation, State},
+        navigation::{Apriori, State},
         prelude::{Duration, Frame, Orbit, SPEED_OF_LIGHT_M_S},
         tests::ROVER_REFERENCE_COORDS_ECEF_M,
     };
 
     use anise::math::Vector3;
-    use nalgebra::{DVector, DimName, U4};
+
+    // use nalgebra::{DimName, U4};
 
     use rstest::*;
 
@@ -217,16 +216,12 @@ mod test {
         let reference_orbit = build_reference_orbit();
 
         let initial_state = State::from_apriori(&apriori).unwrap_or_else(|e| {
-            panic!(
-                "Failed to build initial state from reference apriori: {}",
-                e
-            )
+            panic!("Failed to build initial state from reference apriori: {e}")
         });
 
         // verify that orbital construction works correctly
-        let from_orbit = State::from_orbit(&reference_orbit).unwrap_or_else(|e| {
-            panic!("Failed to build initial state from reference orbit: {}", e)
-        });
+        let from_orbit = State::from_orbit(&reference_orbit)
+            .unwrap_or_else(|e| panic!("Failed to build initial state from reference orbit: {e}"));
 
         assert_eq!(initial_state, from_orbit);
 
@@ -275,15 +270,12 @@ mod test {
         );
 
         // verify +null is null
-        let ndf = U4::USIZE;
         let mut state = initial_state.clone();
-        let new_t = state.epoch;
-
         let null_dx = (0.0, 0.0, 0.0);
 
         state
             .spatial_correction_mut(earth_frame, null_dx)
-            .unwrap_or_else(|e| panic!("Failed to apply null state correction! {}", e));
+            .unwrap_or_else(|e| panic!("Failed to apply null state correction! {e}"));
 
         assert_eq!(
             initial_state, state,
@@ -291,14 +283,13 @@ mod test {
         );
 
         // Test correction (2)
-        let ndf = U4::USIZE;
         let mut state = initial_state.clone();
 
         let (dx, dy, dz) = (1.0, 2.0, 3.0);
 
         state
             .spatial_correction_mut(earth_frame, (dx, dy, dz))
-            .unwrap_or_else(|e| panic!("Failed to apply state correction! {}", e));
+            .unwrap_or_else(|e| panic!("Failed to apply state correction! {e}"));
 
         assert_eq!(
             state.epoch, initial_state.epoch,
@@ -329,16 +320,14 @@ mod test {
         assert_eq!(clock_drift_s, 0.0, "clock drift should have been preserved");
 
         // Test correction (2)
-        let ndf = U4::USIZE;
         let mut state = initial_state.clone();
-
         let new_t = state.epoch + Duration::from_seconds(30.0);
 
         let (dx, dy, dz) = (1.0, 2.0, 3.0);
 
         state
             .spatial_correction_mut(earth_frame, (dx, dy, dz))
-            .unwrap_or_else(|e| panic!("Failed to apply null state correction! {}", e));
+            .unwrap_or_else(|e| panic!("Failed to apply null state correction! {e}"));
 
         state.temporal_correction_mut(4.0);
 

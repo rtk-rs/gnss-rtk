@@ -1,12 +1,19 @@
 use crate::{
-    ambiguity::Solver as AmbiguitySolver,
     candidate::differences::Differences,
     constants::{EARTH_GRAVITATION_MU_M3_S2, EARTH_SEMI_MAJOR_AXIS_WGS84, SPEED_OF_LIGHT_M_S},
     navigation::state::State,
     pool::Pool,
     prelude::{
-        Almanac, Candidate, EnvironmentalBias, EphemerisSource, Error, OrbitSource, SpacebornBias,
-        Vector3, EARTH_J2000, SUN_J2000,
+        // Almanac,
+        Candidate,
+        EnvironmentalBias,
+        EphemerisSource,
+        Error,
+        OrbitSource,
+        SpacebornBias,
+        Vector3,
+        // EARTH_J2000,
+        SUN_J2000,
     },
 };
 
@@ -31,36 +38,36 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
         Ok(())
     }
 
-    /// Post fit phase windup correction
-    fn post_fit_phase_windup(&mut self, almanac: &Almanac, _state: &State) -> AlmanacResult<()> {
-        let epoch = self.inner[0].epoch;
+    // /// Post fit phase windup correction
+    // fn post_fit_phase_windup(&mut self, almanac: &Almanac, _state: &State) -> AlmanacResult<()> {
+    //     let epoch = self.inner[0].epoch;
 
-        let earth_sun = almanac.transform(SUN_J2000, EARTH_J2000, epoch, None)?;
+    //     let earth_sun = almanac.transform(SUN_J2000, EARTH_J2000, epoch, None)?;
 
-        let r_sun = Vector3::new(
-            earth_sun.radius_km.x * 1.0E3,
-            earth_sun.radius_km.y * 1.0E3,
-            earth_sun.radius_km.z * 1.0E3,
-        );
+    //     let r_sun = Vector3::new(
+    //         earth_sun.radius_km.x * 1.0E3,
+    //         earth_sun.radius_km.y * 1.0E3,
+    //         earth_sun.radius_km.z * 1.0E3,
+    //     );
 
-        // for cd in self.inner.iter_mut() {
-        // let prev_correction = self
-        //     .past
-        //     .iter()
-        //     .filter_map(|past| {
-        //         if past.sv == cd.sv {
-        //             Some(past.windup)
-        //         } else {
-        //             None
-        //         }
-        //     })
-        //     .reduce(|k, _| k);
+    //     // for cd in self.inner.iter_mut() {
+    //     // let prev_correction = self
+    //     //     .past
+    //     //     .iter()
+    //     //     .filter_map(|past| {
+    //     //         if past.sv == cd.sv {
+    //     //             Some(past.windup)
+    //     //         } else {
+    //     //             None
+    //     //         }
+    //     //     })
+    //     //     .reduce(|k, _| k);
 
-        // cd.phase_windup_correction(state, r_sun, prev_correction);
-        // }
+    //     // cd.phase_windup_correction(state, r_sun, prev_correction);
+    //     // }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Apply Attitudes Post fit
     fn post_fit_attitudes(&mut self, name: &str, state: &State) {
@@ -202,94 +209,54 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
                     retained
                 },
                 Err(e) => {
-                    error!("(anise) eclipse error: {}", e);
+                    error!("(anise) eclipse error: {e}");
                     false
                 },
             }
         });
     }
 
-    fn post_fit_ambiguity_solving(&mut self) {
-        self.inner.retain_mut(|cd| {
-            if let Some(input) = cd.ambiguity_input() {
-                let mut retain = false;
-
-                let output = if let Some(solver) = self.amb_solver.get_mut(&cd.sv) {
-                    let out = solver.solve(&input);
-                    out
-                } else {
-                    let mut solver = AmbiguitySolver::new();
-                    let out = solver.solve(&input);
-
-                    self.amb_solver.insert(cd.sv, solver);
-                    out
-                };
-
-                if let Some(output) = output {
-                    debug!(
-                        "{}({}) - n_1={}(\u{03c3}={}) n_2={}(\u{03c3}w={})",
-                        cd.epoch, cd.sv, output.n1, 0.0, output.n2, 0.0,
-                    );
-
-                    // cd.update_ambiguities(output);
-                    retain = true;
-                } else {
-                    debug!("{}({}) - phase tracking", cd.epoch, cd.sv);
-                }
-
-                retain
-            } else {
-                error!(
-                    "{}({}) - phase bias tracking not feasible (missing measurements)",
-                    cd.epoch, cd.sv
-                );
-
-                false
-            }
-        });
-    }
-
-    fn post_fit_code_smoothing(&mut self) {
-        for cd in self.inner.iter_mut() {
-            for sv_observ in cd.observations.iter_mut() {
-                if sv_observ.carrier.is_l1() {
-                    let lambda_1 = sv_observ.carrier.wavelength();
-                    let n_1 = sv_observ.ambiguity.unwrap_or_default();
-                    if n_1 != 0.0 {
-                        if let Some(c_n) = &mut sv_observ.pseudo_range_m {
-                            if let Some(l_n) = sv_observ.phase_range_m {
-                                *c_n = self.smoother.smoothing(
-                                    sv_observ.carrier,
-                                    cd.sv,
-                                    *c_n,
-                                    n_1,
-                                    lambda_1,
-                                    l_n,
-                                );
-                            }
-                        }
-                    }
-                } else {
-                    let lambda_j = sv_observ.carrier.wavelength();
-                    let n_j = sv_observ.ambiguity.unwrap_or_default();
-                    if n_j != 0.0 {
-                        if let Some(c_n) = &mut sv_observ.pseudo_range_m {
-                            if let Some(l_n) = sv_observ.phase_range_m {
-                                *c_n = self.smoother.smoothing(
-                                    sv_observ.carrier,
-                                    cd.sv,
-                                    *c_n,
-                                    n_j,
-                                    lambda_j,
-                                    l_n,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // fn post_fit_code_smoothing(&mut self) {
+    //     for cd in self.inner.iter_mut() {
+    //         for sv_observ in cd.observations.iter_mut() {
+    //             if sv_observ.carrier.is_l1() {
+    //                 let lambda_1 = sv_observ.carrier.wavelength();
+    //                 let n_1 = sv_observ.ambiguity.unwrap_or_default();
+    //                 if n_1 != 0.0 {
+    //                     if let Some(c_n) = &mut sv_observ.pseudo_range_m {
+    //                         if let Some(l_n) = sv_observ.phase_range_m {
+    //                             *c_n = self.smoother.smoothing(
+    //                                 sv_observ.carrier,
+    //                                 cd.sv,
+    //                                 *c_n,
+    //                                 n_1,
+    //                                 lambda_1,
+    //                                 l_n,
+    //                             );
+    //                         }
+    //                     }
+    //                 }
+    //             } else {
+    //                 let lambda_j = sv_observ.carrier.wavelength();
+    //                 let n_j = sv_observ.ambiguity.unwrap_or_default();
+    //                 if n_j != 0.0 {
+    //                     if let Some(c_n) = &mut sv_observ.pseudo_range_m {
+    //                         if let Some(l_n) = sv_observ.phase_range_m {
+    //                             *c_n = self.smoother.smoothing(
+    //                                 sv_observ.carrier,
+    //                                 cd.sv,
+    //                                 *c_n,
+    //                                 n_j,
+    //                                 lambda_j,
+    //                                 l_n,
+    //                             );
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     fn post_fit_biases(&mut self, name: &str, state: &State) {
         let rcvr_position_ecef_m = state.to_position_ecef_m();
@@ -343,12 +310,10 @@ impl<EPH: EphemerisSource, ORB: OrbitSource, EB: EnvironmentalBias, SB: Spacebor
     /// Runs a postfit SD algorithm, between seld and rhs.
     /// NB: only shared measurements are preserved
     pub fn post_fit_sd(&mut self, pivot: &Candidate) -> Result<(), Error> {
-        let method = self.cfg.method;
-
         for cd in self.inner.iter() {
             if cd.sv != pivot.sv {
                 self.single_differences
-                    .insert(cd.sv, cd.single_difference(method, &pivot));
+                    .insert(cd.sv, cd.single_difference(pivot));
             }
         }
 

@@ -14,7 +14,7 @@ pub(crate) mod state;
 pub(crate) mod sv;
 pub(crate) mod vector;
 
-use std::collections::HashMap;
+// use std::collections::HashMap;
 
 use nalgebra::{DMatrix, DVector, DimName, U3, U4};
 
@@ -29,7 +29,17 @@ use crate::{
         state::State,
         sv::SVContribution,
     },
-    prelude::{Candidate, Config, Duration, Epoch, Error, Frame, Method, UserParameters, SV},
+    prelude::{
+        Candidate,
+        Config,
+        Duration,
+        Epoch,
+        Error,
+        Frame,
+        // Method,
+        UserParameters,
+        // SV,
+    },
     rtk::RTKBase,
 };
 
@@ -183,7 +193,7 @@ impl Navigation {
     ) -> Result<(), Error> {
         self.clear();
 
-        let mut initial_state = initial_state.clone();
+        let initial_state = initial_state.clone();
 
         let mut ndf = U4::USIZE;
 
@@ -237,25 +247,23 @@ impl Navigation {
             ) {
                 Ok(_) => {},
                 Err(e) => {
-                    error!("{} - ppp prefit failed with {}", epoch, e);
+                    error!("{epoch} - ppp prefit failed with {e}");
                     return Err(Error::FloatAmbiguitiesSolving);
                 },
             }
         }
 
-        let fixed_ambiguities = if self.cfg.method == Method::PPP {
-            // let prefit = self
-            //     .prefit
-            //     .as_ref()
-            //     .expect("internal error: missing prefit solver");
+        // let fixed_ambiguities = if self.cfg.method == Method::PPP {
+        //     // let prefit = self
+        //     //     .prefit
+        //     //     .as_ref()
+        //     //     .expect("internal error: missing prefit solver");
 
-            // Some(prefit.fixed_amb.clone())
-            None
-        } else {
-            None
-        };
-
-        // TODO : see if we can use PPP prefit first state here
+        //     // Some(prefit.fixed_amb.clone())
+        //     None
+        // } else {
+        //     None
+        // };
 
         if !self.kalman.initialized {
             self.kf_initialization(
@@ -267,7 +275,6 @@ impl Navigation {
                 rtk_base,
                 pivot_position_ecef_m,
                 double_differences,
-                &fixed_ambiguities,
             )?;
         } else {
             self.kf_run(
@@ -278,7 +285,6 @@ impl Navigation {
                 rtk_base,
                 pivot_position_ecef_m,
                 double_differences,
-                &fixed_ambiguities,
             )?;
         }
 
@@ -295,10 +301,7 @@ impl Navigation {
                 self.state
                     .postfit_update_mut(self.frame, &dx.x)
                     .map_err(|e| {
-                        error!(
-                            "{} - postfit state update failed with physical error: {}",
-                            epoch, e
-                        );
+                        error!("{epoch} - postfit state update failed with physical error: {e}");
                         Error::StateUpdate
                     })?;
             } else {
@@ -345,7 +348,6 @@ impl Navigation {
         rtk_base: &RTK,
         pivot_position_ecef_m: &Option<(f64, f64, f64)>,
         double_differences: &Option<Differences>,
-        fixed_ambiguities: &Option<HashMap<SV, i64>>,
     ) -> Result<(), Error> {
         const NB_ITER: usize = 10;
 
@@ -443,7 +445,7 @@ impl Navigation {
             }
 
             let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
-            debug!("(i={}) Y: {}", ith, y_k);
+            debug!("(i={ith}) Y: {y_k}");
 
             // Form G
             for (i, index) in self.indexes.iter().enumerate() {
@@ -480,8 +482,6 @@ impl Navigation {
             self.x_k = gt_w_g_inv_gt_w * y_k.clone();
             self.p_k = gt_w_g_inv.clone();
 
-            let ndf = self.x_k.nrows();
-
             if uses_rtk {
                 let position_ecef_m = pending.to_position_ecef_m();
 
@@ -503,7 +503,7 @@ impl Navigation {
             pending
                 .spatial_correction_mut(self.frame, (dx, dy, dz))
                 .map_err(|e| {
-                    error!("{} - state update failed with physical error: {}", t, e);
+                    error!("{t} - state update failed with physical error: {e}");
                     Error::StateUpdate
                 })?;
 
@@ -516,15 +516,13 @@ impl Navigation {
             // update latest DoP
             dop = DilutionOfPrecision::new(&pending, gt_g_inv);
 
-            debug!("(i={}) {} - pending state {}", ith, t, pending);
+            debug!("(i={ith}) {t} - pending state {pending}");
 
             // models update
             self.y_k_vec.clear();
             self.w_k_vec.clear();
 
             self.indexes.retain(|i| {
-                let mut unused = SVContribution::default();
-
                 let position_m = pending.to_position_ecef_m();
 
                 let mut unused = SVContribution::default();
@@ -615,7 +613,6 @@ impl Navigation {
     /// - size: number of proposed [Cadndidate]s
     /// - uses_rtk: true when RTK mode nav is being used
     /// - double_differences: possible double [Differences]
-    /// - fixed_ambiguities: possible fixed ambiguities
     pub fn kf_run<RTK: RTKBase>(
         &mut self,
         t: Epoch,
@@ -625,7 +622,6 @@ impl Navigation {
         rtk_base: &RTK,
         pivot_position_ecef_m: &Option<(f64, f64, f64)>,
         double_differences: &Option<Differences>,
-        fixed_ambiguities: &Option<HashMap<SV, i64>>,
     ) -> Result<(), Error> {
         let mut pending = self.state.clone();
 
@@ -695,7 +691,7 @@ impl Navigation {
         }
 
         let y_k = DVector::from_row_slice(&self.y_k_vec); // TODO malloc
-        debug!("Y: {}", y_k);
+        debug!("Y: {y_k}");
 
         self.w_k.resize_mut(y_len, y_len, 0.0);
 
@@ -765,7 +761,7 @@ impl Navigation {
         pending
             .spatial_correction_mut(self.frame, (dx, dy, dz))
             .map_err(|e| {
-                error!("{} - state update failed with physical error: {}", t, e);
+                error!("{t} - state update failed with physical error: {e}");
                 Error::StateUpdate
             })?;
 
@@ -785,7 +781,7 @@ impl Navigation {
         self.dop = dop;
         self.state = pending.clone();
 
-        debug!("{} - new state {}", t, pending);
+        debug!("{t} - new state {pending}");
         debug!("{} - gdop={} tdop={}", t, self.dop.gdop, self.dop.tdop);
 
         Ok(())

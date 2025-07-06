@@ -241,14 +241,14 @@ impl LambdaAR {
 
         let mut e_mat = DMatrix::<f64>::zeros(ndf, nfixed);
 
-        debug!("(ppp) lambda - ndf={} - X={} Q={}", ndf, x_vec, q_mat);
+        debug!("(ppp) lambda - ndf={ndf} - X={x_vec} Q={q_mat}");
 
         let ldl = q_mat.clone().udu().ok_or(Error::AmbiguityFactorization)?;
 
         let mut d_diag = ldl.d_matrix();
         let mut l_mat = ldl.u.transpose();
 
-        debug!("(ppp) lambda - L={} D={}", l_mat, d_diag);
+        debug!("(ppp) lambda - L={l_mat} D={d_diag}");
 
         Self::reduction(ndf, &mut l_mat, &mut d_diag, &mut z_mat);
 
@@ -257,19 +257,19 @@ impl LambdaAR {
         assert_eq!(zs_vec.ncols(), 1, "zs is not a vector!");
         assert_eq!(zs_vec.nrows(), x_rows, "Zs / X dimension issue!");
 
-        debug!("search - z={}", zs_vec);
+        debug!("search - z={zs_vec}");
 
         Self::search(ndf, nfixed, l_mat, d_diag, zs_vec, &mut e_mat, &mut s_vec);
 
-        debug!("search - E={}", e_mat);
+        debug!("search - E={e_mat}");
 
         let z_inv = z_mat.try_inverse().ok_or(Error::AmbiguityInverse)?;
 
-        debug!("search - Z'={}", z_inv);
+        debug!("search - Z'={z_inv}");
 
         let f_mat = z_inv * e_mat;
 
-        debug!("search - F={} S={}", f_mat, s_vec);
+        debug!("search - F={f_mat} S={s_vec}");
 
         Ok((f_mat, s_vec))
     }
@@ -350,7 +350,7 @@ mod test {
         let nfixed = 8;
 
         LambdaAR::run(ndf, nfixed, &x, &q).unwrap_or_else(|e| {
-            panic!("mlabmda search failed with {}", e);
+            panic!("mlabmda search failed with {e}");
         });
     }
 
@@ -414,7 +414,7 @@ mod test {
         let nfixed = 8;
 
         LambdaAR::run(ndf, nfixed, &a, &q).unwrap_or_else(|e| {
-            panic!("mlabmda search failed with {}", e);
+            panic!("mlabmda search failed with {e}");
         });
     }
 }

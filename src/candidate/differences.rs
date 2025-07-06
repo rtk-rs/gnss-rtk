@@ -41,35 +41,35 @@ impl std::fmt::Display for Difference {
         }
 
         if let Some((carrier, code)) = &self.code {
-            writeln!(f, "code({})={}", carrier, code)?;
+            writeln!(f, "code({carrier})={code}")?;
         }
 
         if let Some((carrier, code)) = &self.code_j {
-            writeln!(f, "code({})={}", carrier, code)?;
+            writeln!(f, "code({carrier})={code}")?;
         }
 
         if let Some((carrier, code)) = &self.code_if {
-            writeln!(f, "code_if({})={}", carrier, code)?;
+            writeln!(f, "code_if({carrier})={code}")?;
         }
 
         if let Some((carrier, phase)) = &self.phase {
-            writeln!(f, "phase({})={}", carrier, phase)?;
+            writeln!(f, "phase({carrier})={phase}")?;
         }
 
         if let Some((carrier, phase)) = &self.phase_j {
-            writeln!(f, "phase({})={}", carrier, phase)?;
+            writeln!(f, "phase({carrier})={phase}")?;
         }
 
         if let Some((carrier, _, phase_if)) = &self.phase_if {
-            writeln!(f, "phase_if({})={} ", carrier, phase_if)?;
+            writeln!(f, "phase_if({carrier})={phase_if} ")?;
         }
 
         if let Some((carrier, _, lw)) = &self.lw {
-            writeln!(f, "Lw({})={}", carrier, lw)?;
+            writeln!(f, "Lw({carrier})={lw}")?;
         }
 
         if let Some((carrier, _, cn)) = &self.cn {
-            writeln!(f, "Cn({})={}", carrier, cn)?;
+            writeln!(f, "Cn({carrier})={cn}")?;
         }
 
         Ok(())
@@ -156,8 +156,8 @@ impl Difference {
         let n2 = (n1 - nw).round();
         let nif = lambda_n * (n1 + lambda_w / lambda_j * nw);
 
-        debug!("{} - Nw={}, N1={}, N2={}", sv, nw, n1, n2);
-        debug!("{} - Nif={}", sv, nif);
+        debug!("{sv} - Nw={nw}, N1={n1}, N2={n2}");
+        debug!("{sv} - Nif={nif}");
         Some(phase_if - nif)
     }
 }

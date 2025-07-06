@@ -89,18 +89,18 @@ impl Candidate {
         })
     }
 
-    /// Returns MW [Combination]
-    pub(crate) fn mw_combination(&self) -> Option<Combination> {
-        let ph_w = self.phase_wl_combination()?;
-        let pr_n = self.code_nl_combination()?;
+    // /// Returns MW [Combination]
+    // pub(crate) fn mw_combination(&self) -> Option<Combination> {
+    //     let ph_w = self.phase_wl_combination()?;
+    //     let pr_n = self.code_nl_combination()?;
 
-        Some(Combination {
-            lhs: ph_w.lhs,
-            rhs: ph_w.rhs,
-            value: ph_w.value - pr_n.value,
-            lambda: ph_w.lambda,
-        })
-    }
+    //     Some(Combination {
+    //         lhs: ph_w.lhs,
+    //         rhs: ph_w.rhs,
+    //         value: ph_w.value - pr_n.value,
+    //         lambda: ph_w.lambda,
+    //     })
+    // }
 
     /// Form GF [Combination]
     #[cfg(test)]

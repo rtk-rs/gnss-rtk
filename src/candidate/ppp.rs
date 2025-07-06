@@ -51,7 +51,7 @@ impl Candidate {
         rho += self.relativistic_path_range;
         contribution.relativistic_path_range_m = self.relativistic_path_range;
 
-        let (lambda, range_m) = match cfg.method {
+        let (_, range_m) = match cfg.method {
             Method::SPP => {
                 let (carrier, pr) = self.best_snr_range_m().ok_or(Error::MissingPseudoRange)?;
                 contribution.signal = Signal::Single(carrier);
@@ -85,14 +85,6 @@ impl Candidate {
             _ => None,
         };
 
-        // if let Some(amb) = amb {
-        //     if let Some(cp) = &mut cp {
-        //         let amb = amb as f64;
-        //         debug!("{}({}) n_amb={}", self.epoch, self.sv, amb.round() as u64);
-        //         *cp -= amb * lambda;
-        //     }
-        // }
-
         bias_m -= self.clock_corr.duration.to_seconds() * SPEED_OF_LIGHT_M_S;
 
         let sys_t = self.system_correction.unwrap_or(Duration::ZERO);
@@ -125,28 +117,19 @@ impl Candidate {
 
         let pr = range_m - rho - bias_m;
 
-        let cp = if let Some(cp) = cp {
-            // TODO: lambda_n * windup
-            Some(cp - rho - bias_m)
-        } else {
-            None
-        };
+        let cp = cp.map(|cp| cp - rho - bias_m);
 
-        if two_rows || cfg.method == Method::PPP {
-            if cp.is_none() {
-                return Err(Error::MissingPhaseRange)?;
-            }
+        if (two_rows || cfg.method == Method::PPP) && cp.is_none() {
+            return Err(Error::MissingPhaseRange)?;
         }
 
         if two_rows {
             vec.row_1 = pr;
             vec.row_2 = cp.unwrap_or_default();
+        } else if cfg.method == Method::PPP {
+            vec.row_1 = cp.unwrap_or_default();
         } else {
-            if cfg.method == Method::PPP {
-                vec.row_1 = cp.unwrap_or_default();
-            } else {
-                vec.row_1 = pr;
-            }
+            vec.row_1 = pr;
         }
 
         Ok(vec)

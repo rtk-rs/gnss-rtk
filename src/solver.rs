@@ -235,7 +235,7 @@ impl<
 
         if uses_rtk {
             let observations = rtk_base.observe(epoch);
-            info!("{} - using remote {} reference", epoch, rtk_base_name);
+            info!("{epoch} - using remote {rtk_base_name} reference");
             self.base_pool.new_epoch(&observations);
         }
 
@@ -279,10 +279,10 @@ impl<
                     let apriori = Apriori::from_ecef_m(x0_y0_z0_m, epoch, self.earth_cef);
 
                     let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
-                        panic!("Solver initial preset is physically incorrect: {}", e);
+                        panic!("Solver initial preset is physically incorrect: {e}");
                     });
 
-                    debug!("{} - initial state: {}", epoch, state);
+                    debug!("{epoch} - initial state: {state}");
                     state
                 },
                 None => {
@@ -293,10 +293,10 @@ impl<
                     let apriori = Apriori::from_ecef_m(x0_y0_z0_m, epoch, self.earth_cef);
 
                     let state = State::from_apriori(&apriori).unwrap_or_else(|e| {
-                        panic!("Solver failed to initialize itself. Physical error: {}", e);
+                        panic!("Solver failed to initialize itself. Physical error: {e}");
                     });
 
-                    debug!("{} - initial state: {}", epoch, state);
+                    debug!("{epoch} - initial state: {state}");
                     state
                 },
             }
@@ -304,7 +304,7 @@ impl<
 
         // rover post-fit
         self.rover_pool.post_fit("rover", &state).map_err(|e| {
-            error!("{} rover postfit error {}", epoch, e);
+            error!("{epoch} rover postfit error {e}");
             Error::PostfitPrenav
         })?;
 
@@ -313,7 +313,7 @@ impl<
             self.base_pool
                 .post_fit(&rtk_base_name, &state)
                 .map_err(|e| {
-                    error!("{} {} postfit error: {}", epoch, rtk_base_name, e);
+                    error!("{epoch} {rtk_base_name} postfit error: {e}");
                     Error::PostfitPrenav
                 })?;
 
@@ -321,7 +321,7 @@ impl<
             match self.rover_pool.rtk_post_fit(&mut self.base_pool) {
                 Ok(double_differences) => Some(double_differences),
                 Err(e) => {
-                    error!("{} - rtk post-fit error: {}", epoch, e);
+                    error!("{epoch} - rtk post-fit error: {e}");
                     return Err(e);
                 },
             }
@@ -340,7 +340,7 @@ impl<
             epoch,
             params,
             &state,
-            &self.rover_pool.candidates(),
+            self.rover_pool.candidates(),
             pool_size,
             uses_rtk,
             rtk_base,
@@ -348,10 +348,10 @@ impl<
             &double_differences,
         ) {
             Ok(_) => {
-                info!("{} - sucess", epoch);
+                info!("{epoch} - sucess");
             },
             Err(e) => {
-                error!("{} - iteration failure: {}", epoch, e);
+                error!("{epoch} - iteration failure: {e}");
                 return Err(e);
             },
         }

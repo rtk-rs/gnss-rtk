@@ -79,15 +79,14 @@ fn static_rtk_cpp() {
         let candidates = CandidatesBuilder::build_rover_at(t_gpst);
 
         assert!(
-            candidates.len() > 0,
-            "no measurements to propose at \"{}\"",
-            epoch_str
+            !candidates.is_empty(),
+            "no measurements to propose at \"{epoch_str}\""
         );
 
         let status = solver.rtk(t_gpst, default_params, &candidates, &rtk_base);
 
         match status {
-            Err(e) => panic!("Static RTK-CPP process failed with invalid error: {}", e),
+            Err(e) => panic!("Static RTK-CPP process failed with invalid error: {e}"),
             Ok(pvt) => {
                 info!("Solution #{} {:#?}", nth + 1, pvt);
 
@@ -102,31 +101,24 @@ fn static_rtk_cpp() {
 
                 assert!(
                     err_x_m < MAX_RTK_CPP_X_ERROR_M,
-                    "epoch={} - x error={}m too large",
-                    epoch_str,
-                    err_x_m
+                    "epoch={epoch_str} - x error={err_x_m}m too large"
                 );
 
                 assert!(
                     err_y_m < MAX_RTK_CPP_Y_ERROR_M,
-                    "epoch={} - y error={}m too large",
-                    epoch_str,
-                    err_y_m
+                    "epoch={epoch_str} - y error={err_y_m}m too large"
                 );
 
                 assert!(
                     err_z_m < MAX_RTK_CPP_Z_ERROR_M,
-                    "epoch={} - z error={}m too large",
-                    epoch_str,
-                    err_z_m
+                    "epoch={epoch_str} - z error={err_z_m}m too large"
                 );
 
                 assert_eq!(pvt.solution_type, PVTSolutionType::RTK);
 
                 assert!(
                     pvt.gdop < MAX_RTK_CPP_GDOP,
-                    "{} (static) rtk-cpp survey GDOP too large!",
-                    epoch_str
+                    "{epoch_str} (static) rtk-cpp survey GDOP too large!"
                 );
 
                 info!(

@@ -180,8 +180,8 @@ impl Default for Signal {
 impl std::fmt::Display for Signal {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            Self::Single(carrier) => write!(f, "{}", carrier),
-            Self::Dual((lhs, rhs)) => write!(f, "{}/{}", rhs, lhs),
+            Self::Single(carrier) => write!(f, "{carrier}"),
+            Self::Dual((lhs, rhs)) => write!(f, "{rhs}/{lhs}"),
         }
     }
 }
@@ -221,27 +221,22 @@ mod test {
             let freq_mhz = carrier.frequency_mega_hz();
 
             let identified = Carrier::from_frequency_mega_hz(freq_mhz).unwrap_or_else(|e| {
-                panic!(
-                    "{} - failed to identify carrier from frequency: {} Mhz",
-                    e, freq_mhz
-                )
+                panic!("{e} - failed to identify carrier from frequency: {freq_mhz} Mhz")
             });
 
             assert_eq!(
                 identified, carrier,
-                "Carrier frequency API: invalid for {} frequency",
-                freq_mhz,
+                "Carrier frequency API: invalid for {freq_mhz} frequency",
             );
 
             let formatted = carrier.to_string();
             let parsed = Carrier::from_str(&formatted).unwrap_or_else(|e| {
-                panic!("{} - failed to identify Carrier from \"{}\"", e, formatted)
+                panic!("{e} - failed to identify Carrier from \"{formatted}\"")
             });
 
             assert_eq!(
                 parsed, carrier,
-                "Carrier string API: invalid for {} frequency",
-                carrier,
+                "Carrier string API: invalid for {carrier} frequency",
             )
         }
     }
