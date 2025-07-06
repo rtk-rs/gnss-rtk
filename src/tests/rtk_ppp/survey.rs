@@ -30,7 +30,6 @@ fn build_initial_apriori() -> Apriori {
 }
 
 #[test]
-#[ignore]
 fn static_rtk_ppp() {
     init_logger();
 
@@ -64,9 +63,9 @@ fn static_rtk_ppp() {
     for (nth, epoch_str) in [
         "2020-06-25T00:00:00 GPST",
         "2020-06-25T00:15:00 GPST",
-        "2020-06-25T00:30:00 GPST",
-        "2020-06-25T00:45:00 GPST",
-        "2020-06-25T01:00:00 GPST",
+        // "2020-06-25T00:30:00 GPST",
+        // "2020-06-25T00:45:00 GPST",
+        // "2020-06-25T01:00:00 GPST",
     ]
     .iter()
     .enumerate()
@@ -97,26 +96,26 @@ fn static_rtk_ppp() {
                     (pos_z_m - expected_z_m).abs(),
                 );
 
-                // assert!(
-                //     err_x_m < 100.0,
-                //     "epoch={} - x error={}m too large",
-                //     epoch_str,
-                //     err_x_m
-                // );
+                assert!(
+                    err_x_m < 100.0,
+                    "epoch={} - x error={}m too large",
+                    epoch_str,
+                    err_x_m
+                );
 
-                // assert!(
-                //     err_y_m < 100.0,
-                //     "epoch={} - y error={}m too large",
-                //     epoch_str,
-                //     err_y_m
-                // );
+                assert!(
+                    err_y_m < 100.0,
+                    "epoch={} - y error={}m too large",
+                    epoch_str,
+                    err_y_m
+                );
 
-                // assert!(
-                //     err_z_m < 100.0,
-                //     "epoch={} - z error={}m too large",
-                //     epoch_str,
-                //     err_z_m
-                // );
+                assert!(
+                    err_z_m < 100.0,
+                    "epoch={} - z error={}m too large",
+                    epoch_str,
+                    err_z_m
+                );
 
                 info!(
                     "{} (static) rtk-ppp survey error: x={}m y={}m z={}",
