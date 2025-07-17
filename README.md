@@ -1,13 +1,13 @@
 GNSS-RTK
 ========
 
-[![Rust](https://github.com/rtk-rs/gnss-rtk/actions/workflows/rust.yml/badge.svg)](https://github.com/rtk-rs/gnss-rtk/actions/workflows/rust.yml)
-[![Rust](https://github.com/rtk-rs/gnss-rtk/actions/workflows/daily.yml/badge.svg)](https://github.com/rtk-rs/gnss-rtk/actions/workflows/daily.yml)
+[![Rust](https://github.com/nav-solutions/gnss-rtk/actions/workflows/rust.yml/badge.svg)](https://github.com/nav-solutions/gnss-rtk/actions/workflows/rust.yml)
+[![Rust](https://github.com/nav-solutions/gnss-rtk/actions/workflows/daily.yml/badge.svg)](https://github.com/nav-solutions/gnss-rtk/actions/workflows/daily.yml)
 [![crates.io](https://img.shields.io/crates/v/gnss-rtk.svg)](https://crates.io/crates/gnss-rtk)
 [![crates.io](https://docs.rs/gnss-rtk/badge.svg)](https://docs.rs/gnss-rtk)
 
 [![MRSV](https://img.shields.io/badge/MSRV-1.82.0-orange?style=for-the-badge)](https://github.com/rust-lang/rust/releases/tag/1.82.0)
-[![License](https://img.shields.io/badge/license-MPL_2.0-orange?style=for-the-badge&logo=mozilla)](https://github.com/rtk-rs/gnss-rtk/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-MPL_2.0-orange?style=for-the-badge&logo=mozilla)](https://github.com/nav-solutions/gnss-rtk/blob/main/LICENSE)
 
 The `GNSS-RTK` library provides Position Velocity Time (PVT) solution solvers,
 with abstract and flexible interfaces that may apply to most navigation scenarios
@@ -20,8 +20,8 @@ are validated for each release.
     <p>
         <br>Static CPP (Galileo, E1+E5b)</br>, surveying a professional geodetic marker
     </p>
-    <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png>
-        <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/map.png alt="Plot">
+    <a href=https://github.com/nav-solutions/rinex-cli/blob/main/plots/front-page/map.png>
+        <img src=https://github.com/nav-solutions/rinex-cli/blob/main/plots/front-page/map.png alt="Plot">
     </a>
 </div>
 
@@ -30,8 +30,8 @@ are validated for each release.
         Static CPP (Galileo, E1+E5b) residual errors between GNSS-RTK
 and profesionnaly calibrated position.
     </p>
-    <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png>
-        <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/coordinates.png alt="Plot">
+    <a href=https://github.com/nav-solutions/rinex-cli/blob/main/plots/front-page/coordinates.png>
+        <img src=https://github.com/nav-solutions/rinex-cli/blob/main/plots/front-page/coordinates.png alt="Plot">
     </a>
 </div>
 
@@ -40,8 +40,8 @@ and profesionnaly calibrated position.
         <br>CPP (Galileo E1+E5b)</br>,
 pedestrian profile (no reference on the ground)
     </p>
-    <a href=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png>
-        <img src=https://github.com/rtk-rs/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png alt="Plot">
+    <a href=https://github.com/nav-solutions/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png>
+        <img src=https://github.com/nav-solutions/rinex-cli/blob/main/plots/front-page/roaming-ppp1.png alt="Plot">
     </a>
 </div>
 
@@ -235,9 +235,9 @@ Examples
 This library is no longer shipped with examples, for the simple reason that they are complicated to maintain,
 and our framework now offers the two kind of applications you can think of to this library:
 
-- [RT-Navi](https://github.com/rtk-rs/rt-navi) for real-time navigation, which is obviously hardware dependent,
+- [RT-Navi](https://github.com/nav-solutions/rt-navi) for real-time navigation, which is obviously hardware dependent,
 and involves multi-threading.
-- [GNSS-Qc](https://github.com/rtk-rs/gnss-qc) for post-processed navigation, which is more complex
+- [GNSS-Qc](https://github.com/nav-solutions/gnss-qc) for post-processed navigation, which is more complex
 
 Logs
 ====
@@ -318,7 +318,7 @@ Surveying and Apriori Knowledge
 
 `GNSS-RTK` is a complete surveying tool that can operate without apriori knowledge.  
 In otherwords, it is possible to obtain a precise solution from scratch.  
-[Refer to this page that demonstrates this capacity](https://github.com/rtk-rs/rinex-cli/blob/main/demos/SURVEY.md). 
+[Refer to this page that demonstrates this capacity](https://github.com/nav-solutions/rinex-cli/blob/main/demos/SURVEY.md). 
 
 Signal and Measurement Flexibility
 ==================================
@@ -369,5 +369,5 @@ GNSS-RTK includes itself within and is closely tied to the following libraries:
 * [ANISE](https://github.com/nyx-space/anise) for orbital calculations
 * [Nyx-space](https://github.com/nyx-space/nyx) for advanced navigation
 * [Hifitime](https://github.com/nyx-space/hifitime) for timing
-* [Our GNSS library](https://github.com/rtk-rs/gnss) for basic GNSS definitions
+* [Our GNSS library](https://github.com/nav-solutions/gnss) for basic GNSS definitions
 * Nalgebra for all calculations
