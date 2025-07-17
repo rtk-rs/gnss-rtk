@@ -42,7 +42,7 @@ thiserror = "2"
 nalgebra = "0.33"
 itertools = "0.14"
 polyfit-rs = "0.2"
-gnss-rs = "2.4.0"
+gnss-rs = "2.4"
 anise = "0.6"
 num-traits = "0.2"
 hifitime = { version = "4.1", features = ["serde", "std"] }
